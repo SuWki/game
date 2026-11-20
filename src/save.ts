@@ -1,5 +1,5 @@
 import type { Counter, Result, Ticket } from './counter.ts';
-import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
+import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, roundStart, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
 
 export const saveVersion = 3;
 type Save = Result & { version: typeof saveVersion };
@@ -41,7 +41,8 @@ export function readSave(raw: string): Save {
   }
   const { state } = save;
   const legacy = save.version === 1;
-  const dayLimit = legacy ? firstChapterEnd : save.version === 2 ? secondChapterStart : lastDay + 1;
+  const dayLimit = legacy ? firstChapterEnd : save.version === 2 ? secondChapterStart :
+    state.economy === 'port' ? Number.MAX_SAFE_INTEGER - 10 : lastDay + 1;
   if (!integer(state.day) || state.day < 1 || state.day > dayLimit ||
     typeof state.awaitingOpen !== 'boolean' ||
     !nonNegative(state.visitIndex) || !nonNegative(state.cash) ||
@@ -73,6 +74,9 @@ export function readSave(raw: string): Save {
     (state.readNoteIds !== undefined && (!Array.isArray(state.readNoteIds) ||
       !state.readNoteIds.every((id) => typeof id === 'string'))) ||
     (state.economy !== undefined && state.economy !== 'port') ||
+    (state.activeRoundStart !== undefined && (!integer(state.activeRoundStart) || state.economy !== 'port' ||
+      state.activeRoundStart <= lastDay || state.activeRoundStart > state.day ||
+      state.activeRoundStart !== roundStart(state.activeRoundStart))) ||
     (state.fuseReferral !== undefined && state.fuseReferral !== 'accepted' && state.fuseReferral !== 'paid') ||
     (state.f2Appointment !== undefined && (!isObject(state.f2Appointment) ||
       !integer(state.f2Appointment.day) || state.f2Appointment.day <= secondChapterStart ||
@@ -90,7 +94,7 @@ export function readSave(raw: string): Save {
   const listing = state.consignment;
   if (listing !== undefined) {
     if (!isObject(listing) || !integer(listing.price) || !integer(listing.listedDay) ||
-      listing.listedDay < secondChapterStart || listing.listedDay >= lastDay ||
+      listing.listedDay < secondChapterStart || (state.economy !== 'port' && listing.listedDay >= lastDay) ||
       listing.listedDay !== state.day - Number(state.awaitingOpen) || !state.chapterTwoStarted || state.waterShortfall) {
       throw new Error('Invalid consignment');
     }

@@ -1,6 +1,7 @@
 import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterPrice, falseTimerPrice, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, purifierModel, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario.ts';
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
+import { baseItemId, portRound, roundStart } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -40,6 +41,7 @@ export type Counter = {
   chapterTwoStarted?: boolean;
   harborSchedule?: 'late';
   economy?: 'port';
+  activeRoundStart?: number;
   f2Appointment?: { day: number; status: 'booked' | 'closed' };
   fuseReferral?: 'accepted' | 'paid';
   consignment?: { itemId: string; price: number; listedDay: number };
@@ -62,6 +64,7 @@ export type Action =
   | { type: 'open'; day: number }
   | { type: 'continue'; day: number; upgrade?: true }
   | { type: 'reclaimPurifier'; day: number }
+  | { type: 'roundReferral'; day: number }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
@@ -115,7 +118,9 @@ export function saleOffer(state: Counter, visit: Extract<Visit, { kind: 'sale' }
       entry.day === 9 && entry.itemId === visit.item.id && entry.description === `售出${visit.item.name}`);
     const soldAtConsignment = visit.id === 'day-10-winch' && state.ledger.some((entry) =>
       entry.itemId === visit.item.id && entry.description === `寄售成交 · ${visit.item.name}`);
-    const item = state.inventory.find((item) => item.id === visit.item.id);
+    const item = state.inventory.find((item) => item.id === visit.item.id) ??
+      (visit.sameKind ? state.inventory.find((item) => baseItemId(item.id) === baseItemId(visit.item.id) &&
+        item.condition === visit.item.condition) : undefined);
     const price = item?.id === wornWinch.id && item.condition === wornWinch.condition
       ? (visit.id === 'day-9-winch' ? wornWinchEarlyPrice : wornWinchLatePrice)
       : visit.price;
@@ -156,6 +161,31 @@ export function atFirstChapterSummary(state: Counter) {
   return state.day === secondChapterStart && !state.chapterTwoStarted && !state.waterShortfall;
 }
 
+export function atRoundSummary(state: Counter) {
+  return state.economy === 'port' && state.day > lastDay && state.awaitingOpen &&
+    state.day === roundStart(state.day) && state.activeRoundStart !== state.day;
+}
+
+export function pastLastDay(state: Counter) {
+  return state.day > lastDay && state.economy !== 'port';
+}
+
+export function consignmentOpen(state: Counter) {
+  return !state.awaitingOpen && state.chapterTwoStarted && state.day >= secondChapterStart &&
+    (state.economy === 'port' || state.day < lastDay) && !state.waterShortfall;
+}
+
+export function roundReferral(state: Counter) {
+  if (state.day <= lastDay || state.economy !== 'port' || !consignmentOpen(state)) return undefined;
+  const start = roundStart(state.day);
+  const repair = portRound(start, state.harborSchedule).title === '岸电检修';
+  return {
+    paid: state.ledger.some((entry) => entry.day >= start && entry.description === '港口介绍费'),
+    available: state.day >= start + 2,
+    text: repair ? '修理匠找有放线工具的电工。把货棚的老电工介绍过去。' : '系泊班缺一个通宵看缆的人。把等下一班船的跑船客介绍过去。',
+  };
+}
+
 export function portBulletin(state: Counter) {
   if (state.economy !== 'port') return harborNotice;
   return state.harborSchedule === 'late' ? portNotice : onTimePortNotice;
@@ -189,6 +219,11 @@ export function counterNotes(state: Counter) {
     if (state.economy === 'port' && state.day >= 7) {
       notes.push({ id: 'fuse-referral', day: 7, title: '岸电检修班的代寻委托',
         text: '第 9 天打烊前介绍持有原封 15A 保险丝的货主。两边直接交接，当铺收 12 元介绍费。' });
+    }
+    if (state.economy === 'port' && state.day > lastDay && !atRoundSummary(state)) {
+      const start = roundStart(state.day);
+      const round = portRound(start, state.harborSchedule);
+      notes.push({ id: `round-${start}`, day: start, title: round.title, text: round.notice });
     }
   }
   return notes;
@@ -240,7 +275,7 @@ function handlePortJob(state: Counter, action: Extract<Action, { type: 'bookF2' 
 }
 
 function updateConsignment(state: Counter, action: Extract<Action, { type: 'listItem' | 'unlistItem' }>): Result {
-  if (!harborOpen(state) || state.day !== action.day || state.day === lastDay) {
+  if (!consignmentOpen(state) || state.day !== action.day) {
     return notice(state, '今天已无法登记明日寄售。', 'warning');
   }
   if (action.type === 'unlistItem') {
@@ -307,7 +342,7 @@ function tradeAtHarbor(state: Counter, action: Extract<Action, { type: 'harborBu
 }
 
 function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { type: 'close' }>): Result {
-  if (day !== state.day || day > lastDay || state.awaitingOpen || currentVisit(day, state.visitIndex, state.economy, state.harborSchedule)) {
+  if (day !== state.day || pastLastDay(state) || state.awaitingOpen || currentVisit(day, state.visitIndex, state.economy, state.harborSchedule)) {
     return notice(state, '当前无法打烊。', 'warning');
   }
   const cost = waterCost(state);
@@ -356,7 +391,7 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
 }
 
 function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' | 'install' }>): Result {
-  if (state.day !== action.day || state.day < waterStartDay || state.day > lastDay || state.awaitingOpen) {
+  if (state.day !== action.day || state.day < waterStartDay || pastLastDay(state) || state.awaitingOpen) {
     return notice(state, '当前无法处理库存。', 'warning');
   }
   const item = state.inventory.find((entry) => entry.id === action.itemId);
@@ -375,6 +410,11 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'roundReferral') {
+    const referral = roundReferral(state);
+    if (action.day !== state.day || !referral?.available || referral.paid) return notice(state, '这笔介绍暂时无法结算。', 'warning');
+    return notice(record(state, null, '港口介绍费', 8), '双方说定了工钱，当铺收到 8 元介绍费。', 'success');
+  }
   if (action.type === 'bookF2' || action.type === 'deliverF2' || action.type === 'declineF2' ||
       action.type === 'acceptReferral' || action.type === 'referSupplier') return handlePortJob(state, action);
   if (action.type === 'readNotes') {
@@ -386,18 +426,22 @@ export function settleVisit(state: Counter, action: Action): Result {
   if (action.type === 'harborBuy' || action.type === 'harborSell') return tradeAtHarbor(state, action);
   if (action.type === 'close') return closeDay(state, action);
   if (action.type === 'continue') {
+    if (action.day === state.day && atRoundSummary(state)) {
+      return notice({ ...state, activeRoundStart: state.day }, `下轮港务 · ${portRound(state.day, state.harborSchedule).title}`);
+    }
     if (action.day !== state.day || !state.awaitingOpen || !atFirstChapterSummary(state)) return notice(state, '当前无法继续营业。', 'warning');
     return notice({ ...state, chapterTwoStarted: true, ...(action.upgrade ? { economy: 'port' as const } : {}) }, '第二章 · 港务字条已送达');
   }
   if (action.type === 'reclaimPurifier') {
     const item = state.installedPurifier;
-    if (action.day !== state.day || !harborOpen(state) || state.economy !== 'port' || !item ||
+    if (action.day !== state.day || !consignmentOpen(state) || state.economy !== 'port' || !item ||
         state.inventory.some((entry) => entry.id === item.id)) return notice(state, '当前没有可拆回的净水机。', 'warning');
     return notice(record({ ...state, installedPurifier: null, inventory: [...state.inventory, item] },
       item, '拆回 · F2 净水机', 0), 'F2 已拆回自有库存。', 'success');
   }
   if (action.type === 'open') {
-    if (state.day !== action.day || state.day > lastDay || !state.awaitingOpen || state.waterShortfall || atFirstChapterSummary(state)) {
+    if (state.day !== action.day || pastLastDay(state) || !state.awaitingOpen || state.waterShortfall ||
+        atFirstChapterSummary(state) || atRoundSummary(state)) {
       return notice(state, '当前无法开门。', 'warning');
     }
     return settleOpening(state);

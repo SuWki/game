@@ -2,8 +2,8 @@ import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { contactPrice, counterNotes, harborOpen, harborStock, portBulletin, portJobs, winchBulletin } from './counter';
-import { consignmentPrices, portItem, winchOrderDay } from './scenario';
+import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, roundReferral, winchBulletin } from './counter';
+import { baseItemId, consignmentPrices, portItem, portRound, roundEnd, roundStart, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
 const cashParam = new URLSearchParams(location.search).get('cash');
@@ -257,7 +257,8 @@ function setSprite(image: HTMLImageElement, asset?: string, visitId?: string) {
 
 function itemSprite(item?: Item) {
   const illustrated = ['old-lantern-1', 'watch-1', 'purifier-1', 'timer-1', 'board-1', 'winch-1'];
-  return item && illustrated.includes(item.id) ? `item-${item.id}` : undefined;
+  const id = item && baseItemId(item.id);
+  return id && illustrated.includes(id) ? `item-${id}` : undefined;
 }
 
 function waterLine() {
@@ -397,7 +398,7 @@ function renderInventory() {
     return `<li><span>${escapeText(item.name)}<small>${escapeText(item.condition)}${authenticity}</small>${detail}</span>
       <span>成本 ${item.cost} 元</span></li>`;
   }), '库存为空');
-  if (state.day < waterStartDay || state.day > lastDay || state.awaitingOpen || saveBlocked) return;
+  if (state.day < waterStartDay || pastLastDay(state) || state.awaitingOpen || saveBlocked) return;
 
   inventory.querySelectorAll('li').forEach((row, index) => {
     const item = items[index];
@@ -448,7 +449,7 @@ function renderHarbor() {
 }
 
 function renderConsignment() {
-  const available = !saveBlocked && harborOpen(state) && state.day < lastDay;
+  const available = !saveBlocked && consignmentOpen(state);
   consignmentEntry.hidden = !available;
   consignmentEntry.textContent = state.consignment ? '寄售架 · 1 件' : '寄售架';
   if (!available) {
@@ -490,7 +491,8 @@ function renderConsignment() {
 }
 
 function renderJobs() {
-  const available = !saveBlocked && portJobs(state) && (state.knowsMechanicRequest || state.day >= 7);
+  const referral = roundReferral(state);
+  const available = !saveBlocked && (referral || (portJobs(state) && (state.knowsMechanicRequest || state.day >= 7)));
   jobsEntry.hidden = notesJobs.hidden = !available;
   if (!available) {
     if (jobsDialog.open) jobsDialog.close();
@@ -519,6 +521,12 @@ function renderJobs() {
     jobsContent.append(section);
   };
   const day = state.day;
+  if (referral) {
+    const status = referral.paid ? '已领取 8 元介绍费。' : referral.available ? '双方直接结工钱，当铺收 8 元介绍费。' : '办事的人本轮第三天到港。';
+    addJob('港口介绍', referral.text + status, referral.available && !referral.paid
+      ? [['牵线介绍', { type: 'roundReferral', day }]] : []);
+    return;
+  }
   if (state.knowsMechanicRequest) {
     const terms = `修理匠补收可试机的原厂 F2，接口须符合旧集雨箱，出 ${contactPrice(state)} 元。`;
     const detail = appointment?.status === 'booked' ? `第 ${appointment.day} 天验货。`
@@ -548,8 +556,9 @@ function stockOutlook(item: Counter['inventory'][number]) {
   if (item.id === board.id && state.day <= 9 && (state.day < 9 || state.visitIndex === 0)) {
     entries.push(`第 9 天船工收 ${lateBoardPrice} 元`);
   }
-  if ((item.id === board.id || item.id === 'winch-1' || usablePurifier(item))) {
-    for (let date = state.day; date <= lastDay; date++) {
+  if (state.day > lastDay || item.id === board.id || item.id === 'winch-1' || usablePurifier(item)) {
+    const horizon = state.day > lastDay ? roundEnd(state.day) : lastDay;
+    for (let date = state.day; date <= horizon; date++) {
       if (usablePurifier(item) && date !== 5) continue;
       const firstVisit = date === state.day ? state.visitIndex : 0;
       for (let index = firstVisit; index < scheduledVisits(date, state.economy, state.harborSchedule); index++) {
@@ -580,7 +589,7 @@ function renderStockDetail() {
   stockDetail.innerHTML = `${sprite ? `<img class="inspect-art" src="${artwork(sprite)}" alt="">` : ''}
     <p>${escapeText(item.condition)}${condition} · 成本 ${item.cost} 元</p>
     ${records(outlook.map((line) => `<li>${escapeText(line)}</li>`), '暂无线索显示有约定买家。')}`;
-  if (state.day < waterStartDay || state.day > lastDay || state.awaitingOpen) return;
+  if (state.day < waterStartDay || pastLastDay(state) || state.awaitingOpen) return;
   const actions = document.createElement('div');
   actions.className = 'actions stock-actions';
   const add = (label: string, action: Action) => {
@@ -596,7 +605,8 @@ function renderStockDetail() {
   if (harborOpen(state)) {
     const marketPrice = harborStock(state).find((good) => good.item.id === item.id)?.bids[state.day];
     if (marketPrice !== undefined) add(`立即卖给货摊 ${marketPrice} 元`, { ...target, type: 'harborSell' });
-    if (state.day < lastDay) {
+  }
+  if (consignmentOpen(state)) {
       const prices = consignmentPrices(item);
       const listed = state.consignment?.itemId === item.id;
       if (listed) {
@@ -611,7 +621,6 @@ function renderStockDetail() {
         const labels = ['寄售稳卖', '寄售试价', '寄售等高价'];
         prices.forEach((price, index) => add(`${labels[index]} ${price} 元`, { ...target, type: 'listItem', price }));
       }
-    }
   }
   if (actions.childElementCount) stockDetail.append(actions);
 }
@@ -679,7 +688,8 @@ function renderNotes() {
 
 function render(message = '船工在等你的报价。', tone: Result['tone'] = 'neutral') {
   const firstSummary = atFirstChapterSummary(state);
-  const finished = state.day > lastDay || state.waterShortfall > 0 || firstSummary;
+  const roundSummary = atRoundSummary(state);
+  const finished = pastLastDay(state) || roundSummary || state.waterShortfall > 0 || firstSummary;
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule) : undefined;
   const hints = {
     purchase: '当前在收货。先看看成色，再决定愿意给多少。',
@@ -721,7 +731,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     shelter.textContent += `。第 ${state.reservedWaterDay} 天的用水已预订。`;
   }
   shelter.className = 'empty';
-  if (state.economy === 'port' && state.installedPurifier && harborOpen(state)) {
+  if (state.economy === 'port' && state.installedPurifier && consignmentOpen(state)) {
     const reclaim = document.createElement('button');
     reclaim.className = 'quiet';
     reclaim.textContent = '把已安装的 F2 拆回库存';
@@ -745,13 +755,25 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   if (saveBlocked) {
     scene.innerHTML = '<div class="visitor"><h2>存档需要处理</h2></div>';
   } else if (finished) {
-    scene.innerHTML = endingView(state.chapterTwoStarted === true);
+    if (roundSummary && state.day > lastDay + 1) {
+      const start = state.day - 5;
+      const result = state.ledger.filter((entry) => entry.day >= start && entry.day < state.day);
+      const change = result.reduce((sum, entry) => sum + entry.change, 0);
+      const held = state.tickets.filter((ticket) => ticket.status === 'held').length;
+      scene.innerHTML = `<div class="visitor"><h2>${portRound(start, state.harborSchedule).title} · 收档</h2>
+        <p class="terms">本轮净收支 ${change >= 0 ? '+' : ''}${change} 元 · 现金 ${state.cash} 元 · 自有库存 ${state.inventory.length} 件 · 代管 ${held} 件</p>
+        ${state.consignment ? '<p class="terms">寄售将在下一轮开门时结算。</p>' : ''}</div>`;
+    } else scene.innerHTML = endingView(state.chapterTwoStarted === true);
+    if (roundSummary) {
+      addAction(`继续营业 · ${portRound(state.day, state.harborSchedule).title}`, { type: 'continue', day: state.day });
+    }
     if (firstSummary) addAction('继续营业', { type: 'continue', day: state.day });
     if (firstSummary && state.economy !== 'port') {
       addAction('带账本进入新版港口', { type: 'continue', day: state.day, upgrade: true }, true, false, '保留现金、存货与当票，往后由水站配给');
     }
   } else if (state.awaitingOpen) {
-    scene.innerHTML = `<div class="visitor"><h2>第 ${state.day} 天</h2></div>`;
+    scene.innerHTML = `<div class="visitor"><h2>第 ${state.day} 天</h2>
+      ${state.day > lastDay && state.day === roundStart(state.day) ? `<p class="terms">${portRound(state.day, state.harborSchedule).notice}</p>` : ''}</div>`;
     addAction('开门营业', { type: 'open', day: state.day });
   } else if (visit) {
     renderVisit(visit);
@@ -943,7 +965,7 @@ function renderTitle() {
   titleContinue.textContent = saveBlocked ? '查看存档' : '继续营业';
   titleNew.textContent = titleContinue.hidden ? '开始营业' : '开始新游戏';
   titleSave.textContent = saveBlocked ? '存档读取失败' : savedRaw === null ? '' :
-    `本地存档 · 第 ${state.awaitingOpen && (atFirstChapterSummary(state) || state.waterShortfall || state.day > lastDay) ? state.day - 1 : state.day} 天 · 现金 ${state.cash} 元`;
+    `本地存档 · 第 ${state.awaitingOpen && (atFirstChapterSummary(state) || atRoundSummary(state) || state.waterShortfall || pastLastDay(state)) ? state.day - 1 : state.day} 天 · 现金 ${state.cash} 元`;
 }
 
 function showTitle() {

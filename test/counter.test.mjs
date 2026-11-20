@@ -363,3 +363,33 @@ test('介绍合格货主可从零现金入账，错配和重复提交不付费',
   const expired = { ...accepted, day: 10 };
   assert.equal(settleVisit(expired, { ...right, day: 10 }).state, expired);
 });
+test('第十天旧存档可继续开轮，跨轮当票只能赎原件一次', () => {
+  const summary = { ...openCounter(80), day: 11, economy: 'port', awaitingOpen: true, chapterTwoStarted: true };
+  const restored = readSave(JSON.stringify({ version: saveVersion, state: summary, message: '', tone: 'neutral' })).state;
+  assert.equal(settleVisit(restored, { type: 'open', day: 11 }).state, restored);
+  const ready = settleVisit(restored, { type: 'continue', day: 11 }).state;
+  const day15 = { ...ready, day: 15, awaitingOpen: false };
+  const pledge = currentVisit(15, 0, 'port');
+  const pawned = settleVisit(day15, { type: 'offer', visitId: pledge.id, attempt: 0, amount: 18 }).state;
+  const nextSummary = settleVisit(pawned, { type: 'close', day: 15 }).state;
+  assert.equal(nextSummary.tickets[0].status, 'held');
+  const acceptance = settleVisit(nextSummary, { type: 'continue', day: 16 }).state;
+  const day17 = { ...acceptance, day: 17, awaitingOpen: false };
+  const visit = currentVisit(17, 0, 'port');
+  const redeemed = settleVisit(day17, { type: 'redeem', visitId: visit.id }).state;
+  assert.equal(redeemed.cash, 85);
+  assert.equal(redeemed.tickets[0].status, 'redeemed');
+  assert.equal(settleVisit(redeemed, { type: 'redeem', visitId: visit.id }).state, redeemed);
+});
+
+test('续轮的同型货有独立编号，零现金介绍费每轮一次', () => {
+  const first = currentVisit(11, 0, 'port');
+  const third = currentVisit(21, 0, 'port');
+  assert.equal(first.item.name, third.item.name);
+  assert.notEqual(first.item.id, third.item.id);
+  const start = { ...openCounter(0), day: 13, economy: 'port', chapterTwoStarted: true, activeRoundStart: 11 };
+  const paid = settleVisit(start, { type: 'roundReferral', day: 13 }).state;
+  assert.equal(paid.cash, 8);
+  assert.equal(settleVisit(paid, { type: 'roundReferral', day: 13 }).state, paid);
+  assert.equal(settleVisit({ ...paid, day: 18, activeRoundStart: 16 }, { type: 'roundReferral', day: 18 }).state.cash, 16);
+});

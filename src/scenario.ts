@@ -3,6 +3,14 @@ export const maxOffers = 2;
 export const firstChapterEnd = 5;
 export const secondChapterStart = firstChapterEnd + 1;
 export const lastDay = 10;
+export const roundLength = 5;
+export function roundStart(day: number) {
+  return day - ((day - 1) % roundLength);
+}
+export function roundEnd(day: number) {
+  return roundStart(day) + roundLength - 1;
+}
+export const baseItemId = (id: string) => id.replace(/^round-\d+-/, '');
 export const waterStartDay = 5;
 export const waterPrice = 10;
 export const purifierModel = 'F2';
@@ -44,13 +52,14 @@ const resaleBands: Record<string, readonly [number, number, number]> = {
 };
 
 export function consignmentPrices(item: Item) {
-  if (item.id === 'winch-1' && item.condition === wornWinch.condition) return [78, 92, 104] as const;
-  return resaleBands[item.id];
+  const id = baseItemId(item.id);
+  if (id === 'winch-1' && item.condition === wornWinch.condition) return [78, 92, 104] as const;
+  return resaleBands[id];
 }
 
 export function consignmentBudget(item: Item, day: number, lateSchedule: boolean) {
   const prices = consignmentPrices(item);
-  const itemOffset = Object.keys(resaleBands).indexOf(item.id);
+  const itemOffset = Object.keys(resaleBands).indexOf(baseItemId(item.id));
   return prices?.[(day + itemOffset + (lateSchedule ? 1 : 0)) % prices.length];
 }
 
@@ -133,7 +142,7 @@ type Offers = { item: Item; offers: number[]; minimumPrice: number };
 export type Visit = Visitor & (
   | ({ kind: 'purchase' } & Offers)
   | ({ kind: 'pawn'; redeemPrice: number; dueDay: number } & Offers)
-  | { kind: 'sale'; item: Item; price: number; missing: string; matchModel?: boolean }
+  | { kind: 'sale'; item: Item; price: number; missing: string; matchModel?: boolean; sameKind?: true }
   | { kind: 'redeem'; ticketId: string; missing: string }
   | { kind: 'timerBuyer'; item: Item }
   | { kind: 'waterReserve'; supplyDay: number }
@@ -263,6 +272,7 @@ export function portItem(item: Item): Item {
 }
 
 function portVisits(day: number, schedule?: 'late'): Visit[] {
+  if (day > lastDay) return recurringVisits(day, schedule);
   const orderDay = winchOrderDay('port', schedule);
   const visits = day === 10 ? (orderDay === 10 ? script[10] : [])
     : day === 9 && orderDay === 9 ? [...script[9], script[10][0]] : script[day] ?? [];
@@ -275,6 +285,75 @@ function portVisits(day: number, schedule?: 'late'): Visit[] {
       ? '船按时靠岸了，我赶来验制动器。换好齿轮能直接交工单，155 元。待修的我也收。'
       : portDialogue[visit.id] ?? visit.dialogue,
   }));
+}
+
+export function portRound(start: number, schedule?: 'late') {
+  const repair = (Math.floor((start - 11) / roundLength) + (schedule === 'late' ? 1 : 0)) % 2 === 0;
+  const lead = repair ? board : lantern;
+  const extra = repair ? harborGoods[1].item : harborGoods[0].item;
+  return {
+    title: repair ? '岸电检修' : '夜航补给',
+    lead, extra, cost: repair ? 32 : 25, price: repair ? 51 : 40,
+    extraCost: repair ? 24 : 18, extraPrice: repair ? 37 : 29,
+    borrower: repair ? '检修工' : '跑船客',
+    collateral: repair ? watch : timer,
+    notice: repair
+      ? '岸电检修班带着旧控制盒来配板，开工后还会收原封保险丝。检修工的上一轮工钱会在本轮第二天结。'
+      : '补给船要趁夜出航，船上缺备用油灯，系泊班另外收缆绳。跑船客的上一轮工钱会在本轮第二天结。',
+  };
+}
+
+function recurringVisits(day: number, schedule?: 'late'): Visit[] {
+  const start = roundStart(day);
+  const round = portRound(start, schedule);
+  const makeItem = (item: Item) => ({ ...item, id: `round-${start}-${item.id}` });
+  const lead = makeItem(round.lead);
+  const extra = makeItem(round.extra);
+  const prefix = `round-${start}`;
+  const seller = { person: '船工', portrait: 'boatman' } as const;
+  const buyer = { person: '修理匠', portrait: 'mechanic' } as const;
+  const pawnId = `${prefix}-pawn`;
+  switch (day - start) {
+    case 0: return [{
+      ...seller, kind: 'purchase', id: `${prefix}-lead`, item: lead,
+      offers: [round.cost], minimumPrice: round.cost,
+      dialogue: `刚腾出的${lead.name}，我得把工钱结了。${round.cost} 元卖断，明天工班会来收。`,
+    }];
+    case 1: {
+      const visits: Visit[] = [{
+        ...buyer, kind: 'sale', id: `${prefix}-lead-buyer`, item: lead, price: round.price, sameKind: true,
+        dialogue: `今天开工，要是那件${lead.name}还在，我出 ${round.price} 元。`, missing: '那我回工棚再找找。',
+      }];
+      if (start > lastDay + 1) {
+        const previous = portRound(start - roundLength, schedule);
+        visits.unshift({
+          kind: 'redeem', id: `${prefix}-redeem`, person: previous.borrower,
+          portrait: previous.borrower === '检修工' ? 'mechanic' : 'deckhand',
+          ticketId: `round-${start - roundLength}-pawn`,
+          dialogue: '上一趟的工钱结了，我带 23 元来赎东西。', missing: '账上没有我上轮的当票，我先走了。',
+        });
+      }
+      return visits;
+    }
+    case 2: return [{
+      ...seller, kind: 'purchase', id: `${prefix}-extra`, item: extra,
+      offers: [round.extraCost], minimumPrice: round.extraCost,
+      dialogue: `卸货剩了一份${extra.name}。${round.extraCost} 元拿走，明天还有人来配货。`,
+    }];
+    case 3: return [{
+      ...buyer, kind: 'sale', id: `${prefix}-extra-buyer`, item: extra, price: round.extraPrice, sameKind: true,
+      dialogue: `备件清单还缺${extra.name}，今天 ${round.extraPrice} 元收。`, missing: '没货我就按原计划出发。',
+    }];
+    default: return [{
+      kind: 'pawn', id: pawnId, person: round.borrower,
+      portrait: round.borrower === '检修工' ? 'mechanic' : 'deckhand',
+      item: round.collateral === watch
+        ? { ...makeItem(watch), name: '工班怀表', observations: ['夹盖刻着工班的编号。', '上弦后走时正常。'] }
+        : { ...makeItem(timer), name: '备用计时器' },
+      offers: [18], minimumPrice: 18, redeemPrice: 23, dueDay: day + 2,
+      dialogue: `工钱得第 ${day + 2} 天才到，先押 18 元，到时候带 23 元赎回。`,
+    }];
+  }
 }
 
 export function currentVisit(day: number, index: number, economy?: 'port', schedule?: 'late'): Visit | undefined {
