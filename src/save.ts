@@ -73,6 +73,11 @@ export function readSave(raw: string): Save {
     (state.readNoteIds !== undefined && (!Array.isArray(state.readNoteIds) ||
       !state.readNoteIds.every((id) => typeof id === 'string'))) ||
     (state.economy !== undefined && state.economy !== 'port') ||
+    (state.fuseReferral !== undefined && state.fuseReferral !== 'accepted' && state.fuseReferral !== 'paid') ||
+    (state.f2Appointment !== undefined && (!isObject(state.f2Appointment) ||
+      !integer(state.f2Appointment.day) || state.f2Appointment.day <= secondChapterStart ||
+      state.f2Appointment.day > lastDay ||
+      (state.f2Appointment.status !== 'booked' && state.f2Appointment.status !== 'closed'))) ||
     (state.harborSchedule !== undefined && state.harborSchedule !== 'late')) {
     throw new Error('Invalid shelter state');
   }

@@ -40,6 +40,8 @@ export type Counter = {
   chapterTwoStarted?: boolean;
   harborSchedule?: 'late';
   economy?: 'port';
+  f2Appointment?: { day: number; status: 'booked' | 'closed' };
+  fuseReferral?: 'accepted' | 'paid';
   consignment?: { itemId: string; price: number; listedDay: number };
   readNoteIds?: string[];
   installedPurifier: InventoryItem | null;
@@ -56,6 +58,7 @@ export type Action =
   | { type: 'listItem'; day: number; itemId: string; price: number }
   | { type: 'unlistItem'; day: number; itemId: string }
   | { type: 'readNotes'; day: number }
+  | { type: 'bookF2' | 'deliverF2' | 'declineF2' | 'acceptReferral' | 'referSupplier'; day: number; supplier?: 'workshop' | 'boat' }
   | { type: 'open'; day: number }
   | { type: 'continue'; day: number; upgrade?: true }
   | { type: 'reclaimPurifier'; day: number }
@@ -183,6 +186,10 @@ export function counterNotes(state: Counter) {
     if (state.day > 8 || (state.day === 8 && !state.awaitingOpen)) {
       notes.push({ id: 'winch', day: 8, title: '绞盘买家留条', text: winchBulletin(state) });
     }
+    if (state.economy === 'port' && state.day >= 7) {
+      notes.push({ id: 'fuse-referral', day: 7, title: '岸电检修班的代寻委托',
+        text: '第 9 天打烊前介绍持有原封 15A 保险丝的货主。两边直接交接，当铺收 12 元介绍费。' });
+    }
   }
   return notes;
 }
@@ -190,6 +197,46 @@ export function counterNotes(state: Counter) {
 export function harborOpen(state: Counter) {
   return state.day >= secondChapterStart && state.day <= lastDay && state.chapterTwoStarted &&
     !state.awaitingOpen && !state.waterShortfall;
+}
+
+export function portJobs(state: Counter) {
+  return state.economy === 'port' && harborOpen(state);
+}
+
+export function contactPrice(state: Counter) {
+  return state.misrepresentedTimer ? 90 : 110;
+}
+
+function handlePortJob(state: Counter, action: Extract<Action, { type: 'bookF2' | 'deliverF2' | 'declineF2' | 'acceptReferral' | 'referSupplier' }>): Result {
+  if (!portJobs(state) || action.day !== state.day) return notice(state, '请在新版港口营业时联系。', 'warning');
+  if (action.type === 'acceptReferral' || action.type === 'referSupplier') {
+    if (state.day < 7 || state.day > 9 || state.fuseReferral === 'paid') return notice(state, '这张委托已结清或过期。', 'warning');
+    if (action.type === 'acceptReferral') {
+      if (state.fuseReferral) return notice(state, '已接下委托。', 'warning');
+      return notice({ ...state, fuseReferral: 'accepted' }, '已接委托。先对照工单和两位货主的封签。');
+    }
+    if (state.fuseReferral !== 'accepted' || action.supplier !== 'workshop') {
+      return notice(state, '检修班只收原封 15A。货主和买家都还在等你核对。', 'warning');
+    }
+    return notice(record({ ...state, fuseReferral: 'paid' }, null, '岸电检修 · 介绍费', 12),
+      '电工交验原封 15A，两边直接成交。你收到介绍费 12 元。', 'success');
+  }
+  if (action.type === 'bookF2') {
+    if (!state.knowsMechanicRequest || state.day >= lastDay || state.f2Appointment) {
+      return notice(state, '今天没有可预约的 F2 工单。', 'warning');
+    }
+    return notice({ ...state, f2Appointment: { day: state.day + 1, status: 'booked' } },
+      `已约第 ${state.day + 1} 天验货。届时从「字条与委托」交货。`, 'success');
+  }
+  const appointment = state.f2Appointment;
+  if (appointment?.status !== 'booked' || appointment.day !== state.day) return notice(state, '今天没有这笔验货预约。', 'warning');
+  const next = { ...state, f2Appointment: { day: state.day, status: 'closed' as const } };
+  if (action.type === 'declineF2') return notice(next, '已告知修理匠本次不交货。');
+  const item = state.inventory.find(usablePurifier);
+  if (!item) return notice(state, '今天没有可交验的自有 F2。可以先回柜台找货，或告知修理匠没货。', 'warning');
+  const price = contactPrice(state);
+  next.inventory = state.inventory.filter((entry) => entry.id !== item.id);
+  return notice(record(next, item, '预约交货 · F2 净水机', price), `修理匠验过接口，付了 ${price} 元。`, 'success');
 }
 
 function updateConsignment(state: Counter, action: Extract<Action, { type: 'listItem' | 'unlistItem' }>): Result {
@@ -297,6 +344,9 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
     message += '使用昨天预订的水，今晚无需现场买水。';
   }
   const closed = { ...next, day: day + 1, awaitingOpen: true, visitIndex: 0, attempts: 0, waterShortfall };
+  if (closed.f2Appointment?.status === 'booked' && closed.f2Appointment.day === day) {
+    closed.f2Appointment = { day, status: 'closed' };
+  }
   if (closed.reservedWaterDay === day) delete closed.reservedWaterDay;
   if (waterShortfall) {
     delete closed.consignment;
@@ -325,6 +375,8 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'bookF2' || action.type === 'deliverF2' || action.type === 'declineF2' ||
+      action.type === 'acceptReferral' || action.type === 'referSupplier') return handlePortJob(state, action);
   if (action.type === 'readNotes') {
     const ids = counterNotes(state).map((note) => note.id);
     if (state.day !== action.day || ids.every((id) => state.readNoteIds?.includes(id))) return notice(state, '');
@@ -353,7 +405,7 @@ export function settleVisit(state: Counter, action: Action): Result {
   if ('itemId' in action) return disposeItem(state, action);
   if (state.awaitingOpen) return notice(state, '请先开门。', 'warning');
   const visit = currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule);
-  if (!visit || visit.id !== action.visitId) return notice(state, '这位客人已经离开。');
+  if (!visit || !('visitId' in action) || visit.id !== action.visitId) return notice(state, '这位客人已经离开。');
 
   if (action.type === 'sellBoard' && visit.id === 'day-9-winch') {
     const item = state.inventory.find((entry) => entry.id === board.id);

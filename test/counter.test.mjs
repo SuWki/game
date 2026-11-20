@@ -335,3 +335,31 @@ test('船期真的移动采购，老档在五日小结可切换并原样取回 F
   const restored = readSave(JSON.stringify({ version: saveVersion, ...reclaimed })).state;
   assert.equal(settleVisit(restored, action).state, restored);
 });
+test('F2 约见必须到次日且交货时拥有合格机器，只入账一次', () => {
+  const start = { ...openCounter(0), day: 6, economy: 'port', chapterTwoStarted: true, knowsMechanicRequest: true };
+  const booked = settleVisit(start, { type: 'bookF2', day: 6 }).state;
+  assert.equal(settleVisit(booked, { type: 'deliverF2', day: 6 }).state, booked);
+  const due = { ...booked, day: 7 };
+  assert.equal(settleVisit(due, { type: 'deliverF2', day: 7 }).state, due);
+  const item = { ...currentVisit(2, 1).item, cost: 80 };
+  const sale = { type: 'deliverF2', day: 7 };
+  const sold = settleVisit({ ...due, inventory: [item] }, sale);
+  assert.equal(sold.state.cash, 110);
+  assert.deepEqual(sold.state.inventory, []);
+  const restored = readSave(JSON.stringify({ version: saveVersion, ...sold })).state;
+  assert.equal(settleVisit(restored, sale).state, restored);
+});
+
+test('介绍合格货主可从零现金入账，错配和重复提交不付费', () => {
+  const start = { ...openCounter(0), day: 7, economy: 'port', chapterTwoStarted: true };
+  const accepted = settleVisit(start, { type: 'acceptReferral', day: 7 }).state;
+  const wrong = { type: 'referSupplier', supplier: 'boat', day: 7 };
+  const right = { ...wrong, supplier: 'workshop' };
+  assert.equal(settleVisit(accepted, wrong).state, accepted);
+  const paid = settleVisit(accepted, right).state;
+  assert.equal(paid.cash, 12);
+  assert.deepEqual(paid.inventory, []);
+  assert.equal(settleVisit(paid, right).state, paid);
+  const expired = { ...accepted, day: 10 };
+  assert.equal(settleVisit(expired, { ...right, day: 10 }).state, expired);
+});

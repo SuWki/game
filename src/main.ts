@@ -2,7 +2,7 @@ import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { counterNotes, harborOpen, harborStock, portBulletin, winchBulletin } from './counter';
+import { contactPrice, counterNotes, harborOpen, harborStock, portBulletin, portJobs, winchBulletin } from './counter';
 import { consignmentPrices, portItem, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
@@ -58,6 +58,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           <div class="side-trades">
             <button id="show-harbor" class="quiet" hidden>港口货摊</button>
             <button id="show-consignment" class="quiet" hidden>寄售架</button>
+            <button id="show-jobs" class="quiet" hidden>字条与委托</button>
           </div>
           <div id="actions" class="actions" aria-label="柜台操作"></div>
           <p id="feedback" role="status"></p>
@@ -124,6 +125,12 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <dialog id="notes-dialog" aria-labelledby="notes-title">
     <div class="dialog-head"><h2 id="notes-title">线索记录</h2><form method="dialog"><button class="quiet">收起 <kbd>Esc</kbd></button></form></div>
     <div id="requests"></div>
+    <button id="notes-jobs" class="quiet" hidden>按字条联系</button>
+  </dialog>
+  <dialog id="jobs-dialog" aria-labelledby="jobs-title">
+    <div class="dialog-head"><h2 id="jobs-title">字条与委托</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <div id="jobs-content"></div>
+    <p id="jobs-result" role="status"></p>
   </dialog>
   <dialog id="ledger-dialog" aria-labelledby="ledger-title">
     <div class="dialog-head"><h2 id="ledger-title">账本</h2><form method="dialog"><button class="quiet">收起 <kbd>Esc</kbd></button></form></div>
@@ -174,6 +181,11 @@ const feedback = document.querySelector<HTMLElement>('#feedback')!;
 const retry = document.querySelector<HTMLButtonElement>('#retry')!;
 const restart = document.querySelector<HTMLButtonElement>('#restart')!;
 const notesDialog = document.querySelector<HTMLDialogElement>('#notes-dialog')!;
+const jobsEntry = document.querySelector<HTMLButtonElement>('#show-jobs')!;
+const notesJobs = document.querySelector<HTMLButtonElement>('#notes-jobs')!;
+const jobsDialog = document.querySelector<HTMLDialogElement>('#jobs-dialog')!;
+const jobsContent = document.querySelector<HTMLElement>('#jobs-content')!;
+const jobsResult = document.querySelector<HTMLElement>('#jobs-result')!;
 const noteSlip = document.querySelector<HTMLButtonElement>('#note-slip')!;
 const noteCount = document.querySelector<HTMLElement>('#note-count')!;
 const desk = document.querySelector<HTMLElement>('#counter-desk')!;
@@ -477,6 +489,60 @@ function renderConsignment() {
   if (!consignmentStock.childElementCount) consignmentStock.textContent = '目前没有可寄售的自有货物。';
 }
 
+function renderJobs() {
+  const available = !saveBlocked && portJobs(state) && (state.knowsMechanicRequest || state.day >= 7);
+  jobsEntry.hidden = notesJobs.hidden = !available;
+  if (!available) {
+    if (jobsDialog.open) jobsDialog.close();
+    return;
+  }
+  const appointment = state.f2Appointment;
+  const due = appointment?.status === 'booked' && appointment.day === state.day;
+  jobsEntry.textContent = due ? '字条与委托 · 今日验货' : '字条与委托';
+  jobsContent.replaceChildren();
+  const addJob = (title: string, description: string, choices: [string, Action][]) => {
+    const section = document.createElement('section');
+    section.className = 'harbor-good';
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    const body = document.createElement('p');
+    body.textContent = description;
+    const buttons = document.createElement('div');
+    buttons.className = 'actions';
+    for (const [label, action] of choices) {
+      const button = document.createElement('button');
+      button.textContent = label;
+      bindAction(button, action);
+      buttons.append(button);
+    }
+    section.append(heading, body, buttons);
+    jobsContent.append(section);
+  };
+  const day = state.day;
+  if (state.knowsMechanicRequest) {
+    const terms = `修理匠补收可试机的原厂 F2，接口须符合旧集雨箱，出 ${contactPrice(state)} 元。`;
+    const detail = appointment?.status === 'booked' ? `第 ${appointment.day} 天验货。`
+      : appointment ? '本轮约见已结束。' : day === lastDay ? '本轮预约已截止。' : '可约次日验货，付款时才交出库存。';
+    const choices: [string, Action][] = [];
+    if (due) choices.push(['交验自有 F2', { type: 'deliverF2', day }], ['告知不交货', { type: 'declineF2', day }]);
+    else if (!appointment && day < lastDay) choices.push(['预约明日验货', { type: 'bookF2', day }]);
+    addJob('修理匠的 F2 补单', terms + detail, choices);
+  }
+  if (day >= 7) {
+    const referral = state.fuseReferral;
+    let detail = '第 9 天打烊前找一位持有原封 15A 保险丝的货主。货主和买家直接交易，介绍费 12 元。';
+    const choices: [string, Action][] = [];
+    if (referral === 'paid') detail = '工单已结清，介绍费 12 元已入账。';
+    else if (day > 9) detail = '检修班已离港，工单过期。';
+    else if (referral === 'accepted') {
+      detail += ' 船工带来一盒拆封的 10A，电工的货签上写着原封 15A。';
+      choices.push(['介绍船工', { type: 'referSupplier', day, supplier: 'boat' }],
+        ['介绍电工', { type: 'referSupplier', day, supplier: 'workshop' }]);
+    } else choices.push(['接下代寻', { type: 'acceptReferral', day }]);
+    addJob('岸电检修班的代寻委托', detail, choices);
+  }
+}
+
 function stockOutlook(item: Counter['inventory'][number]) {
   const entries: string[] = [];
   if (item.id === board.id && state.day <= 9 && (state.day < 9 || state.visitIndex === 0)) {
@@ -648,6 +714,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   renderInventory();
   renderHarbor();
   renderConsignment();
+  renderJobs();
   shelter.textContent = saveBlocked ? '等待恢复存档' :
     finished ? (state.installedPurifier ? 'F2 已安装，接集雨池供水。' : '庇护所尚未安装 F2。') : waterLine();
   if (!saveBlocked && !finished && state.reservedWaterDay && state.reservedWaterDay > state.day) {
@@ -808,6 +875,10 @@ async function handle(action: Action) {
       stockResult.textContent = result.message;
       if (!stockDialog.contains(document.activeElement)) stockDialog.querySelector('button')?.focus();
     }
+    if (jobsDialog.open) {
+      jobsResult.textContent = result.message;
+      if (!jobsDialog.contains(document.activeElement)) jobsDialog.querySelector('button')?.focus();
+    }
   });
 }
 
@@ -908,6 +979,13 @@ function openNotes() {
 
 document.querySelector('#show-notes')!.addEventListener('click', openNotes);
 noteSlip.addEventListener('click', openNotes);
+function openJobs() {
+  if (notesDialog.open) notesDialog.close();
+  jobsResult.textContent = '';
+  jobsDialog.showModal();
+}
+jobsEntry.addEventListener('click', openJobs);
+notesJobs.addEventListener('click', openJobs);
 document.querySelector('#show-guide')!.addEventListener('click', () => guideDialog.showModal());
 document.querySelector('#show-ledger')!.addEventListener('click', () => ledgerDialog.showModal());
 document.querySelector('#show-menu')!.addEventListener('click', () => menuDialog.showModal());
