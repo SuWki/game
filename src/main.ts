@@ -10,6 +10,7 @@ const cashParam = new URLSearchParams(location.search).get('cash');
 const sandboxCash = cashParam === '24' ? 24 : cashParam === '5' ? 5 : null;
 const saveKey = sandboxCash === null ? 'tideline-counter' : `tideline-counter-cash-${sandboxCash}`;
 const tutorialKey = 'tideline-counter-tutorial';
+const openingStory = '那场风暴过后，旧船厂的汽笛沉寂了好几年。如今码头又能靠船了，船上的旧物也跟着人上了岸。你在船厂门口支起当铺：有人急着结工钱，肯把货卖断；有人只想押上心爱的东西，等船回来再赎。';
 const newGame = () => openCounter(sandboxCash ?? openingCash);
 const newSavedGame = (): Counter => Math.random() < 0.5 ? { ...newGame(), harborSchedule: 'late' } : newGame();
 let state = newGame();
@@ -98,9 +99,10 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <button id="skip-tutorial" class="quiet">跳过引导</button>
   </aside>
   <dialog id="ration-dialog" aria-labelledby="ration-title">
-    <div class="dialog-head"><h2 id="ration-title">新户饮水配给</h2></div>
-    <p>新户饮水领到第 4 天。窗外是咸潮，取饮水找挂蓝桶的淡水驳船。</p>
-    <form method="dialog" class="actions"><button autofocus>知道了</button></form>
+    <div class="dialog-head"><h2 id="ration-title">旧港 · 开张日</h2></div>
+    <p>${openingStory}</p>
+    <p class="ration-slip">配给条上盖着蓝印：新户饮水领到第 4 天，到淡水驳船提桶。</p>
+    <form method="dialog" class="actions"><button autofocus>掀帘开张</button></form>
   </dialog>
   <dialog id="inspect-dialog" aria-labelledby="inspect-title">
     <div class="dialog-head"><h2 id="inspect-title"></h2><form method="dialog"><button class="quiet" autofocus>返回柜台</button></form></div>
@@ -109,6 +111,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <dialog id="guide-dialog" aria-labelledby="guide-title">
     <div class="dialog-head"><h2 id="guide-title">玩法提示</h2><form method="dialog"><button class="quiet">收起 <kbd>Esc</kbd></button></form></div>
     <p id="current-guide" aria-live="polite"></p>
+    <details class="port-story"><summary>旧港的来历</summary><p>${openingStory}</p></details>
     <dl class="guide-list">
       <div><dt>看货与出价</dt><dd>点击「近看」读成色和细节。收购价付给客人，成交的货会进自有库存。报价被拒还可以改报一次，或直接谢客。</dd></div>
       <div><dt>典当与赎回</dt><dd>放款是借给客人的钱。物品先留在代管栏，到期当天仍可赎回。打烊时才处理逾期的货。</dd></div>
@@ -833,7 +836,11 @@ function startTutorial() {
   try {
     if (localStorage.getItem(tutorialKey) === 'done') return;
   } catch { return; }
-  rationDialog.showModal();
+  showTutorialStep('inspect');
+}
+
+function startOpening() {
+  if (sandboxCash === null && !saveBlocked) rationDialog.showModal();
 }
 
 function renderTitle() {
@@ -858,7 +865,6 @@ function enterGame() {
   document.documentElement.classList.remove('at-title');
   titleDialog.close();
   restore();
-  startTutorial();
 }
 
 function openNotes() {
@@ -894,19 +900,20 @@ consignmentEntry.addEventListener('click', () => {
   consignmentDialog.showModal();
 });
 titleDialog.addEventListener('cancel', (event) => event.preventDefault());
-titleContinue.addEventListener('click', enterGame);
+titleContinue.addEventListener('click', () => { enterGame(); startTutorial(); });
 titleNew.addEventListener('click', () => {
   if (savedRaw !== null && !window.confirm('开始新游戏会覆盖当前存档。确定继续？')) return;
   void update(() => {
     persist({ state: newSavedGame(), message: '船工在等你的报价。', tone: 'neutral' });
     enterGame();
+    startOpening();
   });
 });
 inspectCounter.addEventListener('click', () => { if (!inspectionEntry.hidden) inspectDialog.showModal(); });
 inspectDialog.addEventListener('close', () => {
   if (tutorialStep === 'inspect') showTutorialStep('trade');
 });
-rationDialog.addEventListener('close', () => showTutorialStep('inspect'));
+rationDialog.addEventListener('close', startTutorial);
 document.querySelector('#skip-tutorial')!.addEventListener('click', () => {
   const focus = tutorialStep === 'inspect' ? inspectCounter : actions.querySelector('button');
   finishTutorial();
@@ -932,7 +939,7 @@ restart.addEventListener('click', () => {
   void update(() => {
     persist({ state: newSavedGame(), message: '船工在等你的报价。', tone: 'neutral' });
     menuDialog.close();
-    startTutorial();
+    startOpening();
   });
 });
 showTitle();

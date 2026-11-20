@@ -278,6 +278,9 @@ dialog::backdrop { background: #110f16bd; }
 #guide-dialog { width: min(625px, calc(100vw - 42px)); }
 #ration-dialog, #inspect-dialog { width: min(480px, calc(100vw - 32px)); }
 #ration-dialog p { margin-bottom: 16px; line-height: 1.65; }
+#ration-dialog .ration-slip { padding-left: 12px; border-left: 3px solid #97774f; font-size: 14px; color: #674c34; }
+.port-story { margin-top: 12px; line-height: 1.65; }
+.port-story summary { cursor: pointer; }
 #ration-dialog button { color: #fff0d2; }
 #inspect-content .appraisal { margin: 0; padding: 0; border: 0; }
 .inspect-art {
