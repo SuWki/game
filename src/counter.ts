@@ -1,6 +1,6 @@
 import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterPrice, falseTimerPrice, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, purifierModel, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario.ts';
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
-import { harborNotice, itemDetails, mechanicRequest, winchBuyers } from './scenario.ts';
+import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -39,6 +39,7 @@ export type Counter = {
   reservedWaterDay?: number;
   chapterTwoStarted?: boolean;
   harborSchedule?: 'late';
+  economy?: 'port';
   consignment?: { itemId: string; price: number; listedDay: number };
   readNoteIds?: string[];
   installedPurifier: InventoryItem | null;
@@ -56,7 +57,8 @@ export type Action =
   | { type: 'unlistItem'; day: number; itemId: string }
   | { type: 'readNotes'; day: number }
   | { type: 'open'; day: number }
-  | { type: 'continue'; day: number }
+  | { type: 'continue'; day: number; upgrade?: true }
+  | { type: 'reclaimPurifier'; day: number }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
@@ -114,7 +116,7 @@ export function saleOffer(state: Counter, visit: Extract<Visit, { kind: 'sale' }
     const price = item?.id === wornWinch.id && item.condition === wornWinch.condition
       ? (visit.id === 'day-9-winch' ? wornWinchEarlyPrice : wornWinchLatePrice)
       : visit.price;
-    const issue = soldEarly ? '船工说昨天已把绞盘买走了。下回有货再给我留吧。' :
+    const issue = soldEarly ? `船工说${state.day === 9 ? '今天' : '昨天'}已把绞盘买走了。下回有货再给我留吧。` :
       soldAtConsignment ? '那台绞盘已经通过寄售出了？下回有货再给我留吧。' : visit.missing;
     return { item, issue, price };
   }
@@ -136,6 +138,7 @@ export function cashWaterPrice(day: number): number {
 }
 
 export function nightlyWater(state: Counter, day = state.day) {
+  if (state.economy === 'port') return { source: '水站居民配给', cost: 0 };
   if (day < waterStartDay) return { source: '新户饮水配给', cost: 0 };
   if (state.installedPurifier) return { source: 'F2 净化集雨池原水', cost: 0 };
   if (state.reservedWaterDay === day) return { source: '已预订的饮水', cost: 0 };
@@ -150,23 +153,35 @@ export function atFirstChapterSummary(state: Counter) {
   return state.day === secondChapterStart && !state.chapterTwoStarted && !state.waterShortfall;
 }
 
+export function portBulletin(state: Counter) {
+  if (state.economy !== 'port') return harborNotice;
+  return state.harborSchedule === 'late' ? portNotice : onTimePortNotice;
+}
+
+export function winchBulletin(state: Counter) {
+  if (state.economy !== 'port') return `换好齿轮：${winchBuyers}${wornWinch.observations[1]}`;
+  const orderDay = winchOrderDay(state.economy, state.harborSchedule);
+  return `第 9 天留港船工收，换好齿轮 108 元，待修 88 元。第 ${orderDay} 天船厂采购收，换好齿轮 155 元，待修 115 元。`;
+}
+
 export function counterNotes(state: Counter) {
   const notes: { id: string; day: number; title: string; text: string }[] = [];
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex) : undefined;
-  const timer = itemDetails('timer-1')!;
+  const timerItem = itemDetails('timer-1')!;
+  const timer = state.economy === 'port' ? portItem(timerItem) : timerItem;
   if (state.knowsMechanicRequest) {
-    notes.push({ id: 'mechanic', day: 2, title: '修理匠留下的求购字条', text: mechanicRequest });
+    notes.push({ id: 'mechanic', day: 2, title: '修理匠留下的求购字条', text: state.economy === 'port' ? portMechanicRequest : mechanicRequest });
   }
   if (state.sawTimerClues || visit?.id === 'day-3-timer' || state.tickets.some((ticket) => ticket.item.id === timer.id)) {
     notes.push({ id: 'timer', day: 3, title: '跑船客的计时器线索', text: timer.observations.join('') + (timer.reference ?? '') });
   }
   if (state.chapterTwoStarted) {
-    notes.push({ id: 'water', day: 6, title: '港务告示', text: harborNotice });
+    notes.push({ id: state.economy === 'port' ? 'port' : 'water', day: 6, title: '港务告示', text: portBulletin(state) });
     if (state.day > 6 || (state.day === 6 && !state.awaitingOpen)) {
-      notes.push({ id: 'board', day: 6, title: '旧电路板的买家字条', text: `第 7 天钟表师出 55 元，第 9 天船工出 ${lateBoardPrice} 元。` });
+      notes.push({ id: 'board', day: 6, title: '旧电路板的买家字条', text: `第 7 天${state.economy === 'port' ? '检修工' : '钟表师'}出 55 元，第 9 天船工出 ${lateBoardPrice} 元。` });
     }
     if (state.day > 8 || (state.day === 8 && !state.awaitingOpen)) {
-      notes.push({ id: 'winch', day: 8, title: '绞盘买家留条', text: `换好齿轮：${winchBuyers}${wornWinch.observations[1]}` });
+      notes.push({ id: 'winch', day: 8, title: '绞盘买家留条', text: winchBulletin(state) });
     }
   }
   return notes;
@@ -245,7 +260,7 @@ function tradeAtHarbor(state: Counter, action: Extract<Action, { type: 'harborBu
 }
 
 function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { type: 'close' }>): Result {
-  if (day !== state.day || day > lastDay || state.awaitingOpen || currentVisit(day, state.visitIndex)) {
+  if (day !== state.day || day > lastDay || state.awaitingOpen || currentVisit(day, state.visitIndex, state.economy, state.harborSchedule)) {
     return notice(state, '当前无法打烊。', 'warning');
   }
   const cost = waterCost(state);
@@ -270,7 +285,7 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
   if (!waterShortfall && cost) {
     next = record(next, null, waterLedger.purchase, -cost);
     message += `已支付水费 ${cost} 元。`;
-  } else if (day >= waterStartDay && next.installedPurifier) {
+  } else if (next.economy !== 'port' && day >= waterStartDay && next.installedPurifier) {
     if (day >= secondChapterStart) next = record(next, null, waterLedger.purifier, 0);
     message += '净水机供水，今晚无需现场买水。';
     if (next.reservedWaterDay === day) {
@@ -298,7 +313,7 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
   if (!item) return notice(state, '只有归店的库存可以处理。', 'warning');
   const next = { ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) };
   if (action.type === 'install') {
-    if (state.installedPurifier || !usablePurifier(item)) return notice(state, '当前无法安装这件设备。', 'warning');
+    if (state.economy === 'port' || state.installedPurifier || !usablePurifier(item)) return notice(state, '当前无法安装这件设备。', 'warning');
     return notice(record({ ...next, installedPurifier: item }, item, `安装 · ${item.name}`, 0),
       'F2 净水机已装进庇护所，今天打烊可以免付水费。', 'success');
   }
@@ -320,7 +335,14 @@ export function settleVisit(state: Counter, action: Action): Result {
   if (action.type === 'close') return closeDay(state, action);
   if (action.type === 'continue') {
     if (action.day !== state.day || !state.awaitingOpen || !atFirstChapterSummary(state)) return notice(state, '当前无法继续营业。', 'warning');
-    return notice({ ...state, chapterTwoStarted: true }, '第二章 · 迟到的淡水船');
+    return notice({ ...state, chapterTwoStarted: true, ...(action.upgrade ? { economy: 'port' as const } : {}) }, '第二章 · 港务字条已送达');
+  }
+  if (action.type === 'reclaimPurifier') {
+    const item = state.installedPurifier;
+    if (action.day !== state.day || !harborOpen(state) || state.economy !== 'port' || !item ||
+        state.inventory.some((entry) => entry.id === item.id)) return notice(state, '当前没有可拆回的净水机。', 'warning');
+    return notice(record({ ...state, installedPurifier: null, inventory: [...state.inventory, item] },
+      item, '拆回 · F2 净水机', 0), 'F2 已拆回自有库存。', 'success');
   }
   if (action.type === 'open') {
     if (state.day !== action.day || state.day > lastDay || !state.awaitingOpen || state.waterShortfall || atFirstChapterSummary(state)) {
@@ -330,7 +352,7 @@ export function settleVisit(state: Counter, action: Action): Result {
   }
   if ('itemId' in action) return disposeItem(state, action);
   if (state.awaitingOpen) return notice(state, '请先开门。', 'warning');
-  const visit = currentVisit(state.day, state.visitIndex);
+  const visit = currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule);
   if (!visit || visit.id !== action.visitId) return notice(state, '这位客人已经离开。');
 
   if (action.type === 'sellBoard' && visit.id === 'day-9-winch') {
@@ -442,7 +464,9 @@ export function settleVisit(state: Counter, action: Action): Result {
       (visit.item.authenticity === 'imitation' ? '入账复核显示这件货是仿品。' : ''), 'success',
     );
   }
-  const item = visit.id === 'day-8-winch' && amount === wornWinchPrice ? wornWinch : visit.item;
+  const item = visit.id === 'day-8-winch' && amount === wornWinchPrice
+    ? state.economy === 'port' ? { ...wornWinch, observations: [...portItem(wornWinch).observations.slice(0, 1), wornWinch.observations[0]] } : wornWinch
+    : visit.item;
   return notice(
     record({ ...next, inventory: [...state.inventory, { ...item, cost: amount }] }, item, `收购${item.name}`, -amount),
     `成交。支付 ${amount} 元，${item.name}已收入库存。`, 'success',

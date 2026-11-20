@@ -72,6 +72,7 @@ export function readSave(raw: string): Save {
     (state.reservedWaterDay !== undefined && state.reservedWaterDay !== waterStartDay && state.reservedWaterDay !== emergencyWaterDay) ||
     (state.readNoteIds !== undefined && (!Array.isArray(state.readNoteIds) ||
       !state.readNoteIds.every((id) => typeof id === 'string'))) ||
+    (state.economy !== undefined && state.economy !== 'port') ||
     (state.harborSchedule !== undefined && state.harborSchedule !== 'late')) {
     throw new Error('Invalid shelter state');
   }

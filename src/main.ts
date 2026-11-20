@@ -1,9 +1,9 @@
 import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
-import { currentVisit, falseTimerPrice, firstChapterEnd, harborNotice, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, winchBuyers, type Item, type Visit } from './scenario';
+import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { counterNotes, harborOpen, harborStock } from './counter';
-import { consignmentPrices } from './scenario';
+import { counterNotes, harborOpen, harborStock, portBulletin, winchBulletin } from './counter';
+import { consignmentPrices, portItem, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
 const cashParam = new URLSearchParams(location.search).get('cash');
@@ -12,7 +12,7 @@ const saveKey = sandboxCash === null ? 'tideline-counter' : `tideline-counter-ca
 const tutorialKey = 'tideline-counter-tutorial';
 const openingStory = '那场风暴过后，旧船厂的汽笛沉寂了好几年。如今码头又能靠船了，船上的旧物也跟着人上了岸。你在船厂门口支起当铺：有人急着结工钱，肯把货卖断；有人只想押上心爱的东西，等船回来再赎。';
 const newGame = () => openCounter(sandboxCash ?? openingCash);
-const newSavedGame = (): Counter => Math.random() < 0.5 ? { ...newGame(), harborSchedule: 'late' } : newGame();
+const newSavedGame = (): Counter => ({ ...newGame(), economy: 'port', harborSchedule: Math.random() < 0.5 ? 'late' : undefined });
 let state = newGame();
 let savedRaw: string | null = null;
 let saveBlocked = false;
@@ -26,6 +26,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="scenery">
       ${harborPeriods.map((name) => `<img class="harbor" data-light="${name}" src="${artwork(`harbor-${name}`)}" alt="">`).join('')}
       <img class="shop-room" src="${artwork('shop')}" alt="">
+      <span id="dock-flag" hidden></span>
       <img id="guest-art" class="guest-art" alt="" hidden>
       <img class="shop-front" src="${artwork('shop')}" alt="">
       <img id="item-art" class="item-art" alt="" hidden>
@@ -101,7 +102,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <dialog id="ration-dialog" aria-labelledby="ration-title">
     <div class="dialog-head"><h2 id="ration-title">旧港 · 开张日</h2></div>
     <p>${openingStory}</p>
-    <p class="ration-slip">配给条上盖着蓝印：新户饮水领到第 4 天，到淡水驳船提桶。</p>
+    <p id="opening-ration" class="ration-slip"></p>
     <form method="dialog" class="actions"><button autofocus>掀帘开张</button></form>
   </dialog>
   <dialog id="inspect-dialog" aria-labelledby="inspect-title">
@@ -211,6 +212,8 @@ const inspectDialog = document.querySelector<HTMLDialogElement>('#inspect-dialog
 const inspectTitle = document.querySelector<HTMLElement>('#inspect-title')!;
 const inspectContent = document.querySelector<HTMLElement>('#inspect-content')!;
 const rationDialog = document.querySelector<HTMLDialogElement>('#ration-dialog')!;
+const dockFlag = document.querySelector<HTMLElement>('#dock-flag')!;
+const openingRation = document.querySelector<HTMLElement>('#opening-ration')!;
 const tutorialTip = document.querySelector<HTMLElement>('#tutorial-tip')!;
 const tutorialCopy = document.querySelector<HTMLElement>('#tutorial-copy')!;
 let tutorialTarget: HTMLElement | null = null;
@@ -246,6 +249,7 @@ function itemSprite(item?: Item) {
 }
 
 function waterLine() {
+  if (state.economy === 'port') return '居民饮水由水站配给。';
   const water = nightlyWater(state);
   return `今晚用水 · ${water.source} · 实付 ${water.cost} 元`;
 }
@@ -295,7 +299,9 @@ function renderVisit(visit: Visit) {
   if (item) {
     inspectLabel.textContent = `近看${item.name}`;
     inspectTitle.textContent = item.name;
-    const inspected = visit.id === 'day-8-winch' ? wornWinch : item;
+    const inspected = visit.id === 'day-8-winch' ? state.economy === 'port'
+      ? { ...portItem(item), condition: wornWinch.condition, observations: [...item.observations, wornWinch.observations[0]] }
+      : wornWinch : item;
     inspectContent.innerHTML = `${sprite ? `<img class="inspect-art" src="${artwork(sprite)}" alt="">` : ''}${appraisalView(inspected)}`;
   }
   const appraised = visit.id === 'day-3-timer' && state.timerAppraised;
@@ -326,7 +332,8 @@ function renderVisit(visit: Visit) {
       const afterTomorrow = afterTonight - nightlyWater(state, state.day + 1).cost;
       const formatCash = (cash: number) => cash < 0 ? `差 ${-cash} 元` : `剩 ${cash} 元`;
       const projection = visit.id === 'day-8-winch' && state.cash >= amount
-        ? `成交并付今晚水费后${formatCash(afterTonight)} · 明晚水费 ${nightlyWater(state, state.day + 1).cost} 元，若无进账则${formatCash(afterTomorrow)}`
+        ? state.economy === 'port' ? `成交后${formatCash(state.cash - amount)}`
+          : `成交并付今晚水费后${formatCash(afterTonight)} · 明晚水费 ${nightlyWater(state, state.day + 1).cost} 元，若无进账则${formatCash(afterTomorrow)}`
         : undefined;
       const winchOption = visitId === 'day-8-winch';
       const worn = amount === wornWinchPrice;
@@ -352,8 +359,8 @@ function renderVisit(visit: Visit) {
       ? `现在回款 · 单件亏 ${offer.item.cost - offer.price} 元`
       : undefined;
     addAction(`出售${item.name} ${offer.price} 元`, { type: 'sell', visitId }, Boolean(visit.matchModel), false,
-      visit.matchModel ? `${waterLine()} · 次日起常价 ${waterPrice} 元` : winchMargin);
-    if (visit.matchModel && !state.installedPurifier) {
+      visit.matchModel && state.economy !== 'port' ? `${waterLine()} · 次日起常价 ${waterPrice} 元` : winchMargin);
+    if (visit.matchModel && !state.installedPurifier && state.economy !== 'port') {
       addAction('安装自用', { type: 'install', day: state.day, itemId: item.id }, true, false,
         `今晚用 F2 净化的雨水，实付 0 元 · 往后每个常价日省 ${waterPrice} 元`);
     }
@@ -364,17 +371,17 @@ function renderVisit(visit: Visit) {
   const dismissLabel = visit.kind === 'sale' && visit.matchModel && item ? '留货，谢客' : keepBoard ? '留板等船工' : '谢客';
   addAction(dismissLabel, { type: 'dismiss', visitId }, true, false,
     keepBoard ? `第 9 天可卖 ${lateBoardPrice} 元，今天无进账`
-      : keepWinch ? `留绞盘到第 10 天，可卖 ${item?.condition === wornWinch.condition ? wornWinchLatePrice : 155} 元`
-      : dismissLabel === '留货，谢客' ? `${waterLine()} · 次日起常价 ${waterPrice} 元` : undefined);
+      : keepWinch ? `等第 ${winchOrderDay(state.economy, state.harborSchedule)} 天船厂采购，可卖 ${item?.condition === wornWinch.condition ? wornWinchLatePrice : 155} 元`
+      : dismissLabel === '留货，谢客' && state.economy !== 'port' ? `${waterLine()} · 次日起常价 ${waterPrice} 元` : undefined);
 }
 
 function renderInventory() {
   const items = saveBlocked ? [] : state.inventory;
   inventory.innerHTML = records(items.map((item) => {
     const authenticity = item.authenticity === 'imitation' ? ' · 仿品' : item.authenticity === 'genuine' ? ' · 正品' : '';
-    const detail = item.id === 'winch-1' ? `<small>${item.condition === wornWinch.condition ? wornWinch.observations[1] : winchBuyers}</small>`
+    const detail = item.id === 'winch-1' ? `<small>${winchBulletin(state)}</small>`
       : item.id === board.id && state.day <= 9 ? `<small>第 7 天卖 55 元，第 9 天船工出 ${lateBoardPrice} 元。</small>`
-      : usablePurifier(item) ? '<small>接集雨池 · 净化雨水</small>' : '';
+      : usablePurifier(item) ? '<small>生活舱用 · 可接旧集雨箱</small>' : '';
     return `<li><span>${escapeText(item.name)}<small>${escapeText(item.condition)}${authenticity}</small>${detail}</span>
       <span>成本 ${item.cost} 元</span></li>`;
   }), '库存为空');
@@ -392,7 +399,7 @@ function renderInventory() {
       bindAction(button, action);
       buttons.append(button);
     };
-    if (!state.installedPurifier && usablePurifier(item)) add('安装 F2 净水机', 'install');
+    if (state.economy !== 'port' && !state.installedPurifier && usablePurifier(item)) add('安装 F2 净水机', 'install');
     if (item.recyclePrice !== undefined) add(`回收${item.name} ${item.recyclePrice} 元`, 'recycle');
     row.append(buttons);
   });
@@ -402,7 +409,7 @@ function renderHarbor() {
   const available = !saveBlocked && harborOpen(state);
   harborEntry.hidden = !available;
   if (!available) { if (harborDialog.open) harborDialog.close(); return; }
-  harborCash.textContent = `第 ${state.day} 天 · 手头 ${state.cash} 元 · 今晚水费 ${waterCost(state)} 元`;
+  harborCash.textContent = `第 ${state.day} 天 · 手头 ${state.cash} 元${state.economy === 'port' ? '' : ` · 今晚水费 ${waterCost(state)} 元`}`;
   harborList.replaceChildren();
   for (const { item, held, bought, asks, bids } of harborStock(state)) {
     const row = document.createElement('section');
@@ -412,6 +419,7 @@ function renderHarbor() {
     const future = Object.entries(bids).filter(([day]) => Number(day) > state.day)
       .map(([day, price]) => `第 ${day} 天 ${price} 元`).join(' · ');
     row.innerHTML = `<h3>${item.name}</h3><p>${held ? `在库 · 成本 ${held.cost} 元` : bought ? '已处理' : currentAsk === undefined ? '今天无货' : '今天有货'}</p>
+      ${state.economy === 'port' ? `<p>${escapeText(item.observations.join(''))}</p>` : ''}
       <p>今天收购 ${currentBid === undefined ? '暂停' : `${currentBid} 元`}${future ? ` · 之后 ${future}` : ''}</p>`;
     const add = (type: 'harborBuy' | 'harborSell', label: string) => {
       const button = document.createElement('button');
@@ -435,7 +443,7 @@ function renderConsignment() {
     if (consignmentDialog.open) consignmentDialog.close();
     return;
   }
-  consignmentSchedule.textContent = `第 ${state.day + 1} 天开门结算 · 今晚水费 ${waterCost(state)} 元`;
+  consignmentSchedule.textContent = `第 ${state.day + 1} 天开门结算${state.economy === 'port' ? '' : ` · 今晚水费 ${waterCost(state)} 元`}`;
   consignmentStock.replaceChildren();
   const listing = state.consignment;
   const items = listing ? state.inventory.filter((item) => item.id === listing.itemId) : state.inventory;
@@ -478,8 +486,8 @@ function stockOutlook(item: Counter['inventory'][number]) {
     for (let date = state.day; date <= lastDay; date++) {
       if (usablePurifier(item) && date !== 5) continue;
       const firstVisit = date === state.day ? state.visitIndex : 0;
-      for (let index = firstVisit; index < scheduledVisits(date); index++) {
-        const visit = currentVisit(date, index);
+      for (let index = firstVisit; index < scheduledVisits(date, state.economy, state.harborSchedule); index++) {
+        const visit = currentVisit(date, index, state.economy, state.harborSchedule);
         if (visit?.kind !== 'sale') continue;
         const offer = saleOffer(state, visit);
         if (offer.item?.id === item.id) entries.push(`第 ${date} 天${visit.person}收 ${offer.price} 元`);
@@ -517,7 +525,7 @@ function renderStockDetail() {
     actions.append(button);
   };
   const target = { day: state.day, itemId: item.id };
-  if (!state.installedPurifier && usablePurifier(item)) add('安装自用', { ...target, type: 'install' });
+  if (state.economy !== 'port' && !state.installedPurifier && usablePurifier(item)) add('安装自用', { ...target, type: 'install' });
   if (item.recyclePrice !== undefined) add(`立即回收 ${item.recyclePrice} 元`, { ...target, type: 'recycle' });
   if (harborOpen(state)) {
     const marketPrice = harborStock(state).find((good) => good.item.id === item.id)?.bids[state.day];
@@ -579,14 +587,14 @@ function endingView(chapterTwo: boolean) {
   const title = state.waterShortfall ? '经营中断' : chapterTwo ? '第二章完成 · 迟到的淡水船' : '五日试玩完成';
   const summary = state.waterShortfall
     ? `当天无力买水，差 ${state.waterShortfall} 元。余额 ${state.cash} 元。`
-    : `现金结余 ${state.cash} 元 · 自有库存 ${state.inventory.length} 件 · ${chapterTwo ? '本章' : '本局'}水费 ${spent} 元`;
+    : `现金结余 ${state.cash} 元 · 自有库存 ${state.inventory.length} 件${state.economy === 'port' ? '' : ` · ${chapterTwo ? '本章' : '本局'}水费 ${spent} 元`}`;
   const savings = installed && !state.waterShortfall ? Math.max(0, waterPrice - spent) : 0;
   const waterSummary = chapterTwo
     ? `${state.waterShortfall ? '本章已付水费' : '五晚实际水支出'}（含买票） ${spent} 元 · F2 供水 ${waterEntries.filter((entry) => entry.description === waterLedger.purifier).length} 晚 · 水票抵扣 ${waterEntries.filter((entry) => entry.description === waterLedger.ticket).length} 晚`
     : `本局已省水费 ${savings} 元 · 今后每天可省 ${installed ? waterPrice : 0} 元`;
   const stock = chapterTwo ? `<p class="terms">自有库存 · ${state.inventory.map((item) => escapeText(item.name)).join('、') || '空'}</p>` : '';
   return `<div class="visitor"><h2>${title}</h2><p class="terms">${summary}</p>
-    <p class="terms">${waterSummary}</p>${stock}</div>`;
+    ${state.economy === 'port' ? '' : `<p class="terms">${waterSummary}</p>`}${stock}</div>`;
 }
 
 function renderNotes() {
@@ -606,7 +614,7 @@ function renderNotes() {
 function render(message = '船工在等你的报价。', tone: Result['tone'] = 'neutral') {
   const firstSummary = atFirstChapterSummary(state);
   const finished = state.day > lastDay || state.waterShortfall > 0 || firstSummary;
-  const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex) : undefined;
+  const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule) : undefined;
   const hints = {
     purchase: '当前在收货。先看看成色，再决定愿意给多少。',
     pawn: '当前在收当。对照货物线索，再看放款、赎回金额和到期日。',
@@ -616,10 +624,12 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     waterReserve: '订水立即扣款，水票只覆盖指定晚。F2 装好后优先使用集雨池的水。',
   };
   currentGuide.textContent = saveBlocked ? '' : visit ? hints[visit.kind] :
-    state.chapterTwoStarted && !finished ? '打烊时结算饮水。现金不足时，可返回账本回收自有库存或安装 F2。' : '';
-  const phase = harborPeriod(state.visitIndex, scheduledVisits(state.day), state.awaitingOpen && !finished);
+    state.chapterTwoStarted && !finished ? state.economy === 'port' ? '港务字条会写上到港日和受影响的订单。' : '打烊时结算饮水。现金不足时，可返回账本回收自有库存或安装 F2。' : '';
+  const phase = harborPeriod(state.visitIndex, scheduledVisits(state.day, state.economy, state.harborSchedule), state.awaitingOpen && !finished);
   const lightLabel = { morning: '早晨', noon: '日间', evening: '傍晚' }[phase];
   document.documentElement.dataset.phase = phase;
+  dockFlag.hidden = atTitle || saveBlocked || state.economy !== 'port' || !state.chapterTwoStarted ||
+    state.day < winchOrderDay(state.economy, state.harborSchedule);
   setSprite(guestArt, !saveBlocked && !atTitle ? visit?.portrait : undefined, visit?.id);
   if (saveBlocked || !visit || atTitle) {
     setSprite(itemArt);
@@ -644,6 +654,13 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     shelter.textContent += `。第 ${state.reservedWaterDay} 天的用水已预订。`;
   }
   shelter.className = 'empty';
+  if (state.economy === 'port' && state.installedPurifier && harborOpen(state)) {
+    const reclaim = document.createElement('button');
+    reclaim.className = 'quiet';
+    reclaim.textContent = '把已安装的 F2 拆回库存';
+    bindAction(reclaim, { type: 'reclaimPurifier', day: state.day });
+    shelter.append(document.createElement('br'), reclaim);
+  }
   renderNotes();
   renderDesk();
   renderStockDetail();
@@ -663,6 +680,9 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   } else if (finished) {
     scene.innerHTML = endingView(state.chapterTwoStarted === true);
     if (firstSummary) addAction('继续营业', { type: 'continue', day: state.day });
+    if (firstSummary && state.economy !== 'port') {
+      addAction('带账本进入新版港口', { type: 'continue', day: state.day, upgrade: true }, true, false, '保留现金、存货与当票，往后由水站配给');
+    }
   } else if (state.awaitingOpen) {
     scene.innerHTML = `<div class="visitor"><h2>第 ${state.day} 天</h2></div>`;
     addAction('开门营业', { type: 'open', day: state.day });
@@ -673,7 +693,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     const text = due ? '今天仍可赎，打烊后才归店。' : '今天的客人都接待完了。';
     const shortfall = Math.max(0, waterCost(state) - state.cash);
     scene.innerHTML = `<div class="visitor"><h2>准备打烊</h2><p class="terms">${text}</p>
-      ${state.day >= firstChapterEnd ? `<p class="terms">手头 ${state.cash} 元 · ${shortfall ? `差 ${shortfall} 元` : '足够支付今晚水费'}</p>` : ''}</div>`;
+      ${state.economy !== 'port' && state.day >= firstChapterEnd ? `<p class="terms">手头 ${state.cash} 元 · ${shortfall ? `差 ${shortfall} 元` : '足够支付今晚水费'}</p>` : ''}</div>`;
     if (state.day >= secondChapterStart && shortfall) {
       const closingDay = state.day;
       const button = document.createElement('button');
@@ -689,17 +709,17 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
       actions.append(button);
     } else addAction('打烊', { type: 'close', day: state.day });
   }
-  if (!saveBlocked && !finished && state.day > 1) {
+  if (!saveBlocked && !finished && state.day > 1 && state.economy !== 'port') {
     const paper = document.createElement('p');
     paper.className = 'first-tip';
     paper.textContent = waterLine();
     scene.append(paper);
-    if (state.day === secondChapterStart) {
-      const notice = document.createElement('p');
-      notice.className = 'terms';
-      notice.textContent = `港务告示 · ${harborNotice}`;
-      scene.append(notice);
-    }
+  }
+  if (!saveBlocked && !finished && state.day === secondChapterStart) {
+    const notice = document.createElement('p');
+    notice.className = 'terms';
+    notice.textContent = `港务告示 · ${portBulletin(state)}`;
+    scene.append(notice);
   }
   feedback.dataset.tone = tone;
   feedback.textContent = message;
@@ -840,7 +860,11 @@ function startTutorial() {
 }
 
 function startOpening() {
-  if (sandboxCash === null && !saveBlocked) rationDialog.showModal();
+  if (sandboxCash === null && !saveBlocked) {
+    openingRation.textContent = state.economy === 'port' ? '水站名册已补上你这一户。等补给船到港，泊位上会挂起蓝旗。'
+      : '配给条上盖着蓝印：新户饮水领到第 4 天，到淡水驳船提桶。';
+    rationDialog.showModal();
+  }
 }
 
 function renderTitle() {

@@ -299,3 +299,39 @@ test('柜台字条接待后仍可查看，已读保存且次日新字条仍未�
   assert.equal(restored.visitIndex, dismissed.visitIndex);
   assert.equal(restored.cash, 140);
 });
+test('新版零现金可拒绝所有交易走完十天，旧版合同照常结算', () => {
+  let state = { ...openCounter(0), economy: 'port', harborSchedule: 'late' };
+  for (let day = 1; day <= 10; day++) {
+    if (day === 6) state = settleVisit(state, { type: 'continue', day }).state;
+    if (day > 1) state = settleVisit(state, { type: 'open', day }).state;
+    let visit;
+    while ((visit = currentVisit(day, state.visitIndex, state.economy, state.harborSchedule))) {
+      assert.notEqual(visit.kind, 'waterReserve');
+      state = settleVisit(state, { type: 'dismiss', visitId: visit.id }).state;
+    }
+    state = settleVisit(state, { type: 'close', day }).state;
+    assert.equal(state.day, day + 1);
+  }
+  assert.equal(state.cash, 0);
+  assert.equal(state.waterShortfall, 0);
+  assert.deepEqual(state.ledger, []);
+  assert.equal(currentVisit(7, 1).kind, 'waterReserve');
+});
+
+test('船期真的移动采购，老档在五日小结可切换并原样取回 F2', () => {
+  assert.equal(currentVisit(9, 1, 'port')?.price, 155);
+  assert.equal(currentVisit(10, 0, 'port'), undefined);
+  assert.equal(currentVisit(9, 1, 'port', 'late'), undefined);
+  assert.equal(currentVisit(10, 0, 'port', 'late')?.price, 155);
+  const installedPurifier = { ...currentVisit(2, 1).item, cost: 80 };
+  const old = { ...openCounter(150), day: 6, awaitingOpen: true, installedPurifier };
+  const upgraded = settleVisit(old, { type: 'continue', upgrade: true, day: 6 }).state;
+  const opened = settleVisit(upgraded, { type: 'open', day: 6 }).state;
+  const action = { type: 'reclaimPurifier', day: 6 };
+  const reclaimed = settleVisit(opened, action);
+  assert.equal(reclaimed.state.cash, 150);
+  assert.deepEqual(reclaimed.state.inventory, [installedPurifier]);
+  assert.equal(reclaimed.state.installedPurifier, null);
+  const restored = readSave(JSON.stringify({ version: saveVersion, ...reclaimed })).state;
+  assert.equal(settleVisit(restored, action).state, restored);
+});

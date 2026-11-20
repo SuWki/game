@@ -57,13 +57,13 @@ export function consignmentBudget(item: Item, day: number, lateSchedule: boolean
 export const harborGoods: { item: Item; asks: Partial<Record<number, number>>; bids: Partial<Record<number, number>> }[] = [
   {
     item: { id: 'harbor-rope', name: '防潮缆绳', model: '船具', condition: '干燥可用',
-      observations: ['码头换下的备用缆绳，各收购点报价随出船安排变动。'], recyclePrice: 12 },
+      observations: ['船具铺拆包余料，货签标注剩余绳长。靠船前系泊班收整段，搬运工也收短段捆货。'], recyclePrice: 12 },
     asks: { 6: 22, 7: 25 },
     bids: { 7: 23, 8: 31, 9: 27, 10: 19 },
   },
   {
     item: { id: 'harbor-fuses', name: '密封保险丝', model: '电料', condition: '原封',
-      observations: ['民用配电盒备件，维修间在淡水船靠岸后批量收。'], recyclePrice: 16 },
+      observations: ['封签完好，额定值印在盒角。岸电检修班按工单里的配电盒规格收。'], recyclePrice: 16 },
     asks: { 7: 32, 8: 28 },
     bids: { 8: 24, 9: 43, 10: 39 },
   },
@@ -225,8 +225,60 @@ const script: Record<number, Visit[]> = {
   }],
 };
 
-export function currentVisit(day: number, index: number): Visit | undefined {
-  return script[day]?.[index];
+export const portNotice = '补给船错过潮窗，第 10 天才靠岸。原定第 9 天的船厂绞盘采购延至第 10 天。留港船工第 9 天仍可收货。水站照常发放居民饮水。';
+export const portMechanicRequest = '补给船生活舱等一台正品、可试机的 F2。接口要对上旧集雨箱，整机出 120 元。';
+export const onTimePortNotice = '补给船按原计划第 9 天靠岸。船工先收急用的货，船厂采购随后赶来。水站照常发放居民饮水。';
+
+export function winchOrderDay(economy?: 'port', schedule?: 'late') {
+  return economy === 'port' && schedule !== 'late' ? 9 : 10;
+}
+
+const portDialogue: Record<string, string> = {
+  'day-1-boatman': '船头换了电灯，这盏油灯刚拆下来。给我二十五，今天好把工钱结了。',
+  'day-1-watchmaker': '游丝到了，我得先付提货钱。这表是我父亲留下的，只押不卖。借 60，后天带 75 来赎。',
+  'day-2-mechanic': '岸电昨晚断了两回，油灯能点我出 40。还有张生活舱的工单，给我留台可试机的 F2。',
+  'day-2-diver': '拆船队按分成单把这台 F2 给我了。我去付下一趟的船位费，押 80，第 4 天前带 96 来赎。',
+  'day-3-watchmaker': '昨晚那两笔修表费收到了。我带了 75，来赎我父亲的表。',
+  'day-3-timer': '船具铺换来的 T8，换班时我用过，走时没问题。想押 20，等这趟工钱到了再赎。',
+  'day-4-timer-buyer': '明早出船，得有个能报换班时间的。能走就有用，原厂的我另加钱。',
+  'day-5-mechanic': '我是来交补给船生活舱工单的。原厂 F2 要对上旧集雨箱的接口，还得能试机。我带了 120。',
+  'day-6-board': '控制盒整套换掉了。这块备板接口还好，30 元卖断。明天检修工拿拓印来配，船工第 9 天也要。',
+  'day-7-board': '我带了旧控制盒的插座拓印。你那块板缺口对得上，我们今晚就能修好，55 元。',
+  'day-8-winch': '绞盘按分成归我，东西还在码头货棚。提货牌在这。旧齿轮收 95，加 30 我叫同班工友现换一副。',
+  'day-9-winch': '我只拿它拉空筐，磨损的也能用，换过齿轮的给 108。修控制盒的备板你还有吗？',
+  'day-10-winch': '船今天才靠岸，我赶来验制动器。换好齿轮能直接交吊装工单，155 元。待修的我也收。',
+};
+
+const portObservations: Record<string, string[]> = {
+  'old-lantern-1': ['灯座有改装时留下的新孔。', '提手铆钉稳固，油灯芯可点亮。'],
+  'watch-1': ['背面刻着钟表师父亲的名字。', '上弦后秒针走动均匀。'],
+  'purifier-1': ['分成单上的机号和铭牌一致。', '限淡水原水，接口与旧集雨箱相符，试机无漏。'],
+  'timer-1': ['铭牌标为 T8，底盖钢印为 T8-07。', '可以走时，跑船客曾拿它报换班。'],
+  'board-1': ['标签写着旧型绞盘控制盒备板。', '插座缺口朝左，接脚略氧化，维修站已试通电。'],
+  'winch-1': ['货棚提货牌和拆船分成凭据编号一致。', '换齿轮后可现场查制动器。'],
+};
+
+export function portItem(item: Item): Item {
+  return portObservations[item.id] ? { ...item, observations: portObservations[item.id] } : item;
+}
+
+function portVisits(day: number, schedule?: 'late'): Visit[] {
+  const orderDay = winchOrderDay('port', schedule);
+  const visits = day === 10 ? (orderDay === 10 ? script[10] : [])
+    : day === 9 && orderDay === 9 ? [...script[9], script[10][0]] : script[day] ?? [];
+  return visits.filter((visit) => visit.kind !== 'waterReserve').map((visit) => ({
+    ...visit,
+    ...('item' in visit ? { item: portItem(visit.item) } : {}),
+    person: visit.id === 'day-7-board' ? '检修工' : visit.person,
+    portrait: visit.id === 'day-7-board' ? 'mechanic' : visit.portrait,
+    dialogue: visit.id === 'day-10-winch' && orderDay === 9
+      ? '船按时靠岸了，我赶来验制动器。换好齿轮能直接交工单，155 元。待修的我也收。'
+      : portDialogue[visit.id] ?? visit.dialogue,
+  }));
+}
+
+export function currentVisit(day: number, index: number, economy?: 'port', schedule?: 'late'): Visit | undefined {
+  return (economy === 'port' ? portVisits(day, schedule) : script[day])?.[index];
 }
 
 export const harborPeriods = ['morning', 'noon', 'evening'] as const;
@@ -237,6 +289,6 @@ export function harborPeriod(visitIndex: number, visitCount: number, awaitingOpe
   return harborPeriods[Math.floor(visitIndex * harborPeriods.length / visitCount)];
 }
 
-export function scheduledVisits(day: number) {
-  return script[day]?.length ?? 0;
+export function scheduledVisits(day: number, economy?: 'port', schedule?: 'late') {
+  return (economy === 'port' ? portVisits(day, schedule) : script[day])?.length ?? 0;
 }

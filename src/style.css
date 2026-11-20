@@ -54,6 +54,7 @@ body { margin: 0; min-width: 320px; }
 [data-phase="noon"] .harbor[data-light="noon"],
 [data-phase="evening"] .harbor[data-light="evening"] { opacity: 1; }
 .shop-front { clip-path: inset(var(--counter-edge) 0 0); }
+#dock-flag { position: absolute; left: 62%; top: 40%; width: 19px; height: 11px; background: #4979a9; border-left: 3px solid #e7d8bf; box-shadow: 2px 2px #172b44; }
 .shop-room, .shop-front, .guest-art, .item-art { filter: var(--room-light); transition: filter 260ms ease; }
 [data-phase="noon"] .scenery { --room-light: brightness(1.03) saturate(.96); }
 [data-phase="evening"] .scenery { --room-light: brightness(.77) sepia(.12) saturate(.91); }
