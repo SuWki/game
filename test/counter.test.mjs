@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { openCounter, settleVisit } from '../src/counter.ts';
+import { counterNotes, openCounter, settleVisit } from '../src/counter.ts';
 import { board, currentVisit, harborPeriod, lantern, scheduledVisits } from '../src/scenario.ts';
 import { readSave, saveVersion } from '../src/save.ts';
 
@@ -246,4 +246,56 @@ test('港口货摊独立于接待进度，刷新保留船期与单件库存', ()
   assert.equal(sold.state.cash, 149);
   assert.equal(settleVisit(sold.state, sale).state, sold.state);
   assert.equal(settleVisit({ ...day9, awaitingOpen: true }, sale).state.cash, 118);
+});
+
+test('寄售次日开门只结算一次，高报价流拍后货仍在库', () => {
+  const item = { ...board, cost: 30 };
+  const day6 = { ...openCounter(140), day: 6, chapterTwoStarted: true, harborSchedule: 'late', inventory: [item] };
+  for (const [price, expectedCash, remaining] of [[24, 154, 0], [46, 130, 1]]) {
+    const listed = settleVisit(day6, { type: 'listItem', day: 6, itemId: item.id, price }).state;
+    assert.equal(listed.visitIndex, 0);
+    const closed = settleVisit({ ...listed, visitIndex: 1 }, { type: 'close', day: 6 });
+    const waiting = readSave(JSON.stringify({ version: saveVersion, ...closed })).state;
+    assert.equal(waiting.cash, 130);
+    const open = { type: 'open', day: 7 };
+    const next = settleVisit(waiting, open).state;
+    assert.equal(next.cash, expectedCash);
+    assert.equal(next.inventory.length, remaining);
+    assert.equal(next.consignment, undefined);
+    assert.equal(settleVisit(next, open).state, next);
+  }
+});
+
+test('撤下、当日出货或缺水终止时不会再结算寄售', () => {
+  const item = { ...board, cost: 30 };
+  const day7 = { ...openCounter(9), day: 7, chapterTwoStarted: true, inventory: [item] };
+  const list = { type: 'listItem', day: 7, itemId: item.id, price: 24 };
+  const listed = settleVisit(day7, list).state;
+  assert.ok(listed.consignment);
+  assert.equal(settleVisit(listed, { ...list, type: 'unlistItem' }).state.consignment, undefined);
+  const sold = settleVisit(listed, { type: 'sell', visitId: 'day-7-board' }).state;
+  assert.equal(sold.cash, 64);
+  assert.equal(sold.consignment, undefined);
+  const ready = { ...listed, visitIndex: 2 };
+  assert.equal(settleVisit(ready, { type: 'close', day: 7 }).state, ready);
+  const failed = settleVisit(ready, { type: 'close', day: 7, confirmShortfall: true }).state;
+  assert.equal(failed.waterShortfall, 1);
+  assert.equal(failed.inventory.length, 1);
+  assert.equal(failed.consignment, undefined);
+  const empty = { ...day7, inventory: [] };
+  assert.equal(settleVisit(empty, list).state, empty);
+});
+
+test('柜台字条接待后仍可查看，已读保存且次日新字条仍未读', () => {
+  const day6 = { ...openCounter(140), day: 6, chapterTwoStarted: true, awaitingOpen: true };
+  assert.deepEqual(counterNotes(day6).map((note) => note.id), ['water']);
+  const opened = settleVisit(day6, { type: 'open', day: 6 }).state;
+  const dismissed = settleVisit(opened, { type: 'dismiss', visitId: 'day-6-board' }).state;
+  assert.deepEqual(counterNotes(dismissed).map((note) => note.id), ['water', 'board']);
+  const read = settleVisit(dismissed, { type: 'readNotes', day: 6 });
+  const restored = readSave(JSON.stringify({ version: saveVersion, ...read })).state;
+  const day8 = { ...restored, day: 8, visitIndex: 0 };
+  assert.deepEqual(counterNotes(day8).filter((note) => !day8.readNoteIds.includes(note.id)).map((note) => note.id), ['winch']);
+  assert.equal(restored.visitIndex, dismissed.visitIndex);
+  assert.equal(restored.cash, 140);
 });

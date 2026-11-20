@@ -226,14 +226,54 @@ dialog::backdrop { background: #110f16bd; }
 #title-dialog::backdrop { background: linear-gradient(0deg, #10100ee8, #10100e44); }
 .title-card h1 { margin: 0 0 18px; font: 700 clamp(38px, 8vw, 72px)/1.15 SimSun, serif; letter-spacing: .13em; }
 #title-save:not(:empty) { margin: 0 0 16px; }
-#show-harbor { margin-bottom: 9px; }
-#harbor-dialog { width: min(590px, calc(100vw - 42px)); }
-#harbor-dialog p { font-size: 14px; line-height: 1.6; }
-#harbor-cash { font-weight: 700; }
+.side-trades:has(button:not([hidden])) { margin-bottom: 9px; }
+#harbor-dialog, #consignment-dialog { width: min(590px, calc(100vw - 42px)); }
+#harbor-dialog p, #consignment-dialog p { font-size: 14px; line-height: 1.6; }
+#harbor-cash, #consignment-schedule { font-weight: 700; }
 .harbor-good { border-top: 1px solid #af9273; padding: 10px 0; margin-top: 8px; }
 .harbor-good h3 { font-size: 16px; margin-bottom: 4px; }
 .harbor-good button { margin-top: 6px; color: #fff0d2; }
-#harbor-result:not(:empty) { padding-top: 8px; font-weight: 700; }
+#harbor-result:not(:empty), #consignment-result:not(:empty) { padding-top: 8px; font-weight: 700; }
+.counter-desk {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.counter-desk[hidden] { display: none; }
+.desk-stock { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--muted); }
+.desk-stock > span { font-weight: 700; color: var(--accent); }
+#desk-held:empty { display: none; }
+.stock-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.stock-chip { min-height: 28px; padding: 3px 8px; font-size: 13px; }
+.stock-chip img { width: 22px; height: 18px; object-fit: contain; vertical-align: middle; margin-right: 5px; image-rendering: pixelated; }
+.note-slip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  min-height: 32px;
+  padding: 5px 10px;
+  color: #35271b;
+  background: #f2d49c;
+  text-align: left;
+  font-size: 13px;
+}
+.note-slip[hidden] { display: none; }
+.note-slip span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; }
+.note-count {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 2px 5px;
+  background: #e7b972;
+  color: #291f16;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.note-count[hidden] { display: none; }
+#stock-dialog { width: min(565px, calc(100vw - 42px)); }
+#stock-detail .stock-actions, #stock-detail > p + p, #stock-result:not(:empty) { margin-top: 10px; }
 #notes-dialog { width: min(625px, calc(100vw - 42px)); }
 #guide-dialog { width: min(625px, calc(100vw - 42px)); }
 #ration-dialog, #inspect-dialog { width: min(480px, calc(100vw - 32px)); }

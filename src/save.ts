@@ -1,5 +1,5 @@
 import type { Counter, Result, Ticket } from './counter.ts';
-import { emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
+import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
 
 export const saveVersion = 3;
 type Save = Result & { version: typeof saveVersion };
@@ -70,6 +70,8 @@ export function readSave(raw: string): Save {
     (state.installedPurifier !== null && !isInventoryItem(state.installedPurifier)) ||
     !nonNegative(state.waterShortfall) || state.waterShortfall > (save.version === 2 ? waterPrice : emergencyWaterPrice) ||
     (state.reservedWaterDay !== undefined && state.reservedWaterDay !== waterStartDay && state.reservedWaterDay !== emergencyWaterDay) ||
+    (state.readNoteIds !== undefined && (!Array.isArray(state.readNoteIds) ||
+      !state.readNoteIds.every((id) => typeof id === 'string'))) ||
     (state.harborSchedule !== undefined && state.harborSchedule !== 'late')) {
     throw new Error('Invalid shelter state');
   }
@@ -78,6 +80,16 @@ export function readSave(raw: string): Save {
     const migrated = persisted as Counter;
     if (hasWaterReserve && state.day <= waterStartDay) migrated.reservedWaterDay = waterStartDay;
     return { version: saveVersion, state: migrated, message: save.message, tone: save.tone };
+  }
+  const listing = state.consignment;
+  if (listing !== undefined) {
+    if (!isObject(listing) || !integer(listing.price) || !integer(listing.listedDay) ||
+      listing.listedDay < secondChapterStart || listing.listedDay >= lastDay ||
+      listing.listedDay !== state.day - Number(state.awaitingOpen) || !state.chapterTwoStarted || state.waterShortfall) {
+      throw new Error('Invalid consignment');
+    }
+    const item = (state.inventory as Counter['inventory']).find((entry) => entry.id === listing.itemId);
+    if (!item || !consignmentPrices(item)?.includes(listing.price)) throw new Error('Invalid consignment item');
   }
   return save as Save;
 }

@@ -1,5 +1,6 @@
 import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterPrice, falseTimerPrice, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, purifierModel, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario.ts';
-import { board, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
+import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
+import { harborNotice, itemDetails, mechanicRequest, winchBuyers } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -38,6 +39,8 @@ export type Counter = {
   reservedWaterDay?: number;
   chapterTwoStarted?: boolean;
   harborSchedule?: 'late';
+  consignment?: { itemId: string; price: number; listedDay: number };
+  readNoteIds?: string[];
   installedPurifier: InventoryItem | null;
   waterShortfall: number;
 };
@@ -47,7 +50,11 @@ export type Action =
   | { type: 'dismiss' | 'sell' | 'redeem' | 'sellBoard'; visitId: string }
   | { type: 'appraiseTimer' | 'buyImitation' | 'sellTimerHonestly' | 'sellTimerAsGenuine' | 'reserveWater'; visitId: string }
   | { type: 'recycle' | 'install'; day: number; itemId: string }
-  | { type: 'harborBuy' | 'harborSell'; day: number; itemId: string }
+  | { type: 'harborBuy'; day: number; itemId: string }
+  | { type: 'harborSell'; day: number; itemId: string }
+  | { type: 'listItem'; day: number; itemId: string; price: number }
+  | { type: 'unlistItem'; day: number; itemId: string }
+  | { type: 'readNotes'; day: number }
   | { type: 'open'; day: number }
   | { type: 'continue'; day: number }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
@@ -77,10 +84,14 @@ function advance(state: Counter): Counter {
 
 function record(state: Counter, item: Item | null, description: string, change: number): Counter {
   const cash = state.cash + change;
-  return {
+  const next = {
     ...state, cash,
     ledger: [...state.ledger, { day: state.day, itemId: item?.id ?? null, description, change, balance: cash }],
   };
+  if (item && next.consignment?.itemId === item.id && !next.inventory.some((entry) => entry.id === item.id)) {
+    delete next.consignment;
+  }
+  return next;
 }
 
 export function heldTicket(state: Counter, visit: Extract<Visit, { kind: 'redeem' }>): Ticket | undefined {
@@ -96,12 +107,16 @@ export function usablePurifier(item: Item): boolean {
 export function saleOffer(state: Counter, visit: Extract<Visit, { kind: 'sale' }>) {
   if (!visit.matchModel) {
     const soldEarly = visit.id === 'day-10-winch' && state.ledger.some((entry) =>
-      entry.day === 9 && entry.itemId === visit.item.id && entry.change > 0);
+      entry.day === 9 && entry.itemId === visit.item.id && entry.description === `售出${visit.item.name}`);
+    const soldAtConsignment = visit.id === 'day-10-winch' && state.ledger.some((entry) =>
+      entry.itemId === visit.item.id && entry.description === `寄售成交 · ${visit.item.name}`);
     const item = state.inventory.find((item) => item.id === visit.item.id);
     const price = item?.id === wornWinch.id && item.condition === wornWinch.condition
       ? (visit.id === 'day-9-winch' ? wornWinchEarlyPrice : wornWinchLatePrice)
       : visit.price;
-    return { item, issue: soldEarly ? '船工说昨天已把绞盘买走了。下回有货再给我留吧。' : visit.missing, price };
+    const issue = soldEarly ? '船工说昨天已把绞盘买走了。下回有货再给我留吧。' :
+      soldAtConsignment ? '那台绞盘已经通过寄售出了？下回有货再给我留吧。' : visit.missing;
+    return { item, issue, price };
   }
   const candidates = state.inventory.filter((item) => item.model === visit.item.model);
   return {
@@ -135,9 +150,66 @@ export function atFirstChapterSummary(state: Counter) {
   return state.day === secondChapterStart && !state.chapterTwoStarted && !state.waterShortfall;
 }
 
+export function counterNotes(state: Counter) {
+  const notes: { id: string; day: number; title: string; text: string }[] = [];
+  const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex) : undefined;
+  const timer = itemDetails('timer-1')!;
+  if (state.knowsMechanicRequest) {
+    notes.push({ id: 'mechanic', day: 2, title: '修理匠留下的求购字条', text: mechanicRequest });
+  }
+  if (state.sawTimerClues || visit?.id === 'day-3-timer' || state.tickets.some((ticket) => ticket.item.id === timer.id)) {
+    notes.push({ id: 'timer', day: 3, title: '跑船客的计时器线索', text: timer.observations.join('') + (timer.reference ?? '') });
+  }
+  if (state.chapterTwoStarted) {
+    notes.push({ id: 'water', day: 6, title: '港务告示', text: harborNotice });
+    if (state.day > 6 || (state.day === 6 && !state.awaitingOpen)) {
+      notes.push({ id: 'board', day: 6, title: '旧电路板的买家字条', text: `第 7 天钟表师出 55 元，第 9 天船工出 ${lateBoardPrice} 元。` });
+    }
+    if (state.day > 8 || (state.day === 8 && !state.awaitingOpen)) {
+      notes.push({ id: 'winch', day: 8, title: '绞盘买家留条', text: `换好齿轮：${winchBuyers}${wornWinch.observations[1]}` });
+    }
+  }
+  return notes;
+}
+
 export function harborOpen(state: Counter) {
   return state.day >= secondChapterStart && state.day <= lastDay && state.chapterTwoStarted &&
     !state.awaitingOpen && !state.waterShortfall;
+}
+
+function updateConsignment(state: Counter, action: Extract<Action, { type: 'listItem' | 'unlistItem' }>): Result {
+  if (!harborOpen(state) || state.day !== action.day || state.day === lastDay) {
+    return notice(state, '今天已无法登记明日寄售。', 'warning');
+  }
+  if (action.type === 'unlistItem') {
+    if (state.consignment?.itemId !== action.itemId) return notice(state, '这件货当前没有挂售。', 'warning');
+    const next = { ...state };
+    delete next.consignment;
+    return notice(next, '已撤下寄售，货物仍在自有库存。');
+  }
+  if (state.consignment) return notice(state, '寄售架已有一件货，可以撤下后换货或改价。', 'warning');
+  const item = state.inventory.find((entry) => entry.id === action.itemId);
+  if (!item || !consignmentPrices(item)?.includes(action.price)) return notice(state, '这件货或报价无法寄售。', 'warning');
+  return notice({ ...state, consignment: { itemId: item.id, price: action.price, listedDay: state.day } },
+    `已挂售${item.name} ${action.price} 元，第 ${state.day + 1} 天开门时有结果。`, 'success');
+}
+
+function settleOpening(state: Counter): Result {
+  const next = { ...state, awaitingOpen: false, knowsMechanicRequest: state.knowsMechanicRequest || state.day === 2 };
+  const greeting = `第 ${state.day} 天开始营业。`;
+  const listing = next.consignment;
+  if (!listing || listing.listedDay >= state.day) return notice(next, greeting);
+  delete next.consignment;
+  const item = next.inventory.find((entry) => entry.id === listing.itemId);
+  if (!item) return notice(next, greeting);
+  const budget = consignmentBudget(item, state.day, state.harborSchedule === 'late');
+  if (budget === undefined || budget < listing.price) {
+    return notice(record(next, item, `寄售未成交 · ${item.name}`, 0),
+      `${greeting}${item.name}报价 ${listing.price} 元，买家最多出 ${budget ?? 0} 元，货仍在库。`);
+  }
+  next.inventory = next.inventory.filter((entry) => entry.id !== item.id);
+  return notice(record(next, item, `寄售成交 · ${item.name}`, listing.price),
+    `${greeting}寄售的${item.name}成交，到账 ${listing.price} 元。`, 'success');
 }
 
 export function harborStock(state: Counter) {
@@ -211,11 +283,14 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
   }
   const closed = { ...next, day: day + 1, awaitingOpen: true, visitIndex: 0, attempts: 0, waterShortfall };
   if (closed.reservedWaterDay === day) delete closed.reservedWaterDay;
-  if (waterShortfall) return notice(closed, `无法支付水费，还差 ${waterShortfall} 元。经营中断。`, 'warning');
+  if (waterShortfall) {
+    delete closed.consignment;
+    return notice(closed, `无法支付水费，还差 ${waterShortfall} 元。经营中断。`, 'warning');
+  }
   return notice(closed, message, 'success');
 }
 
-function disposeItem(state: Counter, action: Extract<Action, { itemId: string }>): Result {
+function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' | 'install' }>): Result {
   if (state.day !== action.day || state.day < waterStartDay || state.day > lastDay || state.awaitingOpen) {
     return notice(state, '当前无法处理库存。', 'warning');
   }
@@ -235,6 +310,12 @@ function disposeItem(state: Counter, action: Extract<Action, { itemId: string }>
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'readNotes') {
+    const ids = counterNotes(state).map((note) => note.id);
+    if (state.day !== action.day || ids.every((id) => state.readNoteIds?.includes(id))) return notice(state, '');
+    return notice({ ...state, readNoteIds: [...new Set([...(state.readNoteIds ?? []), ...ids])] }, '');
+  }
+  if (action.type === 'listItem' || action.type === 'unlistItem') return updateConsignment(state, action);
   if (action.type === 'harborBuy' || action.type === 'harborSell') return tradeAtHarbor(state, action);
   if (action.type === 'close') return closeDay(state, action);
   if (action.type === 'continue') {
@@ -245,9 +326,7 @@ export function settleVisit(state: Counter, action: Action): Result {
     if (state.day !== action.day || state.day > lastDay || !state.awaitingOpen || state.waterShortfall || atFirstChapterSummary(state)) {
       return notice(state, '当前无法开门。', 'warning');
     }
-    return notice({
-      ...state, awaitingOpen: false, knowsMechanicRequest: state.knowsMechanicRequest || action.day === 2,
-    }, `第 ${action.day} 天开始营业。`);
+    return settleOpening(state);
   }
   if ('itemId' in action) return disposeItem(state, action);
   if (state.awaitingOpen) return notice(state, '请先开门。', 'warning');

@@ -1,8 +1,9 @@
 import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
-import { currentVisit, falseTimerPrice, firstChapterEnd, harborNotice, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, itemDetails, lastDay, maxOffers, mechanicRequest, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, winchBuyers, type Item, type Visit } from './scenario';
+import { currentVisit, falseTimerPrice, firstChapterEnd, harborNotice, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, winchBuyers, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { harborOpen, harborStock } from './counter';
+import { counterNotes, harborOpen, harborStock } from './counter';
+import { consignmentPrices } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
 const cashParam = new URLSearchParams(location.search).get('cash');
@@ -36,7 +37,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="cash">现金 <output id="cash"></output> 元 <span id="cash-change" role="status"></span></div>
       <div class="tools">
         <button id="show-guide" class="quiet">玩法提示 <kbd aria-hidden="true">H</kbd></button>
-        <button id="show-notes" class="quiet">线索记录 <kbd aria-hidden="true">J</kbd></button>
+        <button id="show-notes" class="quiet">线索记录 <span id="note-count" class="note-count" hidden></span><kbd aria-hidden="true">J</kbd></button>
         <button id="show-ledger" class="quiet">账本</button>
         <button id="show-menu" class="quiet">菜单</button>
       </div>
@@ -52,10 +53,17 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
           </button></div>
         </div>
         <div class="worktop">
-          <button id="show-harbor" class="quiet" hidden>港口货摊</button>
+          <div class="side-trades">
+            <button id="show-harbor" class="quiet" hidden>港口货摊</button>
+            <button id="show-consignment" class="quiet" hidden>寄售架</button>
+          </div>
           <div id="actions" class="actions" aria-label="柜台操作"></div>
           <p id="feedback" role="status"></p>
           <button id="retry" class="quiet" hidden>重试读取</button>
+        </div>
+        <div id="counter-desk" class="counter-desk">
+          <button id="note-slip" class="note-slip" hidden></button>
+          <div class="desk-stock"><span>自有库存</span><div id="desk-items" class="stock-chips"></div><small id="desk-held"></small></div>
         </div>
       </section>
   </main>
@@ -72,6 +80,18 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <p>营业时随时可以买卖。收购牌按这局船期报价，每样来货只有一份。</p>
     <div id="harbor-stock"></div>
     <p id="harbor-result" role="status"></p>
+  </dialog>
+  <dialog id="consignment-dialog" aria-labelledby="consignment-title">
+    <div class="dialog-head"><h2 id="consignment-title">寄售架</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <p id="consignment-schedule"></p>
+    <p>挂一件自有库存，次日开门才回款。稳卖价一定能成交，另外两档要看买家预算。打烊前可撤下，或直接卖给来客。</p>
+    <div id="consignment-stock"></div>
+    <p id="consignment-result" role="status"></p>
+  </dialog>
+  <dialog id="stock-dialog" aria-labelledby="stock-title">
+    <div class="dialog-head"><h2 id="stock-title"></h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <div id="stock-detail"></div>
+    <p id="stock-result" role="status"></p>
   </dialog>
   <aside id="tutorial-tip" aria-label="新手引导" hidden>
     <p id="tutorial-copy"></p>
@@ -94,6 +114,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div><dt>典当与赎回</dt><dd>放款是借给客人的钱。物品先留在代管栏，到期当天仍可赎回。打烊时才处理逾期的货。</dd></div>
       <div><dt>真假与买断</dt><dd>把实物批次与手册对照。能指出疑点时，可以试着把典当谈成低价买断。向买家隐瞒真伪可能影响下一位熟客的报价。</dd></div>
       <div><dt>查账、找线索</dt><dd>按 J 翻线索记录，查看熟客求购和已经看过的证据。「账本」里可以看库存、当票、流水和用水。按 Esc 回到柜台。</dd></div>
+      <div><dt>处理手上的货</dt><dd>点击柜台下方的自有货物，可查看买家报价，或直接回收、寄售。代管货要等逾期归店才能处置。</dd></div>
     </dl>
   </dialog>
   <dialog id="notes-dialog" aria-labelledby="notes-title">
@@ -149,6 +170,16 @@ const feedback = document.querySelector<HTMLElement>('#feedback')!;
 const retry = document.querySelector<HTMLButtonElement>('#retry')!;
 const restart = document.querySelector<HTMLButtonElement>('#restart')!;
 const notesDialog = document.querySelector<HTMLDialogElement>('#notes-dialog')!;
+const noteSlip = document.querySelector<HTMLButtonElement>('#note-slip')!;
+const noteCount = document.querySelector<HTMLElement>('#note-count')!;
+const desk = document.querySelector<HTMLElement>('#counter-desk')!;
+const deskItems = document.querySelector<HTMLElement>('#desk-items')!;
+const deskHeld = document.querySelector<HTMLElement>('#desk-held')!;
+const stockDialog = document.querySelector<HTMLDialogElement>('#stock-dialog')!;
+const stockTitle = document.querySelector<HTMLElement>('#stock-title')!;
+const stockDetail = document.querySelector<HTMLElement>('#stock-detail')!;
+const stockResult = document.querySelector<HTMLElement>('#stock-result')!;
+let selectedStockId: string | undefined;
 const guideDialog = document.querySelector<HTMLDialogElement>('#guide-dialog')!;
 const currentGuide = document.querySelector<HTMLElement>('#current-guide')!;
 const ledgerDialog = document.querySelector<HTMLDialogElement>('#ledger-dialog')!;
@@ -162,6 +193,11 @@ const harborDialog = document.querySelector<HTMLDialogElement>('#harbor-dialog')
 const harborCash = document.querySelector<HTMLElement>('#harbor-cash')!;
 const harborList = document.querySelector<HTMLElement>('#harbor-stock')!;
 const harborResult = document.querySelector<HTMLElement>('#harbor-result')!;
+const consignmentEntry = document.querySelector<HTMLButtonElement>('#show-consignment')!;
+const consignmentDialog = document.querySelector<HTMLDialogElement>('#consignment-dialog')!;
+const consignmentSchedule = document.querySelector<HTMLElement>('#consignment-schedule')!;
+const consignmentStock = document.querySelector<HTMLElement>('#consignment-stock')!;
+const consignmentResult = document.querySelector<HTMLElement>('#consignment-result')!;
 const waterDialog = document.querySelector<HTMLDialogElement>('#water-shortfall')!;
 const waterDetail = document.querySelector<HTMLElement>('#water-shortfall-detail')!;
 const inspectCounter = document.querySelector<HTMLButtonElement>('#inspect-counter')!;
@@ -388,6 +424,150 @@ function renderHarbor() {
   }
 }
 
+function renderConsignment() {
+  const available = !saveBlocked && harborOpen(state) && state.day < lastDay;
+  consignmentEntry.hidden = !available;
+  consignmentEntry.textContent = state.consignment ? '寄售架 · 1 件' : '寄售架';
+  if (!available) {
+    if (consignmentDialog.open) consignmentDialog.close();
+    return;
+  }
+  consignmentSchedule.textContent = `第 ${state.day + 1} 天开门结算 · 今晚水费 ${waterCost(state)} 元`;
+  consignmentStock.replaceChildren();
+  const listing = state.consignment;
+  const items = listing ? state.inventory.filter((item) => item.id === listing.itemId) : state.inventory;
+  for (const item of items) {
+    const prices = consignmentPrices(item);
+    if (!prices) continue;
+    const row = document.createElement('section');
+    row.className = 'harbor-good';
+    const authenticity = item.authenticity === 'imitation' ? ' · 标明仿品' : '';
+    row.innerHTML = `<h3>${escapeText(item.name)}</h3><p>${escapeText(item.condition)}${authenticity} · 成本 ${item.cost} 元</p>`;
+    const buttons = document.createElement('div');
+    buttons.className = 'actions';
+    const add = (text: string, action: Action) => {
+      const button = document.createElement('button');
+      button.textContent = text;
+      bindAction(button, action);
+      buttons.append(button);
+    };
+    if (listing) {
+      row.insertAdjacentHTML('beforeend', `<p>挂牌 ${listing.price} 元 · 等待买家</p>`);
+      add('撤下寄售', { type: 'unlistItem', day: state.day, itemId: item.id });
+    } else {
+      prices.forEach((price, index) => {
+        const labels = ['稳卖', '试价', '等高价'];
+        add(`${labels[index]} ${price} 元`, { type: 'listItem', day: state.day, itemId: item.id, price });
+      });
+    }
+    row.append(buttons);
+    consignmentStock.append(row);
+  }
+  if (!consignmentStock.childElementCount) consignmentStock.textContent = '目前没有可寄售的自有货物。';
+}
+
+function stockOutlook(item: Counter['inventory'][number]) {
+  const entries: string[] = [];
+  if (item.id === board.id && state.day <= 9 && (state.day < 9 || state.visitIndex === 0)) {
+    entries.push(`第 9 天船工收 ${lateBoardPrice} 元`);
+  }
+  if ((item.id === board.id || item.id === 'winch-1' || usablePurifier(item))) {
+    for (let date = state.day; date <= lastDay; date++) {
+      if (usablePurifier(item) && date !== 5) continue;
+      const firstVisit = date === state.day ? state.visitIndex : 0;
+      for (let index = firstVisit; index < scheduledVisits(date); index++) {
+        const visit = currentVisit(date, index);
+        if (visit?.kind !== 'sale') continue;
+        const offer = saleOffer(state, visit);
+        if (offer.item?.id === item.id) entries.push(`第 ${date} 天${visit.person}收 ${offer.price} 元`);
+      }
+    }
+  }
+  const market = harborStock(state).find((good) => good.item.id === item.id);
+  if (market) {
+    const bids = Object.entries(market.bids).filter(([date]) => Number(date) >= state.day)
+      .map(([date, price]) => `第 ${date} 天 ${price} 元`);
+    if (bids.length) entries.push(`港口收购 · ${bids.join('、')}`);
+  }
+  return entries;
+}
+
+function renderStockDetail() {
+  if (!stockDialog.open) return;
+  const item = saveBlocked ? undefined : state.inventory.find((entry) => entry.id === selectedStockId);
+  if (!item) { stockDialog.close(); return; }
+  stockTitle.textContent = item.name;
+  const sprite = itemSprite(item);
+  const condition = item.authenticity === 'imitation' ? ' · 仿品' : '';
+  const outlook = stockOutlook(item);
+  stockDetail.innerHTML = `${sprite ? `<img class="inspect-art" src="${artwork(sprite)}" alt="">` : ''}
+    <p>${escapeText(item.condition)}${condition} · 成本 ${item.cost} 元</p>
+    ${records(outlook.map((line) => `<li>${escapeText(line)}</li>`), '暂无线索显示有约定买家。')}`;
+  if (state.day < waterStartDay || state.day > lastDay || state.awaitingOpen) return;
+  const actions = document.createElement('div');
+  actions.className = 'actions stock-actions';
+  const add = (label: string, action: Action) => {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.className = 'quiet';
+    bindAction(button, action);
+    actions.append(button);
+  };
+  const target = { day: state.day, itemId: item.id };
+  if (!state.installedPurifier && usablePurifier(item)) add('安装自用', { ...target, type: 'install' });
+  if (item.recyclePrice !== undefined) add(`立即回收 ${item.recyclePrice} 元`, { ...target, type: 'recycle' });
+  if (harborOpen(state)) {
+    const marketPrice = harborStock(state).find((good) => good.item.id === item.id)?.bids[state.day];
+    if (marketPrice !== undefined) add(`立即卖给货摊 ${marketPrice} 元`, { ...target, type: 'harborSell' });
+    if (state.day < lastDay) {
+      const prices = consignmentPrices(item);
+      const listed = state.consignment?.itemId === item.id;
+      if (listed) {
+        const pending = document.createElement('p');
+        pending.textContent = `已挂牌 ${state.consignment?.price} 元 · 次日开门结算`;
+        stockDetail.append(pending);
+        add('撤下寄售', { ...target, type: 'unlistItem' });
+      } else if (!state.consignment && prices) {
+        const notice = document.createElement('p');
+        notice.textContent = '寄售次日回款。稳卖价可成交，试价和高价取决于买家预算。';
+        stockDetail.append(notice);
+        const labels = ['寄售稳卖', '寄售试价', '寄售等高价'];
+        prices.forEach((price, index) => add(`${labels[index]} ${price} 元`, { ...target, type: 'listItem', price }));
+      }
+    }
+  }
+  if (actions.childElementCount) stockDetail.append(actions);
+}
+
+function renderDesk() {
+  desk.hidden = saveBlocked;
+  if (saveBlocked) return;
+  deskItems.replaceChildren();
+  if (!state.inventory.length) deskItems.textContent = '暂时空着';
+  for (const item of state.inventory) {
+    const chip = document.createElement('button');
+    chip.className = 'quiet stock-chip';
+    chip.setAttribute('aria-haspopup', 'dialog');
+    const sprite = itemSprite(item);
+    if (sprite) {
+      const img = document.createElement('img');
+      img.src = artwork(sprite);
+      img.alt = '';
+      chip.append(img);
+    }
+    chip.append(item.name, state.consignment?.itemId === item.id ? ' · 寄售中' : '');
+    chip.addEventListener('click', () => {
+      selectedStockId = item.id;
+      stockResult.textContent = '';
+      stockDialog.showModal();
+      renderStockDetail();
+    });
+    deskItems.append(chip);
+  }
+  const held = state.tickets.filter((ticket) => ticket.status === 'held');
+  deskHeld.textContent = held.length ? `代管 ${held.length} 件 · 尚未归店` : '';
+}
+
 function endingView(chapterTwo: boolean) {
   const installed = state.installedPurifier !== null;
   const waterEntries = state.ledger.filter((entry) => entry.itemId === null && (entry.day >= secondChapterStart) === chapterTwo);
@@ -406,29 +586,18 @@ function endingView(chapterTwo: boolean) {
     <p class="terms">${waterSummary}</p>${stock}</div>`;
 }
 
-function renderNotes(visit: Visit | undefined) {
-  const entries: string[] = [];
-  const timer = itemDetails('timer-1')!;
-  const timerVisited = state.sawTimerClues || visit?.id === 'day-3-timer' ||
-    state.tickets.some((ticket) => ticket.item.id === timer.id);
-  if (!saveBlocked && timerVisited) {
-    entries.push(`<li><span class="note-day">第 3 天</span><div><strong>跑船客 · 物件线索</strong>
-      <p>${escapeText(timer.observations.join(''))}${escapeText(timer.reference ?? '')}</p></div></li>`);
+function renderNotes() {
+  const notes = saveBlocked ? [] : counterNotes(state).reverse();
+  const unread = notes.filter((note) => !state.readNoteIds?.includes(note.id));
+  const latest = unread[0];
+  noteCount.hidden = unread.length === 0;
+  noteCount.textContent = `${unread.length} 条未读`;
+  noteSlip.hidden = !latest;
+  if (latest) {
+    noteSlip.innerHTML = `<strong>未读 · ${escapeText(latest.title)}</strong><span>${escapeText(latest.text)}</span>`;
   }
-  if (!saveBlocked && state.knowsMechanicRequest) {
-    entries.push(`<li><span class="note-day">第 2 天</span><div><strong>修理匠 · 熟客求购</strong>
-      <p>${mechanicRequest}</p></div></li>`);
-  }
-  if (!saveBlocked && state.chapterTwoStarted) {
-    entries.push(`<li><span class="note-day">第 6 天</span><div><strong>港务告示</strong><p>${harborNotice}</p></div></li>`);
-    if (state.day > 6 || visit?.id === 'day-6-board') {
-      entries.push(`<li><span class="note-day">第 6 天</span><div><strong>旧电路板</strong><p>第 7 天钟表师出 55 元，第 9 天船工出 ${lateBoardPrice} 元。</p></div></li>`);
-    }
-    if (state.day > 8 || visit?.id === 'day-8-winch') {
-      entries.push(`<li><span class="note-day">第 8 天</span><div><strong>绞盘买家</strong><p>换好齿轮：${winchBuyers}${wornWinch.observations[1]}</p></div></li>`);
-    }
-  }
-  requests.innerHTML = records(entries, '尚无提示');
+  requests.innerHTML = records(notes.map((note) => `<li><span class="note-day">第 ${note.day} 天</span>
+    <div><strong>${escapeText(note.title)}</strong><p>${escapeText(note.text)}</p></div></li>`), '尚无提示');
 }
 
 function render(message = '船工在等你的报价。', tone: Result['tone'] = 'neutral') {
@@ -465,13 +634,16 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   count.textContent = saveBlocked ? '—' : `${state.inventory.length} 件`;
   renderInventory();
   renderHarbor();
+  renderConsignment();
   shelter.textContent = saveBlocked ? '等待恢复存档' :
     finished ? (state.installedPurifier ? 'F2 已安装，接集雨池供水。' : '庇护所尚未安装 F2。') : waterLine();
   if (!saveBlocked && !finished && state.reservedWaterDay && state.reservedWaterDay > state.day) {
     shelter.textContent += `。第 ${state.reservedWaterDay} 天的用水已预订。`;
   }
   shelter.className = 'empty';
-  renderNotes(visit);
+  renderNotes();
+  renderDesk();
+  renderStockDetail();
   tickets.innerHTML = records((saveBlocked ? [] : state.tickets).map((ticket) => {
     const status = { held: '代管中', redeemed: '已赎回', expired: '已逾期归店' }[ticket.status];
     const due = ticket.status === 'held' && ticket.dueDay === state.day ? ' · 今日打烊前仍可赎' : '';
@@ -565,6 +737,8 @@ async function update(run: () => void) {
         if (!saveBlocked) feedback.textContent = '另一个页面更新了进度，已重新读取。请确认当前柜台后再操作。';
         if (atTitle) renderTitle();
         if (harborDialog.open) harborResult.textContent = feedback.textContent;
+        if (consignmentDialog.open) consignmentResult.textContent = feedback.textContent;
+        if (stockDialog.open) stockResult.textContent = feedback.textContent;
         return;
       }
       run();
@@ -574,6 +748,8 @@ async function update(run: () => void) {
     feedback.textContent = '无法保存这次操作。请检查浏览器存储权限，再重试。';
     if (atTitle) titleSave.textContent = feedback.textContent;
     if (harborDialog.open) harborResult.textContent = feedback.textContent;
+    if (consignmentDialog.open) consignmentResult.textContent = feedback.textContent;
+    if (stockDialog.open) stockResult.textContent = feedback.textContent;
   } finally {
     busy = false;
   }
@@ -584,6 +760,7 @@ async function handle(action: Action) {
   await update(() => {
     const result = settleVisit(state, action);
     const fromHarbor = action.type === 'harborBuy' || action.type === 'harborSell';
+    const fromConsignment = action.type === 'listItem' || action.type === 'unlistItem';
     if (tutorialStep && (action.type === 'offer' || action.type === 'dismiss')) finishTutorial();
     if (result.state !== state) {
       persist(result);
@@ -597,6 +774,16 @@ async function handle(action: Action) {
       if (harborDialog.open && !harborDialog.contains(document.activeElement)) {
         harborDialog.querySelector('button')?.focus();
       }
+    }
+    if (fromConsignment) {
+      consignmentResult.textContent = result.message;
+      if (consignmentDialog.open && !consignmentDialog.contains(document.activeElement)) {
+        consignmentDialog.querySelector('button')?.focus();
+      }
+    }
+    if (stockDialog.open) {
+      stockResult.textContent = result.message;
+      if (!stockDialog.contains(document.activeElement)) stockDialog.querySelector('button')?.focus();
     }
   });
 }
@@ -674,7 +861,23 @@ function enterGame() {
   startTutorial();
 }
 
-document.querySelector('#show-notes')!.addEventListener('click', () => notesDialog.showModal());
+function openNotes() {
+  notesDialog.showModal();
+  if (saveBlocked || noteCount.hidden) return;
+  void update(() => {
+    const result = settleVisit(state, { type: 'readNotes', day: state.day });
+    if (result.state === state) return;
+    const tone = feedback.dataset.tone;
+    persist({
+      ...result,
+      message: feedback.textContent ?? '',
+      tone: tone === 'success' || tone === 'warning' ? tone : 'neutral',
+    });
+  });
+}
+
+document.querySelector('#show-notes')!.addEventListener('click', openNotes);
+noteSlip.addEventListener('click', openNotes);
 document.querySelector('#show-guide')!.addEventListener('click', () => guideDialog.showModal());
 document.querySelector('#show-ledger')!.addEventListener('click', () => ledgerDialog.showModal());
 document.querySelector('#show-menu')!.addEventListener('click', () => menuDialog.showModal());
@@ -685,6 +888,10 @@ document.querySelector('#return-title')!.addEventListener('click', () => {
 harborEntry.addEventListener('click', () => {
   harborResult.textContent = '';
   harborDialog.showModal();
+});
+consignmentEntry.addEventListener('click', () => {
+  consignmentResult.textContent = '';
+  consignmentDialog.showModal();
 });
 titleDialog.addEventListener('cancel', (event) => event.preventDefault());
 titleContinue.addEventListener('click', enterGame);
@@ -713,7 +920,10 @@ document.addEventListener('keydown', (event) => {
   const panel = event.code === 'KeyH' ? guideDialog : event.code === 'KeyJ' ? notesDialog : undefined;
   if (!panel || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
   if (panel.open) panel.close();
-  else if (!document.querySelector('dialog[open]')) panel.showModal();
+  else if (!document.querySelector('dialog[open]')) {
+    if (panel === notesDialog) openNotes();
+    else panel.showModal();
+  }
 });
 
 retry.addEventListener('click', restore);

@@ -32,6 +32,28 @@ export type Item = {
   recyclePrice?: number;
 };
 
+const resaleBands: Record<string, readonly [number, number, number]> = {
+  'old-lantern-1': [22, 30, 38],
+  'watch-1': [36, 49, 62],
+  'purifier-1': [62, 88, 108],
+  'timer-1': [9, 12, 16],
+  'board-1': [24, 38, 46],
+  'winch-1': [93, 114, 132],
+  'harbor-rope': [18, 24, 29],
+  'harbor-fuses': [22, 30, 38],
+};
+
+export function consignmentPrices(item: Item) {
+  if (item.id === 'winch-1' && item.condition === wornWinch.condition) return [78, 92, 104] as const;
+  return resaleBands[item.id];
+}
+
+export function consignmentBudget(item: Item, day: number, lateSchedule: boolean) {
+  const prices = consignmentPrices(item);
+  const itemOffset = Object.keys(resaleBands).indexOf(item.id);
+  return prices?.[(day + itemOffset + (lateSchedule ? 1 : 0)) % prices.length];
+}
+
 export const harborGoods: { item: Item; asks: Partial<Record<number, number>>; bids: Partial<Record<number, number>> }[] = [
   {
     item: { id: 'harbor-rope', name: '防潮缆绳', model: '船具', condition: '干燥可用',
