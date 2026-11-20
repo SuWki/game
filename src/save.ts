@@ -1,4 +1,4 @@
-import type { Counter, Result, Ticket } from './counter.ts';
+import { rentalDays, usablePurifier, type Counter, type Result, type Ticket } from './counter.ts';
 import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, roundStart, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
 
 export const saveVersion = 3;
@@ -100,6 +100,18 @@ export function readSave(raw: string): Save {
     }
     const item = (state.inventory as Counter['inventory']).find((entry) => entry.id === listing.itemId);
     if (!item || !consignmentPrices(item)?.includes(listing.price)) throw new Error('Invalid consignment item');
+  }
+  const orders = state.workshopOrders;
+  if (orders !== undefined) {
+    const day = state.day;
+    if (!Array.isArray(orders) || state.economy !== 'port' || orders.length > 2 ||
+      !orders.every((order) => isObject(order) && (order.kind === 'repair' || order.kind === 'rent') &&
+        isInventoryItem(order.item) && integer(order.dueDay) && order.dueDay >= day &&
+        order.dueDay <= day + rentalDays && (order.dueDay > day || state.awaitingOpen) &&
+        (order.kind === 'rent' ? usablePurifier(order.item) : /^((round-\d+-)?winch-1)$/.test(order.item.id) &&
+          order.item.condition === '齿轮磨损') &&
+        !(state.inventory as Counter['inventory']).some((item) => item.id === (order.item as Item).id)) ||
+      new Set(orders.map((order) => order.kind)).size !== orders.length) throw new Error('Invalid workshop orders');
   }
   return save as Save;
 }

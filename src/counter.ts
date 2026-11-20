@@ -1,13 +1,17 @@
 import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterPrice, falseTimerPrice, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, purifierModel, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario.ts';
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
-import { baseItemId, portRound, roundStart } from './scenario.ts';
+import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
 } as const;
 
 type InventoryItem = Item & { cost: number };
+export type WorkshopOrder = { kind: 'repair' | 'rent'; item: InventoryItem; dueDay: number };
+export const repairFee = 22;
+export const rentalFee = 12;
+export const rentalDays = 3;
 type LedgerEntry = {
   day: number;
   itemId: string | null;
@@ -42,6 +46,7 @@ export type Counter = {
   harborSchedule?: 'late';
   economy?: 'port';
   activeRoundStart?: number;
+  workshopOrders?: WorkshopOrder[];
   f2Appointment?: { day: number; status: 'booked' | 'closed' };
   fuseReferral?: 'accepted' | 'paid';
   consignment?: { itemId: string; price: number; listedDay: number };
@@ -65,6 +70,9 @@ export type Action =
   | { type: 'continue'; day: number; upgrade?: true }
   | { type: 'reclaimPurifier'; day: number }
   | { type: 'roundReferral'; day: number }
+  | { type: 'sendRepair'; day: number; itemId: string }
+  | { type: 'rentF2'; day: number; itemId: string }
+  | { type: 'buyRepairStock' | 'sellRepairStock'; day: number }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
@@ -173,6 +181,63 @@ export function pastLastDay(state: Counter) {
 export function consignmentOpen(state: Counter) {
   return !state.awaitingOpen && state.chapterTwoStarted && state.day >= secondChapterStart &&
     (state.economy === 'port' || state.day < lastDay) && !state.waterShortfall;
+}
+
+export function workshopOpen(state: Counter) {
+  return state.economy === 'port' && consignmentOpen(state);
+}
+
+export function workshopEligibility(state: Counter, item: InventoryItem) {
+  if (!workshopOpen(state)) return undefined;
+  const repair = baseItemId(item.id) === 'winch-1' && item.condition === wornWinch.condition;
+  const rentedThisRound = state.ledger.some((entry) => entry.day >= roundStart(state.day) && entry.description === '设备借出 · F2 净水机');
+  const kind = repair ? 'repair' : usablePurifier(item) && !rentedThisRound ? 'rent' : undefined;
+  return kind && !state.workshopOrders?.some((order) => order.kind === kind) ? kind : undefined;
+}
+
+export function repairMarket(state: Counter) {
+  if (!workshopOpen(state) || state.day <= lastDay || portRound(roundStart(state.day), state.harborSchedule).title !== '岸电检修') return;
+  const stock = roundRepairStock(state.day);
+  const start = roundStart(state.day);
+  const owned = state.inventory.find((item) => baseItemId(item.id) === 'winch-1');
+  return {
+    stock, owned,
+    canBuy: state.day < start + 3 && !state.ledger.some((entry) => entry.itemId === stock.id),
+    canSell: state.day >= start + 3 && !state.ledger.some((entry) => entry.day >= start && entry.description === '工班收购 · 码头绞盘'),
+    price: owned?.condition === wornWinch.condition ? wornWinchLatePrice : 155,
+  };
+}
+
+function sendToWorkshop(state: Counter, action: Extract<Action, { type: 'sendRepair' | 'rentF2' }>): Result {
+  const item = state.inventory.find((entry) => entry.id === action.itemId);
+  const kind = action.type === 'sendRepair' ? 'repair' : 'rent';
+  if (action.day !== state.day || !item || workshopEligibility(state, item) !== kind) {
+    return notice(state, '当前无法办理这件货的委托。', 'warning');
+  }
+  if (kind === 'repair' && state.cash < repairFee) return notice(state, `修理费还差 ${repairFee - state.cash} 元。`, 'warning');
+  const dueDay = state.day + (kind === 'repair' ? 1 : rentalDays);
+  const order: WorkshopOrder = { kind, item, dueDay };
+  const next = {
+    ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id),
+    workshopOrders: [...(state.workshopOrders ?? []), order],
+  };
+  const description = kind === 'repair' ? '支付维修费 · 码头绞盘' : '设备借出 · F2 净水机';
+  return notice(record(next, item, description, kind === 'repair' ? -repairFee : 0),
+    `已交出${item.name}。第 ${dueDay} 天开门归还。`, 'success');
+}
+
+function settleWorkshop(next: Counter): Result {
+  const due = next.workshopOrders?.filter((order) => order.dueDay <= next.day) ?? [];
+  if (!due.length) return notice(next, '');
+  let state: Counter = { ...next, workshopOrders: next.workshopOrders?.filter((order) => order.dueDay > next.day) };
+  const messages: string[] = [];
+  for (const { kind, item } of due) {
+    const returned = kind === 'repair' ? repairedWinch({ ...item, cost: item.cost + repairFee }) : item;
+    state = record({ ...state, inventory: [...state.inventory, returned] }, returned,
+      kind === 'repair' ? '维修归还 · 码头绞盘' : '设备短租 · F2 净水机', kind === 'rent' ? rentalFee : 0);
+    messages.push(kind === 'repair' ? '绞盘已修好归库。' : `F2 已归库，到账租金 ${rentalFee} 元。`);
+  }
+  return notice(state, messages.join(''), 'success');
 }
 
 export function roundReferral(state: Counter) {
@@ -292,8 +357,9 @@ function updateConsignment(state: Counter, action: Extract<Action, { type: 'list
 }
 
 function settleOpening(state: Counter): Result {
-  const next = { ...state, awaitingOpen: false, knowsMechanicRequest: state.knowsMechanicRequest || state.day === 2 };
-  const greeting = `第 ${state.day} 天开始营业。`;
+  const returned = settleWorkshop({ ...state, awaitingOpen: false, knowsMechanicRequest: state.knowsMechanicRequest || state.day === 2 });
+  const next = returned.state;
+  const greeting = `第 ${state.day} 天开始营业。${returned.message}`;
   const listing = next.consignment;
   if (!listing || listing.listedDay >= state.day) return notice(next, greeting);
   delete next.consignment;
@@ -410,6 +476,20 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);
+  if (action.type === 'buyRepairStock' || action.type === 'sellRepairStock') {
+    const market = repairMarket(state);
+    if (!market || action.day !== state.day) return notice(state, '今天没有这笔拆船件生意。', 'warning');
+    if (action.type === 'buyRepairStock') {
+      if (!market.canBuy || state.cash < wornWinchPrice) return notice(state, '货已处理或现金不足。', 'warning');
+      return notice(record({ ...state, inventory: [...state.inventory, { ...market.stock, cost: wornWinchPrice }] },
+        market.stock, '收购待修绞盘', -wornWinchPrice), '待修绞盘已入库。', 'success');
+    }
+    const item = market.owned;
+    if (!market.canSell || !item) return notice(state, '码头今天没有可交付的自有绞盘。', 'warning');
+    return notice(record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) },
+      item, '工班收购 · 码头绞盘', market.price), `绞盘验收成交，到账 ${market.price} 元。`, 'success');
+  }
   if (action.type === 'roundReferral') {
     const referral = roundReferral(state);
     if (action.day !== state.day || !referral?.available || referral.paid) return notice(state, '这笔介绍暂时无法结算。', 'warning');

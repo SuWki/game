@@ -271,6 +271,16 @@ export function portItem(item: Item): Item {
   return portObservations[item.id] ? { ...item, observations: portObservations[item.id] } : item;
 }
 
+export function repairedWinch<T extends Item>(item: T): T {
+  return { ...item, condition: winch.condition, observations: ['维修单注明已更换齿轮。', '制动器经修理匠验收，可用于吊装。'] };
+}
+
+export function roundRepairStock(day: number): Item {
+  const start = roundStart(day);
+  return { ...wornWinch, id: `round-${start}-winch-1`,
+    observations: ['拆解队的提货牌编号与货棚记录一致。', wornWinch.observations[0]] };
+}
+
 function portVisits(day: number, schedule?: 'late'): Visit[] {
   if (day > lastDay) return recurringVisits(day, schedule);
   const orderDay = winchOrderDay('port', schedule);

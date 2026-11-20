@@ -2,7 +2,7 @@ import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, roundReferral, winchBulletin } from './counter';
+import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, winchBulletin, workshopEligibility } from './counter';
 import { baseItemId, consignmentPrices, portItem, portRound, roundEnd, roundStart, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
@@ -142,6 +142,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <section class="panel side-panel">
           <div class="side-heading"><h2>自有库存</h2><span id="count" class="tag"></span></div>
           <div id="inventory"></div>
+          <div id="work-orders"></div>
         </section>
         <section class="panel side-panel">
           <div class="side-heading"><h2>当票与代管</h2></div>
@@ -390,6 +391,11 @@ function renderVisit(visit: Visit) {
 
 function renderInventory() {
   const items = saveBlocked ? [] : state.inventory;
+  const orders = saveBlocked ? [] : state.workshopOrders ?? [];
+  document.querySelector('#work-orders')!.innerHTML = orders.length
+    ? `<h3>离店货物</h3>${records(orders.map(({ item, dueDay, kind }) =>
+      `<li><span>${escapeText(item.name)} · ${kind === 'repair' ? '送修中' : '出租中'}</span><span>第 ${dueDay} 天开门归还</span></li>`), '')}`
+    : '';
   inventory.innerHTML = records(items.map((item) => {
     const authenticity = item.authenticity === 'imitation' ? ' · 仿品' : item.authenticity === 'genuine' ? ' · 正品' : '';
     const detail = item.id === 'winch-1' ? `<small>${winchBulletin(state)}</small>`
@@ -521,6 +527,18 @@ function renderJobs() {
     jobsContent.append(section);
   };
   const day = state.day;
+  const repairs = repairMarket(state);
+  if (repairs) {
+    const buttons: [string, Action][] = [];
+    if (repairs.canBuy) buttons.push([`收待修绞盘 ${wornWinchPrice} 元`, { type: 'buyRepairStock', day }]);
+    if (repairs.canSell && repairs.owned) {
+      buttons.push([`交付绞盘 ${repairs.price} 元`, { type: 'sellRepairStock', day }]);
+    }
+    const start = roundStart(day);
+    const sales = state.ledger.some((entry) => entry.day >= start && entry.description === '工班收购 · 码头绞盘');
+    const detail = sales ? '本轮工班已收了一台。' : `货棚收进价 ${wornWinchPrice} 元。第 ${start + 3}–${start + 4} 天工班收一台，验收完好件 155 元，待修件 115 元。`;
+    addJob('货棚绞盘工单', detail, buttons);
+  }
   if (referral) {
     const status = referral.paid ? '已领取 8 元介绍费。' : referral.available ? '双方直接结工钱，当铺收 8 元介绍费。' : '办事的人本轮第三天到港。';
     addJob('港口介绍', referral.text + status, referral.available && !referral.paid
@@ -600,6 +618,16 @@ function renderStockDetail() {
     actions.append(button);
   };
   const target = { day: state.day, itemId: item.id };
+  const workshop = workshopEligibility(state, item);
+  if (workshop) {
+    const repair = workshop === 'repair';
+    const terms = document.createElement('p');
+    terms.textContent = repair
+      ? `修理匠更换齿轮并验制动器，现在付 ${repairFee} 元，第 ${state.day + 1} 天开门取回。`
+      : `驻港施工队借用集雨设备，第 ${state.day + rentalDays} 天开门归还，届时收 ${rentalFee} 元租金。`;
+    stockDetail.append(terms);
+    add(repair ? `付 ${repairFee} 元送修` : `短租 F2 · 到期收 ${rentalFee} 元`, { ...target, type: repair ? 'sendRepair' : 'rentF2' });
+  }
   if (state.economy !== 'port' && !state.installedPurifier && usablePurifier(item)) add('安装自用', { ...target, type: 'install' });
   if (item.recyclePrice !== undefined) add(`立即回收 ${item.recyclePrice} 元`, { ...target, type: 'recycle' });
   if (harborOpen(state)) {
@@ -651,7 +679,11 @@ function renderDesk() {
     deskItems.append(chip);
   }
   const held = state.tickets.filter((ticket) => ticket.status === 'held');
-  deskHeld.textContent = held.length ? `代管 ${held.length} 件 · 尚未归店` : '';
+  const custody = held.length ? [`代管 ${held.length} 件 · 尚未归店`] : [];
+  for (const order of state.workshopOrders ?? []) {
+    custody.push(`${order.item.name}${order.kind === 'repair' ? '送修中' : '出租中'} · 第 ${order.dueDay} 天归还`);
+  }
+  deskHeld.textContent = custody.join(' / ');
 }
 
 function endingView(chapterTwo: boolean) {

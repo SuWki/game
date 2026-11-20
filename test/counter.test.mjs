@@ -393,3 +393,30 @@ test('续轮的同型货有独立编号，零现金介绍费每轮一次', () =>
   assert.equal(settleVisit(paid, { type: 'roundReferral', day: 13 }).state, paid);
   assert.equal(settleVisit({ ...paid, day: 18, activeRoundStart: 16 }, { type: 'roundReferral', day: 18 }).state.cash, 16);
 });
+test('维修和短租移出自有库存，到期开门归还并各自结账一次', () => {
+  const purifier = { ...currentVisit(2, 1).item, cost: 80 };
+  const start = { ...openCounter(150), day: 14, economy: 'port', activeRoundStart: 11, chapterTwoStarted: true,
+    inventory: [purifier] };
+  const stocked = settleVisit({ ...start, day: 11 }, { type: 'buyRepairStock', day: 11 }).state;
+  const winch = stocked.inventory[1];
+  const d14 = { ...stocked, day: 14, visitIndex: 1 };
+  const repaired = settleVisit(d14, { type: 'sendRepair', day: 14, itemId: winch.id }).state;
+  const rented = settleVisit(repaired, { type: 'rentF2', day: 14, itemId: purifier.id }).state;
+  assert.equal(rented.cash, 33);
+  assert.deepEqual(rented.inventory, []);
+  assert.equal(settleVisit(rented, { type: 'sellRepairStock', day: 14 }).state, rented);
+  const closed = settleVisit(rented, { type: 'close', day: 14 });
+  const restored = readSave(JSON.stringify({ version: saveVersion, ...closed })).state;
+  const ready = settleVisit(restored, { type: 'open', day: 15 }).state;
+  assert.equal(ready.inventory[0].cost, 117);
+  assert.equal(ready.inventory[0].condition, '可用');
+  const sale = { type: 'sellRepairStock', day: 15 };
+  const sold = settleVisit(ready, sale).state;
+  assert.equal(sold.cash, 188);
+  assert.equal(settleVisit(sold, sale).state, sold);
+  const rentalReturn = { type: 'open', day: 17 };
+  const returned = settleVisit({ ...sold, day: 17, activeRoundStart: 16, awaitingOpen: true }, rentalReturn).state;
+  assert.equal(returned.cash, 200);
+  assert.deepEqual(returned.inventory, [purifier]);
+  assert.equal(settleVisit(returned, rentalReturn).state, returned);
+});
