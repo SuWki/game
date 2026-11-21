@@ -720,6 +720,32 @@ test('母船打捞滤芯可给自己制三日水，占用当天制水机会', ()
   assert.equal(settleVisit(filled,{type:'takeWaterJob',day:21}).state,filled);
 });
 
+test('浮田加购只在首站限收一件，现货与柜台工单照原价结算', () => {
+  const start = { ...openCounter(140), day: 4, economy: 'port', ship: { water: 2 } };
+  const stocked = settleVisit(start, { type: 'buyCargo', day: 4, choice: 0 }).state;
+  const [seal] = stocked.inventory;
+  const deliver = (state, itemId = seal.id) => settleVisit(state, { type: 'deliverFloatFarmSeal', day: state.day, itemId });
+  assert.match(counterNotes(stocked).at(-1).text, /第 6–7 天.*34 元.*27 元/);
+  assert.equal(deliver(stocked).state, stocked);
+  const opened = { ...stocked, day: 7, chapterTwoStarted: true };
+  const ready = settleVisit(opened, { type: 'buyCargo', day: 7, choice: 0 }).state;
+  const second = ready.inventory.at(-1);
+  assert.equal(deliver({ ...ready, awaitingOpen: true }).state.cash, ready.cash);
+  for (const day of [8, 11, 21]) {
+    const expired = { ...ready, day };
+    assert.equal(deliver(expired).state, expired);
+  }
+  const delivered = reloadState(deliver(ready).state);
+  assert.equal(delivered.cash - ready.cash, 34);
+  assert.equal(deliver(delivered, second.id).state, delivered);
+  const ordinary = settleVisit(delivered, { type: 'sellCargo', day: 7, itemId: second.id }).state;
+  assert.equal(ordinary.cash - delivered.cash, 27);
+  const withBoard = { ...ordinary, inventory: [{ ...board, cost: 30 }] };
+  const visit = currentVisit(7, 0, 'port');
+  const contract = settleVisit(withBoard, { type: 'sell', visitId: visit.id }).state;
+  assert.equal(contract.cash - ordinary.cash, 55);
+});
+
 test('航程预算按最低补水组合算缺口，靠岸日重置剩余夜数', async () => {
   const { crossingBudget } = await import('../src/ship.ts');
   assert.deepEqual(crossingBudget(1, 200, 3), {

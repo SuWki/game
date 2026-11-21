@@ -1,5 +1,5 @@
 import './style.css';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, shipSaleQuote, shipStop, waterPacks } from './ship';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
 import { shipGap } from './counter';
 import { outingPlan } from './counter';
 import { boatFee, cashReserve, filterGrades, filterOffer, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
@@ -8,7 +8,7 @@ import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImit
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
 import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, salvageMarket, winchBulletin, workshopEligibility, workshopOpen } from './counter';
-import { isShortRope, ropeVisit, ropeVisitPrice } from './counter';
+import { floatFarmRequest, isShortRope, ropeVisit, ropeVisitPrice } from './counter';
 import { baseItemId, consignmentPrices, crateCost, crateInspection, cratePartId, cratePartPrice, portItem, portRound, roundEnd, roundStart, salvageWindow, sealedCrateId, sealedCratePrice, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
@@ -647,6 +647,10 @@ function stockOutlook(item: Counter['inventory'][number]) {
     const difference = shipQuote.nextBid - shipQuote.bid;
     if (difference > 0) entries.push(`留到下站多收 ${difference} 元，期间要先备好船费和饮水。`);
   }
+  if (kind === floatFarmOrder.kind && state.day <= floatFarmOrder.last) {
+    const farm = floatFarmRequest(state);
+    if (farm) entries.push(farm.terms + farm.status);
+  }
   if (item.jade?.opened) entries.push(`石铺收明料 ${jadeGrades[item.jade.grade].price} 元 · 营业时可交付`);
   if (item.filter) entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
   if (state.economy === 'port' && state.day > lastDay && (sealedCrateId.test(item.id) || cratePartId.test(item.id))) {
@@ -828,6 +832,9 @@ function renderStockDetail() {
   const target = { day: state.day, itemId: item.id };
   const cargo = cargoKind(item.id);
   if (state.ship && cargo !== undefined) add(`卖给岸市 ${cargoQuote(state.day, cargo).bid} 元`, { ...target, type: 'sellCargo' });
+  if (cargo === floatFarmOrder.kind && floatFarmRequest(state)?.active) {
+    add(`交浮田维修班 ${floatFarmOrder.price} 元`, { ...target, type: 'deliverFloatFarmSeal' });
+  }
   const shore = state.ship && cargo === undefined && shipSaleQuote(state.day, item);
   if (shore) add(`卖给岸商 ${shore.bid} 元`, { ...target, type: 'sellCargo' });
   if (item.jade && workshopOpen(state)) {
@@ -1007,6 +1014,7 @@ function renderShip() {
     action(water, used ? '本航段已值班' : '泵房应急值班 · 领 6 元和一日水', { type: 'shipRelief', day: state.day }, used);
   }
   const budget = crossingBudget(state.day, state.cash, ship.water);
+  const farm = floatFarmRequest(state);
   const missing = budget.missingWater ? `还需补 ${budget.missingWater} 日水，至少 ${budget.waterSpend} 元` : '存水够用';
   row('撑到下一站', `第 ${nextDay} 天靠泊前，还要交 ${budget.nights} 晚船籍费（${budget.nights * berthFee} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
   if (budget.tonightGap) {
@@ -1039,9 +1047,23 @@ function renderShip() {
     if (!sales.length) addHint('手上没有岸商收的自有货。');
     for (const { item, quote } of sales) {
       action(help, `卖${item.name} ${quote.bid} 元 · 下站 ${quote.nextBid} 元`, { type: 'sellCargo', day: state.day, itemId: item.id });
+      if (farm?.active && cargoKind(item.id) === floatFarmOrder.kind) {
+        action(help, `交浮田维修班 ${floatFarmOrder.price} 元`, { type: 'deliverFloatFarmSeal', day: state.day, itemId: item.id });
+      }
     }
   }
   row(stop.name, stop.reason + `第 ${nextDay} 天起换泊${next.name}。`);
+  if (farm && state.day <= floatFarmOrder.last) {
+    const seals = state.inventory.filter((item) => cargoKind(item.id) === floatFarmOrder.kind);
+    const stock = farm.active && !seals.length ? '手上没有可交付的自有密封条。' : '';
+    const request = row('浮田水站 · 临时加购', farm.terms + farm.status + stock);
+    if (farm.active) {
+      for (const item of seals) {
+        action(request, `交密封条 · 成本 ${item.cost} / 收 ${floatFarmOrder.price} 元`,
+          { type: 'deliverFloatFarmSeal', day: state.day, itemId: item.id });
+      }
+    }
+  }
   cargoGoods.forEach((good, choice) => {
     const quote = cargoQuote(state.day, choice);
     const section = row(good.name, `${good.clue}　本站收 ${quote.bid} 元，下站收 ${quote.nextBid} 元。`);

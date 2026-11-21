@@ -14,6 +14,17 @@ export const cargoGoods = [
   { name: '手摇机铜线圈', model: '发电备件', clue: '线漆完整，端头已测通。拆船场常拆出线圈，修船坞拿来绕应急发电机。' },
 ] as const;
 
+export const floatFarmOrder = {
+  id: 'float-farm-seal-order',
+  announce: 4,
+  first: 6,
+  last: 7,
+  kind: 0,
+  price: 34,
+  receipt: '浮田水站加购 · 舱门密封条',
+  reason: '浮田站有一片种植舱漏水，维修班要在开工前多备一件舱门密封条。',
+} as const;
+
 const stops = [
   { name: '避风修船坞', reason: '船坞自产密封条，急收铜线圈修应急电机。', prices: [12, 20, 35] },
   { name: '浮田水站', reason: '苗床出产芯绳，种植舱正漏水，高价收密封条。', prices: [27, 11, 24] },

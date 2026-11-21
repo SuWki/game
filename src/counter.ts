@@ -4,7 +4,7 @@ import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem,
 import { baseItemId, portRound, repairedWinch, roundEnd, roundLength, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoQuote, shipSaleQuote, waterPacks } from './ship.ts';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, floatFarmOrder, shipSaleQuote, waterPacks } from './ship.ts';
 import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
 export const waterLedger = {
@@ -73,6 +73,7 @@ export type Action =
   | { type: 'boardShip' | 'shipRelief'; day: number }
   | { type: 'buyWater' | 'buyCargo'; day: number; choice: number }
   | { type: 'sellCargo'; day: number; itemId: string }
+  | { type: 'deliverFloatFarmSeal'; day: number; itemId: string }
   | { type: 'offer'; visitId: string; attempt: number; amount: number }
   | { type: 'dismiss' | 'sell' | 'redeem' | 'sellBoard'; visitId: string }
   | { type: 'appraiseTimer' | 'buyImitation' | 'sellTimerHonestly' | 'sellTimerAsGenuine' | 'reserveWater'; visitId: string }
@@ -500,6 +501,20 @@ export function winchBulletin(state: Counter) {
   return `第 9 天留港船工收，换好齿轮 108 元，待修 88 元。第 ${orderDay} 天船厂采购收，换好齿轮 155 元，待修 115 元。`;
 }
 
+export function floatFarmRequest(state: Counter) {
+  const order = floatFarmOrder;
+  if (!state.ship || state.ship.closed || state.day < order.announce) return;
+  const filled = state.ledger.some((entry) => entry.description === order.receipt);
+  const active = !filled && state.day >= order.first && state.day <= order.last && !state.awaitingOpen;
+  const ordinary = cargoQuote(order.first, order.kind).bid;
+  const terms = `${order.reason} 第 ${order.first}–${order.last} 天在浮田水站验收一件，现结 ${order.price} 元。普通岸商收 ${ordinary} 元。`;
+  const status = filled ? '维修班已收齐。'
+    : state.day > order.last ? '加购已截止。'
+    : state.day < order.first ? '到站后才可交付。'
+    : '本批只收一件。';
+  return { active, terms, status };
+}
+
 export function counterNotes(state: Counter) {
   const notes: { id: string; day: number; title: string; text: string }[] = [];
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex) : undefined;
@@ -536,6 +551,10 @@ export function counterNotes(state: Counter) {
         text: appointment.terms + appointment.status });
       }
     }
+  }
+  const farm = floatFarmRequest(state);
+  if (farm && (state.day <= floatFarmOrder.last || state.readNoteIds?.includes(floatFarmOrder.id))) {
+    notes.push({ id: floatFarmOrder.id, day: floatFarmOrder.announce, title: '船员捎来 · 浮田水站加购', text: farm.terms + farm.status });
   }
   return notes;
 }
@@ -751,7 +770,7 @@ export function shipGap(state: Counter) {
     state.ship.water < 1 ? '缺今晚的饮水' : ''].filter(Boolean).join('，');
 }
 
-function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' | 'shipRelief' | 'buyWater' | 'buyCargo' | 'sellCargo' }>): Result {
+function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' | 'shipRelief' | 'buyWater' | 'buyCargo' | 'sellCargo' | 'deliverFloatFarmSeal' }>): Result {
   if (state.economy !== 'port' || state.awaitingOpen || state.day !== action.day) return notice(state, '请在营业中办理。', 'warning');
   const ship = state.ship;
   if (action.type === 'boardShip' && !ship) return notice({ ...state, ship: { water: boardingWater } }, '已登船，领到三日饮水。今晚起结算船籍费。', 'success');
@@ -776,9 +795,18 @@ function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' |
     const item = { id, name: good.name, model: good.model, condition: '验收合格', observations: [good.clue], cost };
     return notice(record({ ...state, inventory: [...state.inventory, item] }, item, `靠岸进货 · ${good.name}`, -cost), `${good.name}已入库。`, 'success');
   }
-  if (action.type === 'sellCargo') {
+  if (action.type === 'sellCargo' || action.type === 'deliverFloatFarmSeal') {
     const item = state.inventory.find((entry) => entry.id === action.itemId);
     if (!item) return notice(state, '手上没有这批货。', 'warning');
+    if (action.type === 'deliverFloatFarmSeal') {
+      const request = floatFarmRequest(state);
+      if (!request?.active || cargoKind(item.id) !== floatFarmOrder.kind) {
+        return notice(state, '这件货当前不能交给浮田维修班。', 'warning');
+      }
+      const next = { ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) };
+      return notice(record(next, item, floatFarmOrder.receipt, floatFarmOrder.price),
+        `浮田维修班验收一件密封条，到账 ${floatFarmOrder.price} 元。`, 'success');
+    }
     const price = shipSaleQuote(state.day, item)?.bid;
     if (price === undefined) return notice(state, '岸商不收这件货。', 'warning');
     return notice(record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, `靠岸售货 · ${item.name}`, price),
@@ -808,7 +836,8 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 
 export function settleVisit(state: Counter, action: Action): Result {
   if (state.ship?.closed) return notice(state, '本局已离船停业。');
-  if (action.type === 'boardShip' || action.type === 'shipRelief' || action.type === 'buyWater' || action.type === 'buyCargo' || action.type === 'sellCargo') return shipTrade(state, action);
+  if (action.type === 'boardShip' || action.type === 'shipRelief' || action.type === 'buyWater' || action.type === 'buyCargo' ||
+    action.type === 'sellCargo' || action.type === 'deliverFloatFarmSeal') return shipTrade(state, action);
   if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage' ||
       action.type === 'bookStoneTrip' || action.type === 'buyJadeLamp') return planOuting(state, action);
   if (action.type === 'openJade' || action.type === 'sellJade' || action.type === 'sendJade') return handleJade(state, action);
