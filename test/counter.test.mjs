@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { counterNotes, openCounter, outingPlan, settleVisit } from '../src/counter.ts';
+import { counterNotes, openCounter, outingPlan, ropeVisit, settleVisit } from '../src/counter.ts';
 import { voyageOdds, voyageResult, voyageRoll } from '../src/outing.ts';
 import { cutQuote, pickStone, stoneOdds, stoneResult, trialCut } from '../src/jade.ts';
 import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
@@ -498,6 +498,32 @@ function dockAt(cash, day = 20) {
   return { ...openCounter(cash), day, economy: 'port', activeRoundStart: day - 4,
     chapterTwoStarted: true, visitIndex: scheduledVisits(day, 'port') };
 }
+
+test('搬运班按真实交付邀约，同日先赎当，短绳撤牌并只结一次', () => {
+  let state = { ...dockAt(140), day: 16, visitIndex: 0 };
+  state = settleVisit(state, { type: 'buyCrate', day: 16 }).state;
+  state = settleVisit(state, { type: 'openCrate', day: 16, itemId: state.inventory[0].id }).state;
+  const [rope, fuse] = state.inventory;
+  assert.equal(ropeVisit({ ...state, day: 21, activeRoundStart: 21 }), undefined);
+  state = settleVisit({ ...state, day: 19 }, { type: 'sellCrateGoods', day: 19, itemId: fuse.id }).state;
+  const arrived = reloadState({ ...state, day: 21, activeRoundStart: 21, visitIndex: 0 });
+  const book = { type: 'bookRopeVisit', day: 21 };
+  assert.equal(counterNotes(arrived).filter(({ id }) => id === 'rope-visit-21').length, 1);
+  assert.equal(ropeVisit({ ...arrived, day: 24 }).canBook, false);
+  const booked = reloadState(settleVisit(arrived, book).state);
+  assert.equal(settleVisit(booked, book).state, booked);
+  const action = { type: 'deliverRope', day: 22, itemId: rope.id };
+  const due = { ...booked, day: 22 };
+  assert.equal(settleVisit(due, action).state, due);
+  assert.equal(ropeVisit({ ...booked, day: 23 }).today, false);
+  const ready = settleVisit({ ...due, visitIndex: 2 }, { type: 'listItem', day: 22, itemId: rope.id, price: 6 }).state;
+  const missing = { ...ready, inventory: ready.inventory.filter(({ id }) => id !== rope.id) };
+  assert.equal(settleVisit(missing, action).state, missing);
+  const delivered = reloadState(settleVisit(ready, action).state);
+  assert.equal(delivered.cash, ready.cash + 15);
+  assert.equal(delivered.consignment, undefined);
+  assert.equal(settleVisit(delivered, action).state, delivered);
+});
 
 function reloadState(state) {
   return readSave(JSON.stringify({ version: saveVersion, state, message: '', tone: 'neutral' })).state;

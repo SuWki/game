@@ -1,7 +1,7 @@
 import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterPrice, falseTimerPrice, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, purifierModel, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario.ts';
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
-import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
+import { baseItemId, portRound, repairedWinch, roundEnd, roundLength, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoQuote, shipSaleQuote, waterPacks } from './ship.ts';
@@ -93,6 +93,9 @@ export type Action =
   | { type: 'buyCrate'; day: number }
   | { type: 'openCrate'; day: number; itemId: string }
   | { type: 'sellCrateGoods'; day: number; itemId: string }
+  | { type: 'bookRopeVisit'; day: number }
+  | { type: 'dismissRopeVisit'; day: number }
+  | { type: 'deliverRope'; day: number; itemId: string }
   | { type: 'bookVoyage' | 'buyOutingWinch'; day: number }
   | { type: 'bookStoneTrip' | 'buyJadeLamp'; day: number }
   | { type: 'openJade'; day: number; itemId: string }
@@ -363,6 +366,60 @@ export function salvageMarket(state: Counter) {
   };
 }
 
+const salvageSalePrefix = '货棚收购 · ';
+const ropeBooking = '约见 · 搬运班';
+const ropeDelivery = '搬运班收购 · 盐霜短绳';
+const ropeDismissal = '搬运班回访 · 未交货';
+const ropeLead = '货棚伙计说：“下趟搬运班要捆菜筐。带盐霜的短绳也能用，有的话给他们留一盘。”';
+export const ropeVisitPrice = 15;
+export const isShortRope = (item: Item) => /^round-\d+-crate-harbor-rope$/.test(item.id) && item.condition === '有盐霜，仅能截短用';
+
+function salvageDelivery(state: Counter, start: number) {
+  return state.ledger.find((entry) => entry.day >= start && entry.day <= roundEnd(start) && entry.change > 0 &&
+    entry.description.startsWith(salvageSalePrefix) && entry.itemId &&
+    (sealedCrateId.test(entry.itemId) || cratePartId.test(entry.itemId)));
+}
+
+export function ropeVisit(state: Counter) {
+  if (state.ship?.closed || !workshopOpen(state) || state.day <= lastDay) return;
+  const start = roundStart(state.day);
+  const source = start - roundLength;
+  if (source <= lastDay || !salvageDelivery(state, source)) return;
+  const history = state.ledger.filter((entry) => entry.day >= start);
+  const bookingDeadline = start + 2;
+  const booking = history.find((entry) => entry.description === ropeBooking);
+  const dueDay = booking ? booking.day + 1 : undefined;
+  const item = state.inventory.find(isShortRope);
+  const canBook = !booking && state.day <= bookingDeadline;
+  const done = history.some((entry) => entry.description === ropeDelivery || entry.description === ropeDismissal);
+  const today = dueDay === state.day && !done;
+  const terms = `搬运班拿带盐霜的短绳捆菜筐，一盘出 ${ropeVisitPrice} 元。第 ${start}–${bookingDeadline} 天可联系，约好后次日到柜台验货。`;
+  const status = history.some((entry) => entry.description === ropeDelivery) ? '已交货。'
+    : done ? '搬运班已离开。'
+    : dueDay !== undefined ? `约在第 ${dueDay} 天验货。${state.day > dueDay ? '已错过约见。' : ''}`
+    : canBook ? '' : '已过联系日期。';
+  return { start, item, canBook, dueDay, today, terms, status };
+}
+
+function handleRopeVisit(state: Counter, action: Extract<Action, { type: 'bookRopeVisit' | 'deliverRope' | 'dismissRopeVisit' }>): Result {
+  const visit = ropeVisit(state);
+  if (!visit || action.day !== state.day) return notice(state, '今天没有这笔搬运班委托。', 'warning');
+  if (action.type === 'bookRopeVisit') {
+    if (!visit.canBook) return notice(state, '已约见或已过联系日期。', 'warning');
+    return notice(record(state, null, ropeBooking, 0), `已联系搬运班，第 ${state.day + 1} 天到柜台验货。`);
+  }
+  if (!visit.today || currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule)) {
+    return notice(state, '请在约见当天接待完前面的客人。', 'warning');
+  }
+  if (action.type === 'dismissRopeVisit') {
+    return notice(record(state, null, ropeDismissal, 0), visit.item ? '搬运班告辞，短绳仍在库存。' : '柜台没有合用的短绳，搬运班空手离开。');
+  }
+  const item = state.inventory.find((entry) => entry.id === action.itemId && isShortRope(entry));
+  if (!item) return notice(state, '柜台没有合用的自有短绳。', 'warning');
+  const next = { ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) };
+  return notice(record(next, item, ropeDelivery, ropeVisitPrice), `搬运班收下一盘短绳，到账 ${ropeVisitPrice} 元。`, 'success');
+}
+
 function handleSalvage(state: Counter, action: Extract<Action, { type: 'buyCrate' | 'openCrate' | 'sellCrateGoods' }>): Result {
   if (action.day !== state.day || !workshopOpen(state)) return notice(state, '请在营业时处理拆船货。', 'warning');
   if (action.type === 'openCrate') {
@@ -383,8 +440,9 @@ function handleSalvage(state: Counter, action: Extract<Action, { type: 'buyCrate
   }
   const sale = market.buyers.find(({ item }) => item.id === action.itemId);
   if (!market.canSell || !sale) return notice(state, '今天没有可结算的这笔货棚收购。', 'warning');
+  const lead = salvageDelivery(state, roundStart(state.day)) ? '' : ropeLead;
   return notice(record({ ...state, inventory: state.inventory.filter((item) => item.id !== sale.item.id) },
-    sale.item, `货棚收购 · ${sale.item.name}`, sale.price), `成交，到账 ${sale.price} 元。`, 'success');
+    sale.item, `${salvageSalePrefix}${sale.item.name}`, sale.price), `成交，到账 ${sale.price} 元。${lead}`, 'success');
 }
 
 function sendToWorkshop(state: Counter, action: Extract<Action, { type: 'sendRepair' | 'rentF2' }>): Result {
@@ -469,6 +527,14 @@ export function counterNotes(state: Counter) {
       const start = roundStart(state.day);
       const round = portRound(start, state.harborSchedule);
       notes.push({ id: `round-${start}`, day: start, title: round.title, text: round.notice });
+      const delivery = salvageDelivery(state, start);
+      if (delivery) notes.push({ id: `rope-lead-${start}`, day: delivery.day, title: '货棚伙计提到搬运班', text: ropeLead });
+      const appointment = ropeVisit(state);
+      const noteId = `rope-visit-${start}`;
+      if (appointment && (appointment.canBook || appointment.dueDay !== undefined || state.readNoteIds?.includes(noteId))) {
+        notes.push({ id: noteId, day: appointment.start, title: '搬运班的短绳委托',
+        text: appointment.terms + appointment.status });
+      }
     }
   }
   return notes;
@@ -748,6 +814,7 @@ export function settleVisit(state: Counter, action: Action): Result {
   if (action.type === 'openJade' || action.type === 'sellJade' || action.type === 'sendJade') return handleJade(state, action);
   if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob' || action.type === 'fillShipWater') return handleFilter(state, action);
   if (action.type === 'buyCrate' || action.type === 'openCrate' || action.type === 'sellCrateGoods') return handleSalvage(state, action);
+  if (action.type === 'bookRopeVisit' || action.type === 'deliverRope' || action.type === 'dismissRopeVisit') return handleRopeVisit(state, action);
   if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);
   if (action.type === 'buyRepairStock' || action.type === 'sellRepairStock') {
     const market = repairMarket(state);

@@ -8,6 +8,7 @@ import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImit
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
 import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, salvageMarket, winchBulletin, workshopEligibility, workshopOpen } from './counter';
+import { isShortRope, ropeVisit, ropeVisitPrice } from './counter';
 import { baseItemId, consignmentPrices, crateCost, crateInspection, cratePartId, cratePartPrice, portItem, portRound, roundEnd, roundStart, salvageWindow, sealedCrateId, sealedCratePrice, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
@@ -550,7 +551,8 @@ function renderJobs() {
   }
   const appointment = state.f2Appointment;
   const due = appointment?.status === 'booked' && appointment.day === state.day;
-  jobsEntry.textContent = due ? '字条与委托 · 今日验货' : '字条与委托';
+  const rope = ropeVisit(state);
+  jobsEntry.textContent = due || rope?.today ? '字条与委托 · 今日验货' : '字条与委托';
   jobsContent.replaceChildren();
   const addJob = (title: string, description: string, choices: [string, Action][]) => {
     const section = document.createElement('section');
@@ -571,6 +573,10 @@ function renderJobs() {
     jobsContent.append(section);
   };
   const day = state.day;
+  if (rope) {
+    addJob('搬运班的短绳委托', rope.terms + rope.status,
+      rope.canBook ? [['联系搬运班', { type: 'bookRopeVisit', day }]] : []);
+  }
   const repairs = repairMarket(state);
   if (repairs) {
     const buttons: [string, Action][] = [];
@@ -647,6 +653,8 @@ function stockOutlook(item: Counter['inventory'][number]) {
     const { first, last } = salvageWindow(state.day, state.harborSchedule);
     const price = sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item);
     entries.push(`第 ${first}–${last} 天货棚收 ${price} 元${state.day >= first && !state.awaitingOpen ? ' · 今天可交付' : ''}`);
+    const appointment = isShortRope(item) ? ropeVisit(state) : undefined;
+    if (appointment) entries.push(appointment.terms + appointment.status);
   }
   if (item.id === board.id && state.day <= 9 && (state.day < 9 || state.visitIndex === 0)) {
     entries.push(`第 9 天船工收 ${lateBoardPrice} 元`);
@@ -1051,6 +1059,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   const roundSummary = atRoundSummary(state);
   const finished = pastLastDay(state) || roundSummary || state.waterShortfall > 0 || firstSummary || state.ship?.closed;
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule) : undefined;
+  const ropeGuest = !visit && !saveBlocked && !state.ship?.closed ? ropeVisit(state) : undefined;
   const hints = {
     purchase: '当前在收货。先看看成色，再决定愿意给多少。',
     pawn: '当前在收当。对照货物线索，再看放款、赎回金额和到期日。',
@@ -1069,7 +1078,8 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   document.documentElement.dataset.phase = phase;
   dockFlag.hidden = atTitle || saveBlocked || state.economy !== 'port' || !state.chapterTwoStarted ||
     state.day < winchOrderDay(state.economy, state.harborSchedule);
-  setSprite(guestArt, !saveBlocked && !atTitle ? visit?.portrait : undefined, visit?.id);
+  setSprite(guestArt, !saveBlocked && !atTitle ? visit?.portrait ?? (ropeGuest?.today ? 'deckhand' : undefined) : undefined,
+    visit?.id ?? (ropeGuest?.today ? `rope-${ropeGuest.start}` : undefined));
   if (saveBlocked || !visit || atTitle) {
     setSprite(itemArt);
     setSprite(inspectThumb);
@@ -1210,6 +1220,14 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     } else addAction('开门营业', { type: 'open', day: state.day });
   } else if (visit) {
     renderVisit(visit);
+  } else if (ropeGuest?.today) {
+    const item = ropeGuest.item;
+    scene.innerHTML = `<div class="visitor"><div class="visitor-heading"><h2>搬运班伙计</h2><span class="tag">收购</span></div>
+      <blockquote>“湿过的绳截短了照样能捆菜筐。带盐霜的那盘在吗？我出 ${ropeVisitPrice} 元。”</blockquote>
+      <p class="terms">${item ? '柜台有合用的自有短绳。' : '手上没有合用的自有短绳。'}</p></div>`;
+    const day = state.day;
+    if (item) addAction(`交付短绳 ${ropeVisitPrice} 元`, { type: 'deliverRope', day, itemId: item.id });
+    addAction(item ? '留货，谢客' : '说明缺货', { type: 'dismissRopeVisit', day }, true);
   } else {
     const due = state.tickets.some((ticket) => ticket.status === 'held' && ticket.dueDay === state.day);
     const text = due ? '今天仍可赎，打烊后才归店。' : '今天的客人都接待完了。';
