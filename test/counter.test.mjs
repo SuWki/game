@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { counterNotes, openCounter, settleVisit } from '../src/counter.ts';
-import { board, currentVisit, harborPeriod, lantern, scheduledVisits } from '../src/scenario.ts';
+import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
 import { readSave, saveVersion } from '../src/save.ts';
 
 function offer(state, amount) {
@@ -446,4 +446,48 @@ test('混装货箱原封出售或拆成三件，拆封结果跨轮和刷新稳�
     assert.equal(state.cash, expected);
     assert.deepEqual(state.inventory, []);
   }
+});
+
+test('两种船期的封箱线索与原批次相符，隔轮也能查到下一次货棚收购日', () => {
+  for (const schedule of [undefined, 'late']) {
+    const firstNight = schedule ? 11 : 16;
+    for (let start = firstNight; start < firstNight + 60; start += 10) {
+      const crate = salvageCrate(start, schedule);
+      const damp = crate.observations[1].includes('盐花');
+      assert.equal(damp || crate.observations[1].includes('干燥'), true);
+      // 上一版入库的箱子带有旧货签，续玩后仍按原批次验货。
+      const oldCrate = { ...crate, observations: ['旧货签'] };
+      assert.deepEqual(crateInspection(oldCrate.id, schedule), crate.observations);
+      const total = unpackCrate(oldCrate, schedule).reduce((sum, item) => sum + cratePartPrice(item), 0);
+      assert.equal(total, damp ? 42 : 72);
+      for (const day of [start, start + 3, start + 4]) {
+        assert.deepEqual(salvageWindow(day, schedule), { first: start + 3, last: start + 4 });
+      }
+      assert.deepEqual(salvageWindow(start + 5, schedule), { first: start + 13, last: start + 14 });
+    }
+  }
+});
+
+test('差一元可日内筹钱再收箱，挂牌散件转交货棚后隔天不会再收寄售款', () => {
+  const start = { ...openCounter(51), day: 18, economy: 'port', activeRoundStart: 16, chapterTwoStarted: true };
+  const buy = { type: 'buyCrate', day: 18 };
+  const short = settleVisit(start, buy);
+  assert.equal(short.state, start);
+  assert.match(short.message, /差 1 元/);
+  const funded = settleVisit(start, { type: 'roundReferral', day: 18 }).state;
+  const stocked = settleVisit(funded, buy).state;
+  assert.equal(stocked.cash, 7);
+  const split = settleVisit(stocked, { type: 'openCrate', day: 18, itemId: stocked.inventory[0].id }).state;
+  const rope = split.inventory[0];
+  const day19 = { ...split, day: 19, visitIndex: 1 };
+  const listed = settleVisit(day19, { type: 'listItem', day: 19, itemId: rope.id, price: 6 }).state;
+  assert.equal(listed.consignment.itemId, rope.id);
+  const delivered = settleVisit(listed, { type: 'sellCrateGoods', day: 19, itemId: rope.id }).state;
+  const closed = settleVisit(delivered, { type: 'close', day: 19 });
+  const restored = readSave(JSON.stringify({ version: saveVersion, ...closed })).state;
+  const next = settleVisit(restored, { type: 'open', day: 20 }).state;
+  assert.equal(next.day, 20);
+  assert.equal(next.cash, 17);
+  assert.equal(next.inventory.length, 2);
+  assert.equal(next.consignment, undefined);
 });

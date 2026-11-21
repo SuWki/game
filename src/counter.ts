@@ -2,7 +2,7 @@ import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterP
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
-import { crateCost, cratePartId, cratePartPrice, salvageCrate, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
+import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -216,10 +216,12 @@ export function salvageMarket(state: Counter) {
   const start = roundStart(state.day);
   if (!workshopOpen(state) || state.day <= lastDay || portRound(start, state.harborSchedule).title !== '夜航补给') return;
   const stock = salvageCrate(state.day, state.harborSchedule);
+  const window = salvageWindow(state.day, state.harborSchedule);
+  const bought = state.ledger.some((entry) => entry.itemId === stock.id);
   return {
-    stock,
-    canBuy: state.day < start + 3 && !state.ledger.some((entry) => entry.itemId === stock.id),
-    canSell: state.day >= start + 3,
+    stock, window, bought,
+    canBuy: state.day < window.first && !bought,
+    canSell: state.day >= window.first,
     buyers: state.inventory.filter((item) => sealedCrateId.test(item.id) || cratePartId.test(item.id))
       .map((item) => ({ item, price: sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item) })),
   };
@@ -237,7 +239,8 @@ function handleSalvage(state: Counter, action: Extract<Action, { type: 'buyCrate
   const market = salvageMarket(state);
   if (!market) return notice(state, '今天货棚没有开这档买卖。', 'warning');
   if (action.type === 'buyCrate') {
-    if (!market.canBuy || state.cash < crateCost) return notice(state, '货已处理或现金不足。', 'warning');
+    if (!market.canBuy) return notice(state, market.bought ? '本轮这箱已经收过了。' : '这批货的收货期已过。', 'warning');
+    if (state.cash < crateCost) return notice(state, `收箱还差 ${crateCost - state.cash} 元。`, 'warning');
     const item = market.stock;
     return notice(record({ ...state, inventory: [...state.inventory, { ...item, cost: crateCost }] },
       item, '收购 · 旧船混装货箱', -crateCost), '封箱已入库。保留铅封可整箱转手，也可以开箱查成色。', 'success');

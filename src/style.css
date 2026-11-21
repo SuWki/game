@@ -233,6 +233,7 @@ dialog::backdrop { background: #110f16bd; }
 #harbor-cash, #consignment-schedule { font-weight: 700; }
 .harbor-good { border-top: 1px solid #af9273; padding: 10px 0; margin-top: 8px; }
 .harbor-good h3 { font-size: 16px; margin-bottom: 4px; }
+.harbor-good p { white-space: pre-line; }
 .harbor-good button { margin-top: 6px; color: #fff0d2; }
 #harbor-result:not(:empty), #consignment-result:not(:empty) { padding-top: 8px; font-weight: 700; }
 #jobs-dialog { width: min(585px, calc(100vw - 42px)); }

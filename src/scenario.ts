@@ -289,20 +289,37 @@ export function roundRepairStock(day: number): Item {
     observations: ['拆解队的提货牌编号与货棚记录一致。', wornWinch.observations[0]] };
 }
 
+function dampShipment(start: number, schedule?: 'late') {
+  return (Math.floor(start / roundLength) + (schedule === 'late' ? 1 : 0)) % 4 === 3;
+}
+
+export function crateInspection(batchId: string, schedule?: 'late') {
+  const start = Number(batchId.split('-')[1]);
+  return ['装箱清单列有一盘缆绳、一盒保险丝、一盏旧航灯。',
+    dampShipment(start, schedule)
+      ? '箱底留着一道水线，夹在板缝里的垫纸也结了盐花。'
+      : '箱角磕瘪了一块，板缝里的垫纸仍干燥松脆。'];
+}
+
+export function salvageWindow(day: number, schedule?: 'late') {
+  const current = roundStart(day);
+  const start = portRound(current, schedule).title === '夜航补给' ? current : current + roundLength;
+  return { first: start + roundLength - 2, last: roundEnd(start) };
+}
+
 export function salvageCrate(day: number, schedule?: 'late'): Item {
   const start = roundStart(day);
-  const damp = (Math.floor(start / roundLength) + (schedule === 'late' ? 1 : 0)) % 3 === 0;
+  const id = `round-${start}-salvage-crate`;
   return {
-    id: `round-${start}-salvage-crate`, name: '旧船混装货箱', model: '拆船散件', condition: '铅封完整',
-    observations: ['装箱清单列有一盘缆绳、一盒保险丝、一盏旧航灯。',
-      damp ? '箱底有潮痕，单看铅封无法判断里面的成色。' : '箱底干燥，角上有磕碰，货签列的成色还没验过。'],
+    id, name: '旧船混装货箱', model: '拆船散件', condition: '铅封完整',
+    observations: crateInspection(id, schedule),
     recyclePrice: 35,
   };
 }
 
 export function unpackCrate(crate: Item, schedule?: 'late') {
   const batch = Number(crate.id.split('-')[1]);
-  const damp = (Math.floor(batch / roundLength) + (schedule === 'late' ? 1 : 0)) % 4 === 3;
+  const damp = dampShipment(batch, schedule);
   return [harborGoods[0].item, harborGoods[1].item, lantern].map((item, index) => ({
     ...item,
     id: crate.id.replace(/salvage-crate$/, `crate-${item.id}`),

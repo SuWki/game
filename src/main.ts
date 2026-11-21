@@ -3,7 +3,7 @@ import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImit
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
 import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, salvageMarket, winchBulletin, workshopEligibility, workshopOpen } from './counter';
-import { baseItemId, consignmentPrices, crateCost, cratePartId, portItem, portRound, roundEnd, roundStart, sealedCrateId, sealedCratePrice, winchOrderDay } from './scenario';
+import { baseItemId, consignmentPrices, crateCost, crateInspection, cratePartId, cratePartPrice, portItem, portRound, roundEnd, roundStart, salvageWindow, sealedCrateId, sealedCratePrice, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
 const cashParam = new URLSearchParams(location.search).get('cash');
@@ -541,11 +541,15 @@ function renderJobs() {
   }
   const salvage = salvageMarket(state);
   if (salvage) {
-    const start = roundStart(day);
     const choices: [string, Action][] = [];
-    const terms = `拆船队清仓价 ${crateCost} 元。第 ${start + 3}–${start + 4} 天货棚收购，原封整箱 ${sealedCratePrice} 元，拆成散货按实物报价，合计约 42–72 元。`;
-    if (salvage.canBuy) choices.push([`收混装货箱 ${crateCost} 元`, { type: 'buyCrate', day }]);
-    addJob('旧货回港 · 混装货箱', salvage.stock.observations.join('') + terms, choices);
+    const { first, last } = salvage.window;
+    const terms = `第 ${first}–${last} 天货棚收购。原封卖 ${sealedCratePrice} 元，赚 ${sealedCratePrice - crateCost} 元。拆开分卖，三件合计 42–72 元。`;
+    const status = salvage.bought ? '本轮这箱已收过。'
+      : salvage.canSell ? '拆船队已收摊。'
+      : `第 ${first - 1} 天打烊前可用 ${crateCost} 元收箱。${state.cash < crateCost ? `还差 ${crateCost - state.cash} 元。` : `收箱后手头剩 ${state.cash - crateCost} 元。`}`;
+    if (salvage.canBuy && state.cash >= crateCost) choices.push([`收混装货箱 ${crateCost} 元`, { type: 'buyCrate', day }]);
+    const details = salvage.canBuy ? [...salvage.stock.observations, status, terms] : [status, terms];
+    addJob('旧货回港 · 混装货箱', details.join('\n'), choices);
     if (salvage.canSell) {
       for (const { item, price } of salvage.buyers) {
         addJob(item.name, `${item.condition} · 成本 ${item.cost} 元`,
@@ -585,6 +589,11 @@ function renderJobs() {
 
 function stockOutlook(item: Counter['inventory'][number]) {
   const entries: string[] = [];
+  if (state.economy === 'port' && state.day > lastDay && (sealedCrateId.test(item.id) || cratePartId.test(item.id))) {
+    const { first, last } = salvageWindow(state.day, state.harborSchedule);
+    const price = sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item);
+    entries.push(`第 ${first}–${last} 天货棚收 ${price} 元${state.day >= first && !state.awaitingOpen ? ' · 今天可交付' : ''}`);
+  }
   if (item.id === board.id && state.day <= 9 && (state.day < 9 || state.visitIndex === 0)) {
     entries.push(`第 9 天船工收 ${lateBoardPrice} 元`);
   }
@@ -634,7 +643,7 @@ function renderStockDetail() {
   const target = { day: state.day, itemId: item.id };
   if (sealedCrateId.test(item.id)) {
     const manifest = document.createElement('p');
-    manifest.textContent = item.observations.join('') + '拆封后分三件入库，原封收购价随即失效。';
+    manifest.textContent = crateInspection(item.id, state.harborSchedule).join('') + '拆封后三件分别入库，不能再按原封价交付。';
     stockDetail.append(manifest);
     if (workshopOpen(state)) add('拆封并验货', { ...target, type: 'openCrate' });
   }
