@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { counterNotes, openCounter, settleVisit } from '../src/counter.ts';
+import { counterNotes, openCounter, outingPlan, settleVisit } from '../src/counter.ts';
+import { voyageOdds, voyageResult, voyageRoll } from '../src/outing.ts';
 import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
 import { readSave, saveVersion } from '../src/save.ts';
 
@@ -490,4 +491,85 @@ test('差一元可日内筹钱再收箱，挂牌散件转交货棚后隔天不�
   assert.equal(next.cash, 17);
   assert.equal(next.inventory.length, 2);
   assert.equal(next.consignment, undefined);
+});
+
+function dockAt(cash, day = 20) {
+  return { ...openCounter(cash), day, economy: 'port', activeRoundStart: day - 4,
+    chapterTwoStarted: true, visitIndex: scheduledVisits(day, 'port') };
+}
+
+function reloadState(state) {
+  return readSave(JSON.stringify({ version: saveVersion, state, message: '', tone: 'neutral' })).state;
+}
+
+function voyageSeed(day, grade) {
+  for (let seed = 0; ; seed++) {
+    if (voyageResult(voyageRoll(seed, day, false), false) === grade) return seed;
+  }
+}
+
+test('旧档打烊解锁打捞，船位按出发轮次计，32 元门槛和装备只扣一次', () => {
+  const old = reloadState(dockAt(49));
+  const closed = settleVisit(old, { type: 'close', day: 20 }).state;
+  assert.equal(typeof closed.outingSeed, 'number');
+  assert.equal(outingPlan(closed), undefined);
+  const plan = settleVisit(reloadState(closed), { type: 'continue', day: 21 }).state;
+  const book = { type: 'bookVoyage', day: 21 };
+  assert.equal(outingPlan(plan).boatShortfall, 1);
+  assert.equal(settleVisit(plan, book).state, plan);
+  const gear = { type: 'buyOutingWinch', day: 21 };
+  const poor = { ...plan, cash: 55 };
+  assert.equal(settleVisit(poor, gear).state, poor);
+  const equipped = settleVisit({ ...plan, cash: 56 }, gear).state;
+  assert.equal(equipped.cash, 32);
+  assert.equal(settleVisit(equipped, gear).state, equipped);
+  const booked = settleVisit({ ...equipped, cash: 50 }, book).state;
+  assert.equal(booked.cash, 32);
+  assert.equal(booked.ledger.at(-1).day, 20);
+  assert.equal(outingPlan(booked).remaining, 1);
+  assert.equal(settleVisit(booked, book).state, booked);
+  const revealed = settleVisit(reloadState(booked), { type: 'revealVoyage', day: 21, stage: 0 }).state;
+  assert.equal(revealed.voyage.grade, booked.voyage.grade);
+  const opened = settleVisit(reloadState(revealed), { type: 'open', day: 21 }).state;
+  assert.equal(opened.voyage, undefined);
+  assert.equal(settleVisit(opened, { type: 'open', day: 21 }).state, opened);
+  const twice = settleVisit({ ...opened, cash: 50, day: 22, awaitingOpen: true }, { ...book, day: 22 }).state;
+  assert.equal(outingPlan({ ...twice, day: 25, voyage: undefined }).remaining, 0);
+  assert.equal(outingPlan({ ...twice, day: 26, activeRoundStart: 26, voyage: undefined }).remaining, 2);
+  for (const equipped of [false, true]) {
+    const results = Array.from({ length: 100 }, (_, roll) => voyageResult(roll, equipped));
+    assert.deepEqual(['empty', 'worn', 'sound', 'long'].map((grade) => results.filter((result) => result === grade).length), voyageOdds(equipped));
+  }
+});
+
+test('滤芯可换装、拆回按余次出售，制水每天一次且用尽时报废', () => {
+  for (const grade of ['sound', 'worn']) {
+    const start = { ...dockAt(124), day: 21, activeRoundStart: 21, awaitingOpen: true, outingSeed: voyageSeed(21, grade) };
+    const booked = settleVisit(start, { type: 'bookVoyage', day: 21 }).state;
+    const opened = settleVisit(reloadState(booked), { type: 'open', day: 21 }).state;
+    assert.equal(opened.cash, 106);
+    assert.equal(opened.inventory.length, 1);
+    const itemId = opened.inventory[0].id;
+    const mounted = settleVisit(opened, { type: 'mountFilter', day: 21, itemId }).state;
+    const used = settleVisit(mounted, { type: 'takeWaterJob', day: 21 }).state;
+    assert.equal(used.cash, 114);
+    assert.equal(settleVisit(reloadState(used), { type: 'takeWaterJob', day: 21 }).state.cash, 114);
+    assert.equal(settleVisit(used, { type: 'sellFilter', day: 21, itemId }).state, used);
+    const day22 = settleVisit({ ...used, day: 22 }, { type: 'takeWaterJob', day: 22 }).state;
+    assert.equal(day22.cash, 122);
+    if (grade === 'worn') {
+      assert.equal(day22.mountedFilter, undefined);
+      assert.match(day22.ledger.at(-1).description, /报废/);
+    } else {
+      const withSpare = { ...day22, inventory: [{ ...opened.inventory[0], id: 'voyage-22-filter' }] };
+      const swapped = settleVisit(withSpare, { type: 'mountFilter', day: 22, itemId: 'voyage-22-filter' }).state;
+      assert.equal(swapped.inventory[0].filter.remaining, 3);
+      assert.equal(settleVisit(swapped, { type: 'takeWaterJob', day: 22 }).state, swapped);
+      const removed = settleVisit(swapped, { type: 'removeFilter', day: 22 }).state;
+      assert.equal(removed.inventory.length, 2);
+      const sold = settleVisit(removed, { type: 'sellFilter', day: 22, itemId }).state;
+      assert.equal(sold.cash, 142);
+      assert.equal(settleVisit(sold, { type: 'sellFilter', day: 22, itemId }).state, sold);
+    }
+  }
 });

@@ -1,4 +1,5 @@
 import { rentalDays, usablePurifier, type Counter, type Result, type Ticket } from './counter.ts';
+import { filterGrades, firstOutingDay, type FilterGrade } from './outing.ts';
 import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, roundStart, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
 
 export const saveVersion = 3;
@@ -8,6 +9,8 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 const nonNegative = (value: unknown): value is number => integer(value) && value >= 0;
+const isFilterGrade = (value: unknown): value is FilterGrade =>
+  value === 'worn' || value === 'sound' || value === 'long';
 
 function isItem(value: unknown): value is Item {
   return isObject(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
@@ -15,7 +18,9 @@ function isItem(value: unknown): value is Item {
     Array.isArray(value.observations) && value.observations.every((line) => typeof line === 'string') &&
     (value.authenticity === undefined || value.authenticity === 'genuine' || value.authenticity === 'imitation') &&
     (value.reference === undefined || typeof value.reference === 'string') &&
-    (value.recyclePrice === undefined || nonNegative(value.recyclePrice));
+    (value.recyclePrice === undefined || nonNegative(value.recyclePrice)) &&
+    (value.filter === undefined || (isObject(value.filter) && isFilterGrade(value.filter.grade) &&
+      integer(value.filter.remaining) && value.filter.remaining > 0 && value.filter.remaining <= filterGrades[value.filter.grade].uses));
 }
 
 function isInventoryItem(value: unknown): value is Item & { cost: number } {
@@ -113,5 +118,16 @@ export function readSave(raw: string): Save {
         !(state.inventory as Counter['inventory']).some((item) => item.id === (order.item as Item).id)) ||
       new Set(orders.map((order) => order.kind)).size !== orders.length) throw new Error('Invalid workshop orders');
   }
+  const { outingSeed, hasOutingWinch, voyage, mountedFilter, waterJobDay } = state;
+  if ((outingSeed !== undefined && (state.economy !== 'port' || state.day < firstOutingDay ||
+        !nonNegative(outingSeed) || outingSeed > 0xffffffff)) ||
+      (hasOutingWinch !== undefined && (outingSeed === undefined || hasOutingWinch !== true)) ||
+      (voyage !== undefined && (outingSeed === undefined || !state.awaitingOpen || !isObject(voyage) ||
+        voyage.day !== state.day || (voyage.grade !== 'empty' && !isFilterGrade(voyage.grade)) ||
+        (voyage.stage !== 0 && voyage.stage !== 1 && (voyage.stage !== 2 || voyage.grade === 'empty')))) ||
+      (mountedFilter !== undefined && (outingSeed === undefined || !isInventoryItem(mountedFilter) ||
+        !mountedFilter.filter || (state.inventory as Counter['inventory']).some((item) => item.id === mountedFilter.id))) ||
+      (waterJobDay !== undefined && (outingSeed === undefined || !integer(waterJobDay) ||
+        waterJobDay < firstOutingDay || waterJobDay > state.day))) throw new Error('Invalid outing state');
   return save as Save;
 }

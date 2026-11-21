@@ -1,3 +1,5 @@
+import type { FilterLife } from './outing.ts';
+
 export const openingCash = 200;
 export const maxOffers = 2;
 export const firstChapterEnd = 5;
@@ -42,6 +44,7 @@ export type Item = {
   authenticity?: 'genuine' | 'imitation';
   reference?: string;
   recyclePrice?: number;
+  filter?: FilterLife;
 };
 
 const resaleBands: Record<string, readonly [number, number, number]> = {

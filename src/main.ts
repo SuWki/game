@@ -1,4 +1,6 @@
 import './style.css';
+import { outingPlan } from './counter';
+import { boatFee, cashReserve, filterGrades, filterOffer, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
@@ -59,6 +61,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
             <button id="show-harbor" class="quiet" hidden>港口货摊</button>
             <button id="show-consignment" class="quiet" hidden>寄售架</button>
             <button id="show-jobs" class="quiet" hidden>字条与委托</button>
+            <button id="show-filter-rack" class="quiet" hidden>淡化机架</button>
           </div>
           <div id="actions" class="actions" aria-label="柜台操作"></div>
           <p id="feedback" role="status"></p>
@@ -76,6 +79,12 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <p id="title-save"></p>
       <div class="actions"><button id="title-continue" hidden>继续营业</button><button id="title-new">开始营业</button></div>
     </div>
+  </dialog>
+  <dialog id="filter-rack" aria-labelledby="filter-rack-title">
+    <div class="dialog-head"><h2 id="filter-rack-title">船厂淡化机架</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <p id="filter-rack-status"></p>
+    <div id="filter-rack-actions" class="actions"></div>
+    <p id="filter-rack-result" role="status"></p>
   </dialog>
   <dialog id="harbor-dialog" aria-labelledby="harbor-title">
     <div class="dialog-head"><h2 id="harbor-title">港口货摊</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
@@ -170,6 +179,12 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
 const day = document.querySelector<HTMLElement>('#day')!;
 const cash = document.querySelector<HTMLOutputElement>('#cash')!;
+const rackEntry = document.querySelector<HTMLButtonElement>('#show-filter-rack')!;
+const rackDialog = document.querySelector<HTMLDialogElement>('#filter-rack')!;
+const rackStatus = document.querySelector<HTMLElement>('#filter-rack-status')!;
+const rackActions = document.querySelector<HTMLElement>('#filter-rack-actions')!;
+const rackResult = document.querySelector<HTMLElement>('#filter-rack-result')!;
+rackEntry.addEventListener('click', () => { rackResult.textContent = ''; rackDialog.showModal(); });
 const count = document.querySelector<HTMLElement>('#count')!;
 const shelter = document.querySelector<HTMLElement>('#shelter')!;
 const requests = document.querySelector<HTMLElement>('#requests')!;
@@ -589,6 +604,7 @@ function renderJobs() {
 
 function stockOutlook(item: Counter['inventory'][number]) {
   const entries: string[] = [];
+  if (item.filter) entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
   if (state.economy === 'port' && state.day > lastDay && (sealedCrateId.test(item.id) || cratePartId.test(item.id))) {
     const { first, last } = salvageWindow(state.day, state.harborSchedule);
     const price = sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item);
@@ -641,6 +657,13 @@ function renderStockDetail() {
     actions.append(button);
   };
   const target = { day: state.day, itemId: item.id };
+  if (item.filter && workshopOpen(state)) {
+    const terms = document.createElement('p');
+    terms.textContent = `可制水 ${item.filter.remaining}/${filterGrades[item.filter.grade].uses} 次。船厂每日收一单，净付 ${waterJobPay} 元。`;
+    stockDetail.append(terms);
+    add(`卖给设备货商 ${filterOffer(item.filter)} 元`, { ...target, type: 'sellFilter' });
+    add(state.mountedFilter ? '换上这枚滤芯' : '装到淡化机架', { ...target, type: 'mountFilter' });
+  }
   if (sealedCrateId.test(item.id)) {
     const manifest = document.createElement('p');
     manifest.textContent = crateInspection(item.id, state.harborSchedule).join('') + '拆封后三件分别入库，不能再按原封价交付。';
@@ -717,6 +740,7 @@ function renderDesk() {
   for (const order of state.workshopOrders ?? []) {
     custody.push(`${order.item.name}${order.kind === 'repair' ? '送修中' : '出租中'} · 第 ${order.dueDay} 天归还`);
   }
+  if (state.mountedFilter?.filter) custody.push(`${state.mountedFilter.name}已安装 · 余 ${state.mountedFilter.filter.remaining} 次`);
   deskHeld.textContent = custody.join(' / ');
 }
 
@@ -767,7 +791,10 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   };
   currentGuide.textContent = saveBlocked ? '' : visit ? hints[visit.kind] :
     state.chapterTwoStarted && !finished ? state.economy === 'port' ? '港务字条会写上到港日和受影响的订单。' : '打烊时结算饮水。现金不足时，可返回账本回收自有库存或安装 F2。' : '';
-  const phase = harborPeriod(state.visitIndex, scheduledVisits(state.day, state.economy, state.harborSchedule), state.awaitingOpen && !finished);
+  const plan = saveBlocked ? undefined : outingPlan(state);
+  const planningOuting = plan && !state.voyage;
+  const phase = planningOuting ? 'evening'
+    : harborPeriod(state.visitIndex, scheduledVisits(state.day, state.economy, state.harborSchedule), state.awaitingOpen && !finished);
   const lightLabel = { morning: '早晨', noon: '日间', evening: '傍晚' }[phase];
   document.documentElement.dataset.phase = phase;
   dockFlag.hidden = atTitle || saveBlocked || state.economy !== 'port' || !state.chapterTwoStarted ||
@@ -780,7 +807,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   inspectionEntry.hidden = true;
   if (inspectDialog.open) inspectDialog.close();
   const dayStatus = state.awaitingOpen ? '尚未营业' : '柜台营业';
-  day.textContent = finished ? `第 ${state.day - 1} 天 · 已打烊` : `第 ${state.day} 天 · ${lightLabel} · ${dayStatus}`;
+  day.textContent = finished || planningOuting ? `第 ${state.day - 1} 天 · 已打烊` : `第 ${state.day} 天 · ${lightLabel} · ${dayStatus}`;
   cash.value = saveBlocked ? '—' : String(state.cash);
   const latest = saveBlocked ? undefined : state.ledger.slice().reverse().find((entry) => entry.change !== 0);
   cashChange.textContent = latest
@@ -791,6 +818,28 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   renderHarbor();
   renderConsignment();
   renderJobs();
+  const mounted = state.mountedFilter;
+  const jobDone = state.waterJobDay === state.day;
+  rackEntry.hidden = saveBlocked || !workshopOpen(state) ||
+    (!mounted && !jobDone && !state.inventory.some((item) => item.filter));
+  if (rackEntry.hidden && rackDialog.open) rackDialog.close();
+  rackEntry.textContent = mounted?.filter ? `淡化机架 · 余 ${mounted.filter.remaining} 次` : '淡化机架';
+  rackStatus.textContent = [
+    mounted?.filter ? `${mounted.name} · 还能制水 ${mounted.filter.remaining} 次。` : '机架空着，可从自有库存装入滤芯。',
+    jobDone ? '今天的船厂订单已结清。' : `今天有一张制水单，净付 ${waterJobPay} 元。`,
+  ].join('');
+  rackActions.replaceChildren();
+  if (mounted) {
+    const use = document.createElement('button');
+    use.textContent = `制水交单 · 收 ${waterJobPay} 元`;
+    use.disabled = jobDone;
+    bindAction(use, { type: 'takeWaterJob', day: state.day });
+    const remove = document.createElement('button');
+    remove.textContent = '拆回库存';
+    remove.className = 'quiet';
+    bindAction(remove, { type: 'removeFilter', day: state.day });
+    rackActions.append(use, remove);
+  }
   shelter.textContent = saveBlocked ? '等待恢复存档' :
     finished ? (state.installedPurifier ? 'F2 已安装，接集雨池供水。' : '庇护所尚未安装 F2。') : waterLine();
   if (!saveBlocked && !finished && state.reservedWaterDay && state.reservedWaterDay > state.day) {
@@ -828,6 +877,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
       const held = state.tickets.filter((ticket) => ticket.status === 'held').length;
       scene.innerHTML = `<div class="visitor"><h2>${portRound(start, state.harborSchedule).title} · 收档</h2>
         <p class="terms">本轮净收支 ${change >= 0 ? '+' : ''}${change} 元 · 现金 ${state.cash} 元 · 自有库存 ${state.inventory.length} 件 · 代管 ${held} 件</p>
+        ${mounted?.filter ? `<p class="terms">机架滤芯还能制水 ${mounted.filter.remaining} 次。</p>` : ''}
         ${state.consignment ? '<p class="terms">寄售将在下一轮开门时结算。</p>' : ''}</div>`;
     } else scene.innerHTML = endingView(state.chapterTwoStarted === true);
     if (roundSummary) {
@@ -840,7 +890,31 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   } else if (state.awaitingOpen) {
     scene.innerHTML = `<div class="visitor"><h2>第 ${state.day} 天</h2>
       ${state.day > lastDay && state.day === roundStart(state.day) ? `<p class="terms">${portRound(state.day, state.harborSchedule).notice}</p>` : ''}</div>`;
-    addAction('开门营业', { type: 'open', day: state.day });
+    const voyage = state.voyage;
+    if (plan && !voyage) {
+      const odds = voyageOdds(state.hasOutingWinch === true);
+      scene.querySelector('.visitor')?.insertAdjacentHTML('beforeend', `<div class="outing-slip">
+        <h3>码头拼船单 · 第 ${state.day} 天出发</h3>
+        <p>本轮船位剩 ${plan.remaining}/${outingLimit} · 手头 ${state.cash} 元 · 明早已知到账 ${plan.knownReceipts} 元</p>
+        <p>空船 ${odds[0]}% · 旧芯 ${odds[1]}% · 完好芯 ${odds[2]}% · 长寿命芯 ${odds[3]}%</p>
+        <p>${state.hasOutingWinch ? '已装备定位绞具。' : '定位绞具永久使用。出货率 55% → 65%，长寿命芯 3% → 5%。'}</p>
+      </div>`);
+      addAction('开门营业', { type: 'open', day: state.day });
+      addAction(`随船打捞 ${boatFee} 元`, { type: 'bookVoyage', day: state.day }, true, !plan.remaining || !!plan.boatShortfall,
+        !plan.remaining ? '本轮船位已用完' : plan.boatShortfall ? `留足 ${cashReserve} 元还差 ${plan.boatShortfall} 元` : `付费后剩 ${state.cash - boatFee} 元`);
+      if (!state.hasOutingWinch) addAction(`买定位绞具 ${winchUpgradeCost} 元`, { type: 'buyOutingWinch', day: state.day },
+        true, !!plan.gearShortfall, plan.gearShortfall ? `留足 ${cashReserve} 元还差 ${plan.gearShortfall} 元` : `付费后剩 ${state.cash - winchUpgradeCost} 元`);
+    } else if (voyage) {
+      const grade = voyage.grade === 'empty' ? undefined : filterGrades[voyage.grade];
+      const line = voyage.stage === 0 ? '打捞船靠岸了，吊篮还在水里。'
+        : !grade ? '收上来一篮碎壳和泥沙，船队空手返港。'
+        : voyage.stage === 1 ? '吊篮里有一枚沾泥的滤芯。擦净铭牌，再看压力表。'
+        : `${grade.name} · 可用 ${grade.uses} 次 · 货商出 ${grade.price} 元。`;
+      scene.querySelector('.visitor')?.insertAdjacentHTML('beforeend', `<div class="outing-slip"><h3>清晨返港</h3><p>${line}</p></div>`);
+      if (voyage.stage === 0) addAction('收绳看吊篮', { type: 'revealVoyage', day: state.day, stage: 0 });
+      if (voyage.stage === 1 && grade) addAction('擦净铭牌', { type: 'revealVoyage', day: state.day, stage: 1 });
+      addAction('开门营业', { type: 'open', day: state.day }, voyage.stage < 2 && !!grade);
+    } else addAction('开门营业', { type: 'open', day: state.day });
   } else if (visit) {
     renderVisit(visit);
   } else {
@@ -966,6 +1040,10 @@ async function handle(action: Action) {
     if (jobsDialog.open) {
       jobsResult.textContent = result.message;
       if (!jobsDialog.contains(document.activeElement)) jobsDialog.querySelector('button')?.focus();
+    }
+    if (rackDialog.open) {
+      rackResult.textContent = result.message;
+      if (!rackDialog.contains(document.activeElement)) rackDialog.querySelector('button')?.focus();
     }
   });
 }

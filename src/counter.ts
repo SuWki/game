@@ -3,6 +3,7 @@ import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPric
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
+import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -48,6 +49,11 @@ export type Counter = {
   economy?: 'port';
   activeRoundStart?: number;
   workshopOrders?: WorkshopOrder[];
+  outingSeed?: number;
+  hasOutingWinch?: true;
+  voyage?: Voyage;
+  mountedFilter?: InventoryItem;
+  waterJobDay?: number;
   f2Appointment?: { day: number; status: 'booked' | 'closed' };
   fuseReferral?: 'accepted' | 'paid';
   consignment?: { itemId: string; price: number; listedDay: number };
@@ -77,6 +83,11 @@ export type Action =
   | { type: 'buyCrate'; day: number }
   | { type: 'openCrate'; day: number; itemId: string }
   | { type: 'sellCrateGoods'; day: number; itemId: string }
+  | { type: 'bookVoyage' | 'buyOutingWinch'; day: number }
+  | { type: 'removeFilter' | 'takeWaterJob'; day: number }
+  | { type: 'revealVoyage'; day: number; stage: 0 | 1 }
+  | { type: 'mountFilter'; day: number; itemId: string }
+  | { type: 'sellFilter'; day: number; itemId: string }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
@@ -102,16 +113,84 @@ function advance(state: Counter): Counter {
   };
 }
 
-function record(state: Counter, item: Item | null, description: string, change: number): Counter {
+function record(state: Counter, item: Item | null, description: string, change: number, day = state.day): Counter {
   const cash = state.cash + change;
   const next = {
     ...state, cash,
-    ledger: [...state.ledger, { day: state.day, itemId: item?.id ?? null, description, change, balance: cash }],
+    ledger: [...state.ledger, { day, itemId: item?.id ?? null, description, change, balance: cash }],
   };
   if (item && next.consignment?.itemId === item.id && !next.inventory.some((entry) => entry.id === item.id)) {
     delete next.consignment;
   }
   return next;
+}
+
+export function outingPlan(state: Counter) {
+  if (!state.awaitingOpen || state.economy !== 'port' || state.outingSeed === undefined || atRoundSummary(state)) return;
+  const first = roundStart(state.day);
+  const used = state.ledger.filter((entry) => entry.description === voyageExpense &&
+    entry.day + 1 >= first && entry.day + 1 <= state.day).length;
+  const rent = state.workshopOrders?.some((order) => order.kind === 'rent' && order.dueDay === state.day) ? rentalFee : 0;
+  const listed = state.inventory.find((item) => item.id === state.consignment?.itemId);
+  const guaranteedSale = listed && consignmentPrices(listed)?.[0] === state.consignment?.price ? state.consignment?.price ?? 0 : 0;
+  return { remaining: Math.max(0, outingLimit - used), knownReceipts: rent + guaranteedSale,
+    boatShortfall: Math.max(0, boatFee + cashReserve - state.cash),
+    gearShortfall: Math.max(0, winchUpgradeCost + cashReserve - state.cash) };
+}
+
+function planVoyage(state: Counter, action: Extract<Action, { type: 'bookVoyage' | 'buyOutingWinch' | 'revealVoyage' }>): Result {
+  const plan = outingPlan(state);
+  if (state.day !== action.day || !plan || state.outingSeed === undefined) return notice(state, '请在打烊后规划出海。', 'warning');
+  if (action.type === 'revealVoyage') {
+    const voyage = state.voyage;
+    if (!voyage || voyage.stage !== action.stage || (voyage.grade === 'empty' && action.stage === 1)) return notice(state, '');
+    return notice({ ...state, voyage: { ...voyage, stage: action.stage === 0 ? 1 : 2 } }, '船已返港。');
+  }
+  if (state.voyage) return notice(state, '明早的船位已订好。', 'warning');
+  if (action.type === 'buyOutingWinch') {
+    if (state.hasOutingWinch) return notice(state, '店里已有定位绞具。', 'warning');
+    if (plan.gearShortfall) return notice(state, `留足周转金还差 ${plan.gearShortfall} 元。`, 'warning');
+    return notice(record({ ...state, hasOutingWinch: true }, null, '装备 · 定位绞具', -winchUpgradeCost, state.day - 1),
+      '定位绞具已买下，之后出海都可使用。', 'success');
+  }
+  if (!plan.remaining) return notice(state, '本轮船位已用完。', 'warning');
+  if (plan.boatShortfall) return notice(state, `留足周转金还差 ${plan.boatShortfall} 元。`, 'warning');
+  const equipped = state.hasOutingWinch === true;
+  const grade = voyageResult(voyageRoll(state.outingSeed, state.day, equipped), equipped);
+  const voyage: Voyage = { day: state.day, grade, stage: 0 };
+  return notice(record({ ...state, voyage }, null, voyageExpense, -boatFee, state.day - 1),
+    `已付 ${boatFee} 元船费。第 ${state.day} 天清晨返港。`, 'success');
+}
+
+function handleFilter(state: Counter, action: Extract<Action, { type: 'mountFilter' | 'sellFilter' | 'removeFilter' | 'takeWaterJob' }>): Result {
+  if (state.day !== action.day || !workshopOpen(state)) return notice(state, '请在营业中处理滤芯。', 'warning');
+  const mounted = state.mountedFilter;
+  if (action.type === 'takeWaterJob' || action.type === 'removeFilter') {
+    if (!mounted?.filter) return notice(state, '机架上没有滤芯。', 'warning');
+    if (action.type === 'removeFilter') {
+      const next = { ...state, inventory: [...state.inventory, mounted] };
+      delete next.mountedFilter;
+      return notice(next, '滤芯已拆回库存。', 'success');
+    }
+    if (state.waterJobDay === state.day) return notice(state, '今天的制水单已结清。', 'warning');
+    const remaining = mounted.filter.remaining - 1;
+    const next = { ...state, waterJobDay: state.day };
+    if (remaining) next.mountedFilter = { ...mounted, filter: { ...mounted.filter, remaining } };
+    else delete next.mountedFilter;
+    const paid = record(next, mounted, '制水服务 · 船厂订单', waterJobPay);
+    return notice(remaining ? paid : record(paid, mounted, '滤芯用尽 · 报废', 0),
+      `制水到账 ${waterJobPay} 元。${remaining ? `滤芯还可用 ${remaining} 次。` : '滤芯已用尽并报废。'}`, 'success');
+  }
+  const itemId = 'itemId' in action ? action.itemId : undefined;
+  const item = state.inventory.find((entry) => entry.id === itemId);
+  if (!item?.filter) return notice(state, '自有库存里没有这枚滤芯。', 'warning');
+  const next = { ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) };
+  if (action.type === 'mountFilter') {
+    if (mounted) next.inventory.push(mounted);
+    return notice({ ...next, mountedFilter: item }, mounted ? '新滤芯已装好，旧芯已保留余次并拆回库存。' : '滤芯已装好，可在淡化机架接制水单。', 'success');
+  }
+  const price = filterOffer(item.filter);
+  return notice(record(next, item, `售货 · ${item.name}`, price), `滤芯已售，到账 ${price} 元。`, 'success');
 }
 
 export function heldTicket(state: Counter, visit: Extract<Visit, { kind: 'redeem' }>): Ticket | undefined {
@@ -401,8 +480,23 @@ function updateConsignment(state: Counter, action: Extract<Action, { type: 'list
 
 function settleOpening(state: Counter): Result {
   const returned = settleWorkshop({ ...state, awaitingOpen: false, knowsMechanicRequest: state.knowsMechanicRequest || state.day === 2 });
-  const next = returned.state;
-  const greeting = `第 ${state.day} 天开始营业。${returned.message}`;
+  let next = returned.state;
+  let greeting = `第 ${state.day} 天开始营业。${returned.message}`;
+  const voyage = state.voyage;
+  if (voyage) {
+    delete next.voyage;
+    if (voyage.grade === 'empty') greeting += '打捞船空手返港。';
+    else {
+      const grade = filterGrades[voyage.grade];
+      const item = {
+        id: `voyage-${voyage.day}-filter`, name: `海水淡化滤芯 · ${grade.name}`, model: '海水淡化滤芯',
+        condition: grade.name, observations: ['可装在船厂的岸上淡化机架，给船队交制水单。'],
+        filter: { grade: voyage.grade, remaining: grade.uses }, cost: boatFee,
+      };
+      next = record({ ...next, inventory: [...next.inventory, item] }, item, `返港入库 · ${item.name}`, 0);
+      greeting += `${item.name}已入库，可用 ${grade.uses} 次，货商出 ${grade.price} 元。`;
+    }
+  }
   const listing = next.consignment;
   if (!listing || listing.listedDay >= state.day) return notice(next, greeting);
   delete next.consignment;
@@ -488,6 +582,9 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
     message += '使用昨天预订的水，今晚无需现场买水。';
   }
   const closed = { ...next, day: day + 1, awaitingOpen: true, visitIndex: 0, attempts: 0, waterShortfall };
+  if (closed.economy === 'port' && closed.day >= firstOutingDay && closed.outingSeed === undefined) {
+    closed.outingSeed = crypto.getRandomValues(new Uint32Array(1))[0];
+  }
   if (closed.f2Appointment?.status === 'booked' && closed.f2Appointment.day === day) {
     closed.f2Appointment = { day, status: 'closed' };
   }
@@ -519,6 +616,8 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage') return planVoyage(state, action);
+  if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob') return handleFilter(state, action);
   if (action.type === 'buyCrate' || action.type === 'openCrate' || action.type === 'sellCrateGoods') return handleSalvage(state, action);
   if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);
   if (action.type === 'buyRepairStock' || action.type === 'sellRepairStock') {
