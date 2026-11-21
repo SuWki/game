@@ -18,6 +18,24 @@ const cashParam = new URLSearchParams(location.search).get('cash');
 const sandboxCash = cashParam === '24' ? 24 : cashParam === '5' ? 5 : null;
 const saveKey = sandboxCash === null ? 'tideline-counter' : `tideline-counter-cash-${sandboxCash}`;
 const tutorialKey = 'tideline-counter-tutorial';
+const contextTutorialKey = 'tideline-counter-context-tutorials';
+const contextGuides = {
+  water: { title: '第一次缺水', copy: '在「船务与岸市」的水柜补水。现金也不足时，在同一个面板找「今晚筹钱」或泵房应急值班。' },
+  appointment: { title: '第一次可约见', copy: '打开「字条与委托」，查看买家要什么、哪天验货，再决定是否约见。按 J 可回看已收到的字条。' },
+  outing: { title: '第一次打烊外出', copy: '打烊后可以预约次日打捞或挑石。费用现在付，两种外出共用船位。直接开门也可以继续营业。' },
+  berth: { title: '第一次认领泊位', copy: '打开「船务与岸市」，在「自己的小船」认领空泊位。认领免费，可以从工料单查看要攒哪些材料。' },
+} as const;
+type ContextGuide = keyof typeof contextGuides;
+let contextProfile: { seen: ContextGuide[]; lastDay?: number } = { seen: [] };
+try {
+  const stored = JSON.parse(localStorage.getItem(contextTutorialKey) ?? '{}');
+  contextProfile = {
+    seen: Array.isArray(stored?.seen) ? stored.seen.filter((key: string) => Object.hasOwn(contextGuides, key)) : [],
+    lastDay: Number.isSafeInteger(stored?.lastDay) ? stored.lastDay : undefined,
+  };
+} catch { /* 本次游玩仍可使用提示 */ }
+let contextStep: { guide: ContextGuide; target: HTMLButtonElement } | undefined;
+let contextFrame = 0;
 const openingStory = '那场风暴过后，旧船厂的汽笛沉寂了好几年。如今码头又能靠船了，船上的旧物也跟着人上了岸。你在船厂门口支起当铺：有人急着结工钱，肯把货卖断；有人只想押上心爱的东西，等船回来再赎。';
 const shipStory = '陆上的城镇被咸潮切成了孤岛。「旧港号」把数百人接上船，你在面向栈桥的舷窗边开了一间当铺。船员押东西周转，岸上的人拿备件换船币。每五天母船换一个泊位，今天便宜的货，下站也许正缺。';
 const newGame = () => openCounter(sandboxCash ?? openingCash);
@@ -138,6 +156,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div><dt>真假与买断</dt><dd>把实物批次与手册对照。能指出疑点时，可以试着把典当谈成低价买断。向买家隐瞒真伪可能影响下一位熟客的报价。</dd></div>
       <div><dt>查账、找线索</dt><dd>按 J 翻线索记录，查看熟客求购和已经看过的证据。「账本」里可以看库存、当票、流水和用水。按 Esc 回到柜台。</dd></div>
       <div><dt>处理手上的货</dt><dd>点击柜台下方的自有货物，可查看买家报价，或直接回收、寄售。代管货要等逾期归店才能处置。</dd></div>
+      ${Object.values(contextGuides).map(({ title, copy }) => `<div><dt>${title}</dt><dd>${copy}</dd></div>`).join('')}
     </dl>
   </dialog>
   <dialog id="notes-dialog" aria-labelledby="notes-title">
@@ -321,6 +340,13 @@ function appraisalView(item: Item) {
 }
 
 function bindAction(button: HTMLButtonElement, action: Action) {
+  if (action.type === 'bookVoyage' || action.type === 'bookStoneTrip' || action.type === 'bookMaterialTrip') {
+    button.dataset.guideAction = 'outing';
+  } else if (action.type === 'bookF2' || action.type === 'bookRopeVisit' || action.type === 'career' && action.task === 'bookLaundry') {
+    button.dataset.guideAction = 'appointment';
+  } else if (action.type === 'career' && action.task === 'claim') {
+    button.dataset.guideAction = 'berth';
+  }
   button.addEventListener('click', (event) => {
     if (event.detail <= 1) void handle(action);
   });
@@ -1423,6 +1449,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   retry.hidden = !saveBlocked;
   if (tutorialStep && (saveBlocked || visit?.id !== 'day-1-boatman')) finishTutorial();
   else renderTutorial();
+  scheduleContextTutorial();
 }
 
 function restore() {
@@ -1535,15 +1562,55 @@ function positionTutorial() {
 function renderTutorial() {
   tutorialTarget?.classList.remove('tutorial-target');
   tutorialTarget?.removeAttribute('aria-describedby');
-  tutorialTarget = tutorialStep === 'inspect' ? inspectCounter : tutorialStep === 'trade' ? actions : null;
+  if (contextStep && !visibleGuideTarget(contextStep.target)) contextStep = undefined;
+  tutorialTarget = tutorialStep === 'inspect' ? inspectCounter : tutorialStep === 'trade' ? actions : contextStep?.target ?? null;
   tutorialTip.hidden = !tutorialTarget;
   if (!tutorialTarget) return;
-  tutorialCopy.textContent = tutorialStep === 'inspect'
+  tutorialCopy.textContent = contextStep && !tutorialStep ? contextGuides[contextStep.guide].copy : tutorialStep === 'inspect'
     ? '先点「近看旧航灯」，检查成色和细节。'
     : '看完货，可以报价，也可以谢客。按 H 随时查看玩法。';
   tutorialTarget.classList.add('tutorial-target');
   tutorialTarget.setAttribute('aria-describedby', 'tutorial-copy');
   positionTutorial();
+}
+
+function visibleGuideTarget(target?: HTMLButtonElement | null): target is HTMLButtonElement {
+  if (!target?.isConnected || target.disabled || target.closest('[hidden], [inert]')) return false;
+  const bounds = target.getBoundingClientRect();
+  return bounds.width > 0 && bounds.height > 0 && bounds.top >= 0 && bounds.bottom <= window.innerHeight &&
+    bounds.left >= 0 && bounds.right <= window.innerWidth && getComputedStyle(target).visibility === 'visible';
+}
+
+function scheduleContextTutorial() {
+  if (contextFrame) return;
+  contextFrame = requestAnimationFrame(() => {
+    contextFrame = 0;
+    if (atTitle || saveBlocked || sandboxCash !== null || tutorialStep || contextStep || state.ship?.closed ||
+      document.querySelector('dialog[open]')) return;
+    const candidates: [ContextGuide, HTMLButtonElement | null][] = [
+      ['water', state.ship && state.ship.water < shipNight(state).water ? shipEntry : null],
+      ['appointment', jobsContent.querySelector('[data-guide-action="appointment"]:enabled') ? jobsEntry : null],
+      ['outing', actions.querySelector('[data-guide-action="outing"]:enabled')],
+      ['berth', shipDialog.querySelector('[data-guide-action="berth"]:enabled') ? shipEntry : null],
+    ];
+    for (const [guide, target] of candidates) {
+      // The planner belongs to the evening just closed. The save already points at the next opening.
+      const shownDay = guide === 'outing' ? state.day - 1 : state.day;
+      if (contextProfile.lastDay === shownDay || contextProfile.seen.includes(guide) || !visibleGuideTarget(target)) continue;
+      contextStep = { guide, target };
+      contextProfile.seen.push(guide);
+      contextProfile.lastDay = shownDay;
+      try { localStorage.setItem(contextTutorialKey, JSON.stringify(contextProfile)); } catch { /* 当前会话仍记住已展示的提示 */ }
+      renderTutorial();
+      break;
+    }
+  });
+}
+
+function dismissContextTutorial() {
+  if (!contextStep) return;
+  contextStep = undefined;
+  renderTutorial();
 }
 
 function showTutorialStep(step: 'inspect' | 'trade') {
@@ -1587,6 +1654,7 @@ function renderTitle() {
 }
 
 function showTitle() {
+  dismissContextTutorial();
   atTitle = true;
   document.documentElement.classList.add('at-title');
   restore();
@@ -1657,16 +1725,33 @@ inspectDialog.addEventListener('close', () => {
 });
 rationDialog.addEventListener('close', startTutorial);
 document.querySelector('#skip-tutorial')!.addEventListener('click', () => {
+  if (contextStep && !tutorialStep) {
+    const { target } = contextStep;
+    dismissContextTutorial();
+    target.focus();
+    return;
+  }
   const focus = tutorialStep === 'inspect' ? inspectCounter : actions.querySelector('button');
   finishTutorial();
   focus?.focus();
 });
-window.addEventListener('resize', positionTutorial);
-window.addEventListener('scroll', positionTutorial, { passive: true });
+function refreshTutorialPosition() {
+  if (contextStep && !visibleGuideTarget(contextStep.target)) dismissContextTutorial();
+  positionTutorial();
+  scheduleContextTutorial();
+}
+window.addEventListener('resize', refreshTutorialPosition);
+window.addEventListener('scroll', refreshTutorialPosition, { passive: true });
+document.addEventListener('close', scheduleContextTutorial, true);
+// Clear the spotlight before an action rerenders the counter or opens a dialog.
+document.addEventListener('click', (event) => {
+  if (contextStep && !tutorialTip.contains(event.target as Node)) dismissContextTutorial();
+}, true);
 document.addEventListener('keydown', (event) => {
   if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
   if (event.key === 'Escape' && tutorialStep && !document.querySelector('dialog[open]')) finishTutorial();
   const panel = event.code === 'KeyH' ? guideDialog : event.code === 'KeyJ' ? notesDialog : undefined;
+  if (event.key === 'Escape' || panel) dismissContextTutorial();
   if (!panel || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
   if (panel.open) panel.close();
   else if (!document.querySelector('dialog[open]')) {
