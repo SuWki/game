@@ -4,7 +4,7 @@ import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem,
 import { baseItemId, portRound, repairedWinch, roundEnd, roundLength, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, floatFarmOrder, shipSaleQuote, waterPacks } from './ship.ts';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, floatFarmOrder, nightBudget, shipSaleQuote, waterPacks } from './ship.ts';
 import { shipStop } from './ship.ts';
 import { boatBuildItems, boatMaterials, boatWorkLog, boatWorks, careerLog, careerVisit, dwelling, laundryOrder,
   laundryPrice, materialJobPrice, materialKind, mechanicTicket, playerBoat, saltPen, shipNight } from './career.ts';
@@ -242,7 +242,7 @@ function handleFilter(state: Counter, action: Extract<Action, { type: 'mountFilt
       delete next.mountedFilter;
       return notice(next, '滤芯已拆回库存。', 'success');
     }
-    if (state.waterJobDay === state.day || (action.type === 'fillShipWater' && !state.ship)) return notice(state, '今天无法再用机架制水。', 'warning');
+    if (state.waterJobDay === state.day || (action.type === 'fillShipWater' && !canFillShipWater(state))) return notice(state, '今天无法再用机架制水。', 'warning');
     const remaining = mounted.filter.remaining - 1;
     const next = { ...state, waterJobDay: state.day };
     if (remaining) next.mountedFilter = { ...mounted, filter: { ...mounted.filter, remaining } };
@@ -798,6 +798,18 @@ export function shipGap(state: Counter) {
   const night = shipNight(state);
   return [state.cash < night.cash ? `${night.own ? '今晚开销' : '船籍费'}差 ${night.cash - state.cash} 元` : '',
     state.ship.water < night.water ? '缺今晚的饮水' : ''].filter(Boolean).join('，');
+}
+
+function canFillShipWater(state: Counter) {
+  return Boolean(state.ship && !state.ship.closed && workshopOpen(state) && state.mountedFilter?.filter && state.waterJobDay !== state.day);
+}
+
+export function shipProvisions(state: Counter, payment = 0) {
+  const night = shipNight(state);
+  const purchase = nightBudget(state.cash, state.ship?.water ?? 0, night, payment);
+  const canDistill = canFillShipWater(state);
+  return { ...purchase, fixedCash: night.cash, requiredWater: night.water, canDistill,
+    gap: canDistill ? Math.max(0, night.cash - purchase.balance) : purchase.gap };
 }
 
 function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' | 'shipRelief' | 'buyWater' | 'buyCargo' | 'sellCargo' | 'deliverFloatFarmSeal' }>): Result {

@@ -884,3 +884,82 @@ test('施工预览把付款、缺水和当晚应付计入同一个现金缺口',
   assert.deepEqual(nightBudget(24, 1, { cash: 6, water: 1 }, 18),
     { missingWater: 0, waterSpend: 0, balance: 6, gap: 0 });
 });
+
+test('洗衣班首日可改约，末日送客后两个柜台都不能再交货', async () => {
+  const { careerLog, laundryOrder } = await import('../src/career.ts');
+  const initial = reviewState(51, [reviewFilter], [careerLog.onboardBooking]);
+  const career = (state, task, onBoat) => settleVisit(state,
+    { type: 'career', day: state.day, task, onBoat, itemId: reviewFilter.id }).state;
+  assert.equal(career(initial, 'laundry', false), initial);
+  const cancelled = reloadState(career(initial, 'cancelLaundry'));
+  const motherSale = reloadState(career(cancelled, 'laundry', false));
+  assert.equal(motherSale.cash, 122);
+  assert.equal(career(motherSale, 'laundry', false), motherSale);
+
+  const deferred = reloadState(career(initial, 'declineLaundry'));
+  assert.equal(career(deferred, 'laundry', true), deferred);
+  const next = reloadState({ ...deferred, day: 52, visitIndex: scheduledVisits(52, 'port') });
+  const boatSale = reloadState(career(next, 'laundry', true));
+  assert.equal(boatSale.cash, 122);
+  assert.equal(career(boatSale, 'laundry', true), boatSale);
+  const departed = reloadState(career(next, 'declineLaundry'));
+  assert.equal(laundryOrder(departed).active, false);
+  for (const [task, onBoat] of [['declineLaundry', true], ['cancelLaundry', false], ['laundry', false], ['laundry', true]]) {
+    assert.equal(career(departed, task, onBoat), departed);
+  }
+  assert.equal(laundryOrder({ ...departed, day: 66 }).priority, false);
+});
+
+test('失约后公开交船壳板或滤芯恢复预约，卖给普通岸商不恢复', async () => {
+  const { careerLog, laundryOrder } = await import('../src/career.ts');
+  const hull = { ...reviewFilter, id: 'boat-material-0-yard-31', name: '船壳板', cost: 24, filter: undefined, recyclePrice: 18 };
+  const otherHull = { ...hull, id: 'boat-material-0-yard-32' };
+  const state = reviewState(66, [hull, otherHull, reviewFilter], [careerLog.onboardBooking]);
+  assert.equal(laundryOrder(state).priority, false);
+  const deliver = { type: 'career', task: 'materialJob', day: 66, itemId: hull.id };
+  const paid = reloadState(settleVisit(state, deliver).state);
+  assert.equal(paid.cash, 132);
+  assert.equal(settleVisit(paid, { ...deliver, itemId: otherHull.id }).state, paid);
+  assert.equal(laundryOrder(paid).priority, true);
+  const filterSale = settleVisit(state, { ...deliver, task: 'laundry', itemId: reviewFilter.id }).state;
+  assert.equal(laundryOrder(filterSale).priority, true);
+  const shoreSale = settleVisit(state, { ...deliver, type: 'sellCargo' }).state;
+  assert.ok(shoreSale.cash > state.cash);
+  assert.equal(laundryOrder(shoreSale).priority, false);
+});
+
+test('零水可用机架时保留水柜报价，先制水后只付固定夜费', async () => {
+  const { shipProvisions } = await import('../src/counter.ts');
+  const { boatWorkLog, careerLog } = await import('../src/career.ts');
+  const state = reloadState({ ...reviewState(32), cash: 6, ship: { water: 0, reliefLeg: 31 },
+    outingSeed: 42, mountedFilter: reviewFilter });
+  const before = shipProvisions(state);
+  assert.deepEqual([before.fixedCash, before.missingWater, before.waterSpend, before.gap, before.canDistill], [6, 1, 4, 0, true]);
+  assert.equal(shipProvisions({ ...state, waterJobDay: 32 }).gap, 4);
+  assert.equal(shipProvisions({ ...state, cash: 10 }).waterSpend, 4);
+  assert.equal(shipProvisions({ ...state, cash: 24 }, 18).gap, 0);
+  const filled = reloadState(settleVisit(state, { type: 'fillShipWater', day: 32 }).state);
+  assert.equal(filled.mountedFilter.filter.remaining, 1);
+  assert.equal(shipProvisions(filled).missingWater, 0);
+  assert.equal(shipProvisions(filled).canDistill, false);
+  const closed = reloadState(settleVisit(filled, { type: 'close', day: 32 }).state);
+  assert.deepEqual([closed.day, closed.cash, closed.ship.water], [33, 0, 2]);
+
+  const hosted = reloadState({ ...state, cash: 9, ledger: [boatWorkLog(2), careerLog.home, careerLog.guest]
+    .map((description) => ({ description, day: 32, itemId: null, change: 0, balance: 9 })) });
+  const guestBudget = shipProvisions(hosted);
+  assert.deepEqual([guestBudget.fixedCash, guestBudget.missingWater, guestBudget.waterSpend, guestBudget.gap], [9, 2, 8, 0]);
+  const guestWater = settleVisit(hosted, { type: 'fillShipWater', day: 32 }).state;
+  const guestClosed = reloadState(settleVisit(guestWater, { type: 'close', day: 32 }).state);
+  assert.deepEqual([guestClosed.cash, guestClosed.ship.water], [0, 1]);
+});
+
+const reviewFilter = { id: 'voyage-22-filter', name: '旧芯', model: '滤芯', condition: '旧芯', observations: [],
+  cost: 18, filter: { grade: 'worn', remaining: 2 } };
+
+function reviewState(day, inventory = [], booking = []) {
+  const entry = (day, description) => ({ day, description, itemId: null, change: 0, balance: 100 });
+  return { ...dockAt(100, day), day, activeRoundStart: day - (day - 1) % 5, visitIndex: scheduledVisits(day, 'port'), ship: { water: 5 }, inventory,
+    ledger: [entry(21, '浮田洗衣班 · 验收滤芯'), entry(36, '浮田洗衣班 · 验收滤芯'),
+      ...booking.map((description) => entry(51, description))] };
+}

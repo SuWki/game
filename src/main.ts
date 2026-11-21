@@ -1,6 +1,6 @@
 import './style.css';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, nightBudget, shipSaleQuote, shipStop, waterPacks } from './ship';
-import { shipGap } from './counter';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
+import { shipGap, shipProvisions } from './counter';
 import { boatBuildMaterials, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
   materialKind, playerBoat, saltPen, shipNight, ticketExtension } from './career';
 import { drawBoat } from './boat-view';
@@ -619,7 +619,8 @@ function renderJobs() {
     if ((laundry.active || laundry.preview) && laundry.booked && !laundry.filled) {
       choices.push(['撤销验货预约', { type: 'career', task: 'cancelLaundry', day }]);
     }
-    const delivery = laundry.filled ? '本次已验收。' : laundry.cancelled ? '本次已撤约。' : laundry.booked
+    const delivery = laundry.filled ? '本次已验收。' : laundry.departed ? '买手已离开，本次采购结束。'
+      : laundry.cancelled ? '本次已撤约。' : laundry.deferred && laundry.bookedOnBoat ? '今天已改约，明天可再接待。' : laundry.booked
       ? laundry.bookedOnBoat ? '已约到自有船验货。' : '已约在母船柜台验货。' : '';
     const credit = laundry.firstSupplyDay === undefined ? '' : `第 ${laundry.firstSupplyDay} 天首次验收，记入班组信用。`;
     const relationship = laundry.introductionDay === undefined ? '' : `第 ${laundry.introductionDay} 天获得阿岑的私人消息。`;
@@ -1053,15 +1054,14 @@ function renderShip() {
   if (shipEntry.hidden && shipDialog.open) shipDialog.close();
   if (!ship || saveBlocked) return;
   const { stop, next, nextDay } = shipStop(state.day);
-  const today = shipNight(state, state.day, boat);
   const dueToday = state.tickets.filter((ticket) => ticket.status === 'held' && ticket.dueDay === state.day).length;
-  const provision = nightBudget(state.cash, ship.water, today);
+  const provision = shipProvisions(state);
   const evening = state.awaitingOpen ? '下次营业夜' : '今晚';
   status.innerHTML = `<div><dt>当前泊位</dt><dd>${escapeText(stop.name)}</dd><small>第 ${nextDay} 天 → ${escapeText(next.name)}</small></div>
     <div data-alert="${provision.missingWater > 0}"><dt>饮水</dt><dd>${ship.water} <span>日存量</span></dd>
-      <small>${provision.missingWater ? `${evening}缺 ${provision.missingWater} 日水` : `${evening}用 ${today.water} 日水`}</small></div>
-    <div data-alert="${provision.gap > 0}"><dt>${evening}开销</dt><dd>${today.cash + provision.waterSpend} <span>元</span></dd>
-      <small>${provision.gap ? `还差 ${provision.gap} 元` : provision.waterSpend ? `含最低补水 ${provision.waterSpend} 元` : boat.own ? '今晚住自有船' : '今晚住旧港号'}</small></div>
+      <small>${provision.missingWater ? `${evening}缺 ${provision.missingWater} 日水 · 买水最低 ${provision.waterSpend} 元${provision.canDistill ? ' · 船务可制水' : ''}` : `${evening}用 ${provision.requiredWater} 日水`}</small></div>
+    <div data-alert="${state.cash < provision.fixedCash}"><dt>${evening}固定支出</dt><dd>${provision.fixedCash} <span>元</span></dd>
+      <small>${state.cash < provision.fixedCash ? `固定支出差 ${provision.fixedCash - state.cash} 元` : boat.own ? '住自有船' : '住旧港号'}</small></div>
     <div data-alert="${dueToday > 0}"><dt>${state.awaitingOpen ? '下次开门到期' : '今日到期'}</dt><dd>${dueToday} <span>张当票</span></dd>
       <small>${dueToday ? '打烊后处理逾期物品' : '查阅账本可看当票'}</small></div>`;
   const offers = document.querySelector<HTMLElement>('#ship-offers')!;
@@ -1086,7 +1086,10 @@ function renderShip() {
     bindAction(button, command);
     section.append(button);
   };
-  const water = row('生活甲板 · 水柜', `今晚支出 ${today.cash} 元，需 ${today.water} 日水。手上 ${state.cash} 元，水柜现存 ${ship.water} 日。`);
+  const water = row('生活甲板 · 水柜', `今晚固定付 ${provision.fixedCash} 元，需 ${provision.requiredWater} 日水。手上 ${state.cash} 元，水柜现存 ${ship.water} 日。`);
+  if (provision.missingWater && provision.canDistill) {
+    action(water, '制水自用 · 加三日水，耗 1 次滤芯', { type: 'fillShipWater', day: state.day });
+  }
   waterPacks.forEach((pack, choice) => action(water, `${pack.name} · ${pack.days} 天 / ${pack.price} 元`,
     { type: 'buyWater', day: state.day, choice }, state.cash < pack.price));
   if (shipGap(state)) {
@@ -1100,13 +1103,13 @@ function renderShip() {
   const budget = crossingBudget(state.day, state.cash, ship.water, costs);
   const farm = floatFarmRequest(state);
   const missing = budget.missingWater ? `还需补 ${budget.missingWater} 日水，至少 ${budget.waterSpend} 元` : '存水够用';
-  row('撑到下一站', `第 ${nextDay} 天靠泊前，还要付 ${budget.nights} 晚生活开销（${budget.total - budget.waterSpend} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
-  if (budget.tonightGap) {
+  row('撑到下一站 · 按水柜买水估算', `第 ${nextDay} 天靠泊前，还要付 ${budget.nights} 晚生活开销（${budget.total - budget.waterSpend} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
+  if (provision.gap) {
     const sales = state.inventory.flatMap((item) => {
       const quote = shipSaleQuote(state.day, item);
       return quote ? [{ item, quote }] : [];
     }).sort((a, b) => a.quote.bid - b.quote.bid);
-    const help = row('今晚筹钱', `船费和最低补水合计还差 ${budget.tonightGap} 元。`);
+    const help = row('今晚筹钱', `${provision.canDistill && provision.missingWater ? '制水补齐后，固定支出' : '固定支出和最低补水合计'}还差 ${provision.gap} 元。`);
     const addHint = (text: string) => {
       const hint = document.createElement('p');
       hint.textContent = text;
@@ -1186,12 +1189,12 @@ function renderShip() {
           prerequisite.textContent = choice === 2 ? '需先装船壳板和龙骨。' : '需先建成干铺位。';
           step.append(prerequisite);
         }
-        const projected = nightBudget(state.cash, ship.water, today, work.fee);
+        const projected = shipProvisions(state, work.fee);
         const summary = document.createElement('p');
         summary.className = 'boat-payment';
         summary.dataset.alert = String(projected.gap > 0 || projected.missingWater > 0);
         summary.innerHTML = `<strong>${work.fee ? `工钱 ${work.fee} 元` : '免工钱'} · ${projected.balance >= 0 ? `施工后余 ${projected.balance} 元` : `工钱差 ${-projected.balance} 元`}</strong>
-          <span>${projected.gap ? `施工后今晚差 ${projected.gap} 元` : '施工后够付今晚开销'}${projected.missingWater ? ` · 缺 ${projected.missingWater} 日水，最低 ${projected.waterSpend} 元补齐` : ' · 饮水够用'}</span>`;
+          <span>${projected.missingWater && projected.canDistill ? '制水后' : '施工后'}${projected.gap ? `今晚差 ${projected.gap} 元` : '够付今晚开销'}${projected.missingWater ? ` · 缺 ${projected.missingWater} 日水，买水最低 ${projected.waterSpend} 元${projected.canDistill ? '，或耗 1 次滤芯' : ''}` : ' · 饮水够用'}</span>`;
         step.append(summary);
         action(step, `确认${work.name}`, target('build', choice), materials.some(({ item }) => !item) || !unlocked || state.cash < work.fee);
       });
@@ -1449,7 +1452,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     scene.innerHTML = `<div class="visitor"><h2>自有船 · 洗衣班登船验货</h2><blockquote>“阿岑带我来看看货，这张桌够干。滤芯还有两次就收。”</blockquote>
       <p>${items.length ? '请选要交付的滤芯。' : '今天手上没有合用的滤芯。'}</p></div>`;
     for (const item of items) addAction(`交${item.name} · 收 22 元`, { type: 'career', task: 'laundry', day, itemId: item.id, onBoat: true });
-    addAction('改天再接待', { type: 'career', task: 'declineLaundry', day }, true);
+    addAction(day < onboard.last ? '改天再接待' : '送客 · 本次采购结束', { type: 'career', task: 'declineLaundry', day }, true);
   } else {
     const due = state.tickets.some((ticket) => ticket.status === 'held' && ticket.dueDay === state.day);
     const text = due ? '今天仍可赎，打烊后才归店。' : '今天的客人都接待完了。';

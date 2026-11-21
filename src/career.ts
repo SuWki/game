@@ -99,19 +99,21 @@ export function laundryOrder(state: Counter) {
   const booked = bookedOnBoat || latest?.description === careerLog.booking;
   const cancelled = latest?.description === careerLog.cancel;
   const deferred = history.some((entry) => entry.day === state.day && entry.description === careerLog.defer);
+  const departed = history.some((entry) => entry.day === start + 1 && entry.description === careerLog.defer);
   const lastBooking = history.map((entry) => isBooking(entry) && entry.day < start - 1).lastIndexOf(true);
   const priorBooking = history[lastBooking];
   const previousWindowEnd = priorBooking && (shipStop(priorBooking.day).stop.name === '浮田水站'
     ? roundStart(priorBooking.day) + 1 : priorBooking.day + 2);
   const restored = !priorBooking || history.slice(lastBooking + 1).some((entry) =>
-    entry.description === careerLog.laundry || entry.description === careerLog.cancel && entry.day <= (previousWindowEnd ?? 0));
+    isSupply(entry) || entry.description === careerLog.cancel && entry.day <= (previousWindowEnd ?? 0) &&
+      !history.some((departure) => departure.day === previousWindowEnd && departure.description === careerLog.defer));
   const firstSupply = supplies[0];
   const priority = restored && (trusted || !!firstSupply && firstSupply.day < start);
   const endorsement = trusted ? history.find((entry, index) => index > introduction && isSupply(entry)) : undefined;
   const onBoat = priority && !!endorsement && endorsement.day < start && playerBoat(state).complete[3];
-  return { start, last: start + 1, certs: certs.size, priority, booked, bookedOnBoat, cancelled, deferred, filled, onBoat, preview,
+  return { start, last: start + 1, certs: certs.size, priority, booked, bookedOnBoat, cancelled, deferred, departed, filled, onBoat, preview,
     introductionDay: history[introduction]?.day, endorsementDay: endorsement?.day, firstSupplyDay: firstSupply?.day,
-    prioritySuspended: !restored, active: farm && !state.awaitingOpen && state.day <= start + 1 && !filled };
+    prioritySuspended: !restored, active: farm && !state.awaitingOpen && state.day <= start + 1 && !filled && !departed };
 }
 
 export function ticketExtension(state: Counter, ticket: Ticket) {
