@@ -2,6 +2,7 @@ import { currentVisit, disputedPurifierPrice, emergencyWaterDay, emergencyWaterP
 import { board, consignmentBudget, consignmentPrices, harborGoods, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario.ts';
 import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem, portMechanicRequest, portNotice, winchBuyers, winchOrderDay } from './scenario.ts';
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
+import { crateCost, cratePartId, cratePartPrice, salvageCrate, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -73,6 +74,9 @@ export type Action =
   | { type: 'sendRepair'; day: number; itemId: string }
   | { type: 'rentF2'; day: number; itemId: string }
   | { type: 'buyRepairStock' | 'sellRepairStock'; day: number }
+  | { type: 'buyCrate'; day: number }
+  | { type: 'openCrate'; day: number; itemId: string }
+  | { type: 'sellCrateGoods'; day: number; itemId: string }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
@@ -206,6 +210,42 @@ export function repairMarket(state: Counter) {
     canSell: state.day >= start + 3 && !state.ledger.some((entry) => entry.day >= start && entry.description === '工班收购 · 码头绞盘'),
     price: owned?.condition === wornWinch.condition ? wornWinchLatePrice : 155,
   };
+}
+
+export function salvageMarket(state: Counter) {
+  const start = roundStart(state.day);
+  if (!workshopOpen(state) || state.day <= lastDay || portRound(start, state.harborSchedule).title !== '夜航补给') return;
+  const stock = salvageCrate(state.day, state.harborSchedule);
+  return {
+    stock,
+    canBuy: state.day < start + 3 && !state.ledger.some((entry) => entry.itemId === stock.id),
+    canSell: state.day >= start + 3,
+    buyers: state.inventory.filter((item) => sealedCrateId.test(item.id) || cratePartId.test(item.id))
+      .map((item) => ({ item, price: sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item) })),
+  };
+}
+
+function handleSalvage(state: Counter, action: Extract<Action, { type: 'buyCrate' | 'openCrate' | 'sellCrateGoods' }>): Result {
+  if (action.day !== state.day || !workshopOpen(state)) return notice(state, '请在营业时处理拆船货。', 'warning');
+  if (action.type === 'openCrate') {
+    const crate = state.inventory.find((item) => item.id === action.itemId && sealedCrateId.test(item.id));
+    if (!crate) return notice(state, '这只封箱已经不在自有库存。', 'warning');
+    const parts = unpackCrate(crate, state.harborSchedule);
+    const next = { ...state, inventory: [...state.inventory.filter((item) => item.id !== crate.id), ...parts] };
+    return notice(record(next, crate, '拆封 · 旧船混装货箱', 0), `已验出三件散货，货棚按成色合计出 ${parts.reduce((sum, part) => sum + cratePartPrice(part), 0)} 元。`, 'success');
+  }
+  const market = salvageMarket(state);
+  if (!market) return notice(state, '今天货棚没有开这档买卖。', 'warning');
+  if (action.type === 'buyCrate') {
+    if (!market.canBuy || state.cash < crateCost) return notice(state, '货已处理或现金不足。', 'warning');
+    const item = market.stock;
+    return notice(record({ ...state, inventory: [...state.inventory, { ...item, cost: crateCost }] },
+      item, '收购 · 旧船混装货箱', -crateCost), '封箱已入库。保留铅封可整箱转手，也可以开箱查成色。', 'success');
+  }
+  const sale = market.buyers.find(({ item }) => item.id === action.itemId);
+  if (!market.canSell || !sale) return notice(state, '今天没有可结算的这笔货棚收购。', 'warning');
+  return notice(record({ ...state, inventory: state.inventory.filter((item) => item.id !== sale.item.id) },
+    sale.item, `货棚收购 · ${sale.item.name}`, sale.price), `成交，到账 ${sale.price} 元。`, 'success');
 }
 
 function sendToWorkshop(state: Counter, action: Extract<Action, { type: 'sendRepair' | 'rentF2' }>): Result {
@@ -476,6 +516,7 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (action.type === 'buyCrate' || action.type === 'openCrate' || action.type === 'sellCrateGoods') return handleSalvage(state, action);
   if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);
   if (action.type === 'buyRepairStock' || action.type === 'sellRepairStock') {
     const market = repairMarket(state);

@@ -2,8 +2,8 @@ import './style.css';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
-import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, winchBulletin, workshopEligibility } from './counter';
-import { baseItemId, consignmentPrices, portItem, portRound, roundEnd, roundStart, winchOrderDay } from './scenario';
+import { atRoundSummary, consignmentOpen, contactPrice, counterNotes, harborOpen, harborStock, pastLastDay, portBulletin, portJobs, rentalDays, rentalFee, repairFee, repairMarket, roundReferral, salvageMarket, winchBulletin, workshopEligibility, workshopOpen } from './counter';
+import { baseItemId, consignmentPrices, crateCost, cratePartId, portItem, portRound, roundEnd, roundStart, sealedCrateId, sealedCratePrice, winchOrderDay } from './scenario';
 import { board, lateBoardPrice, wornWinch, wornWinchEarlyPrice, wornWinchLatePrice, wornWinchPrice } from './scenario';
 
 const cashParam = new URLSearchParams(location.search).get('cash');
@@ -539,6 +539,20 @@ function renderJobs() {
     const detail = sales ? '本轮工班已收了一台。' : `货棚收进价 ${wornWinchPrice} 元。第 ${start + 3}–${start + 4} 天工班收一台，验收完好件 155 元，待修件 115 元。`;
     addJob('货棚绞盘工单', detail, buttons);
   }
+  const salvage = salvageMarket(state);
+  if (salvage) {
+    const start = roundStart(day);
+    const choices: [string, Action][] = [];
+    const terms = `拆船队清仓价 ${crateCost} 元。第 ${start + 3}–${start + 4} 天货棚收购，原封整箱 ${sealedCratePrice} 元，拆成散货按实物报价，合计约 42–72 元。`;
+    if (salvage.canBuy) choices.push([`收混装货箱 ${crateCost} 元`, { type: 'buyCrate', day }]);
+    addJob('旧货回港 · 混装货箱', salvage.stock.observations.join('') + terms, choices);
+    if (salvage.canSell) {
+      for (const { item, price } of salvage.buyers) {
+        addJob(item.name, `${item.condition} · 成本 ${item.cost} 元`,
+          [[`货棚交付 ${price} 元`, { type: 'sellCrateGoods', day, itemId: item.id }]]);
+      }
+    }
+  }
   if (referral) {
     const status = referral.paid ? '已领取 8 元介绍费。' : referral.available ? '双方直接结工钱，当铺收 8 元介绍费。' : '办事的人本轮第三天到港。';
     addJob('港口介绍', referral.text + status, referral.available && !referral.paid
@@ -618,6 +632,17 @@ function renderStockDetail() {
     actions.append(button);
   };
   const target = { day: state.day, itemId: item.id };
+  if (sealedCrateId.test(item.id)) {
+    const manifest = document.createElement('p');
+    manifest.textContent = item.observations.join('') + '拆封后分三件入库，原封收购价随即失效。';
+    stockDetail.append(manifest);
+    if (workshopOpen(state)) add('拆封并验货', { ...target, type: 'openCrate' });
+  }
+  if (sealedCrateId.test(item.id) || cratePartId.test(item.id)) {
+    const market = salvageMarket(state);
+    const offer = market?.buyers.find((entry) => entry.item.id === item.id);
+    if (market?.canSell && offer) add(`货棚交付 ${offer.price} 元`, { ...target, type: 'sellCrateGoods' });
+  }
   const workshop = workshopEligibility(state, item);
   if (workshop) {
     const repair = workshop === 'repair';

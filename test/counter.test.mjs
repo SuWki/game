@@ -420,3 +420,30 @@ test('维修和短租移出自有库存，到期开门归还并各自结账一�
   assert.deepEqual(returned.inventory, [purifier]);
   assert.equal(settleVisit(returned, rentalReturn).state, returned);
 });
+test('混装货箱原封出售或拆成三件，拆封结果跨轮和刷新稳定', () => {
+  for (const [day, split, expected] of [[16, false, 107], [16, true, 90], [26, true, 120]]) {
+    const start = { ...openCounter(100), day, economy: 'port', activeRoundStart: day, chapterTwoStarted: true };
+    const buy = { type: 'buyCrate', day };
+    const stocked = settleVisit(start, buy).state;
+    assert.equal(stocked.cash, 48);
+    const crate = stocked.inventory[0];
+    assert.equal(settleVisit(stocked, buy).state, stocked);
+    assert.equal(settleVisit(stocked, { type: 'sellCrateGoods', day, itemId: crate.id }).state, stocked);
+    const opened = split ? settleVisit(stocked, { type: 'openCrate', day, itemId: crate.id }).state : stocked;
+    if (split) {
+      assert.equal(opened.inventory.length, 3);
+      assert.equal(opened.inventory.reduce((total, part) => total + part.cost, 0), 52);
+      assert.equal(settleVisit(opened, { type: 'openCrate', day, itemId: crate.id }).state, opened);
+      const later = settleVisit({ ...stocked, day: day + 5, activeRoundStart: day + 5 }, { type: 'openCrate', day: day + 5, itemId: crate.id }).state;
+      assert.deepEqual(later.inventory, opened.inventory);
+    }
+    let state = readSave(JSON.stringify({ version: saveVersion, state: { ...opened, day: day + 3 }, message: '', tone: 'neutral' })).state;
+    for (const item of state.inventory) {
+      const sale = { type: 'sellCrateGoods', day: day + 3, itemId: item.id };
+      state = settleVisit(state, sale).state;
+      assert.equal(settleVisit(state, sale).state, state);
+    }
+    assert.equal(state.cash, expected);
+    assert.deepEqual(state.inventory, []);
+  }
+});

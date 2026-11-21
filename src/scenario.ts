@@ -10,7 +10,11 @@ export function roundStart(day: number) {
 export function roundEnd(day: number) {
   return roundStart(day) + roundLength - 1;
 }
-export const baseItemId = (id: string) => id.replace(/^round-\d+-/, '');
+export const baseItemId = (id: string) => id.replace(/^round-\d+-(crate-)?/, '');
+export const crateCost = 52;
+export const sealedCratePrice = 59;
+export const cratePartId = /^round-\d+-crate-(?:harbor-rope|harbor-fuses|old-lantern-1)$/;
+export const sealedCrateId = /^round-\d+-salvage-crate$/;
 export const waterStartDay = 5;
 export const waterPrice = 10;
 export const purifierModel = 'F2';
@@ -52,6 +56,10 @@ const resaleBands: Record<string, readonly [number, number, number]> = {
 };
 
 export function consignmentPrices(item: Item) {
+  if (cratePartId.test(item.id)) {
+    const price = cratePartPrice(item);
+    return [price - 4, price - 2, price] as const;
+  }
   const id = baseItemId(item.id);
   if (id === 'winch-1' && item.condition === wornWinch.condition) return [78, 92, 104] as const;
   return resaleBands[id];
@@ -279,6 +287,37 @@ export function roundRepairStock(day: number): Item {
   const start = roundStart(day);
   return { ...wornWinch, id: `round-${start}-winch-1`,
     observations: ['拆解队的提货牌编号与货棚记录一致。', wornWinch.observations[0]] };
+}
+
+export function salvageCrate(day: number, schedule?: 'late'): Item {
+  const start = roundStart(day);
+  const damp = (Math.floor(start / roundLength) + (schedule === 'late' ? 1 : 0)) % 3 === 0;
+  return {
+    id: `round-${start}-salvage-crate`, name: '旧船混装货箱', model: '拆船散件', condition: '铅封完整',
+    observations: ['装箱清单列有一盘缆绳、一盒保险丝、一盏旧航灯。',
+      damp ? '箱底有潮痕，单看铅封无法判断里面的成色。' : '箱底干燥，角上有磕碰，货签列的成色还没验过。'],
+    recyclePrice: 35,
+  };
+}
+
+export function unpackCrate(crate: Item, schedule?: 'late') {
+  const batch = Number(crate.id.split('-')[1]);
+  const damp = (Math.floor(batch / roundLength) + (schedule === 'late' ? 1 : 0)) % 4 === 3;
+  return [harborGoods[0].item, harborGoods[1].item, lantern].map((item, index) => ({
+    ...item,
+    id: crate.id.replace(/salvage-crate$/, `crate-${item.id}`),
+    condition: damp ? ['有盐霜，仅能截短用', '外盒进潮，封签松脱', '灯座生锈，可点亮'][index] : item.condition,
+    observations: [damp ? '开箱后发现有受潮痕迹，货棚按实物验价。' : '拆箱验过，可按货棚完好件报价出手。'],
+    cost: [14, 16, 22][index],
+    recyclePrice: (damp ? [6, 8, 14] : [12, 16, 18])[index],
+  }));
+}
+
+export function cratePartPrice(item: Item) {
+  const id = baseItemId(item.id);
+  if (id === 'harbor-rope') return item.condition === harborGoods[0].item.condition ? 19 : 10;
+  if (id === 'harbor-fuses') return item.condition === harborGoods[1].item.condition ? 24 : 12;
+  return item.condition === lantern.condition ? 29 : 20;
 }
 
 function portVisits(day: number, schedule?: 'late'): Visit[] {
