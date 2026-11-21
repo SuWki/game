@@ -881,13 +881,18 @@ function handleCareer(state: Counter, action: CareerAction): Result {
     return notice(record(state, null, action.onBoat ? careerLog.onboardBooking : careerLog.booking, 0),
       `已约第 ${order.start}–${order.last} 天到${location}验货。`);
   }
-  if (order?.active && order.booked && task === 'cancelLaundry') return mark(careerLog.cancel, '已告知洗衣班这次缺货。');
-  if (order?.active && order.onBoat && order.bookedOnBoat && !order.deferred && task === 'declineLaundry' && noQueue && !guest) {
+  if (order && (order.active || order.preview) && order.booked && !order.filled && task === 'cancelLaundry') {
+    return mark(careerLog.cancel, '已撤销验货预约，窗口内仍可到母船公开交货。');
+  }
+  if (order?.active && order.bookedOnBoat && !order.deferred && task === 'declineLaundry' && noQueue && !guest) {
     return mark(careerLog.defer, state.day < order.last ? '领班明天还在泊位。' : '领班已经离开，本次未能交货。');
   }
   const item = state.inventory.find((entry) => entry.id === itemId);
-  if (task === 'laundry' && order?.active && item?.filter && item.filter.remaining >= 2 &&
-    (!action.onBoat || order.onBoat && order.bookedOnBoat && !order.deferred && noQueue && !guest)) {
+  if (task === 'laundry' && order?.active && item?.filter && item.filter.remaining >= 2) {
+    if (Boolean(action.onBoat) !== order.bookedOnBoat) {
+      return notice(state, order.bookedOnBoat ? '这单约在自有船验货，可先撤约再去母船。' : '请在母船柜台交货。', 'warning');
+    }
+    if (order.bookedOnBoat && (order.deferred || !noQueue || guest)) return unavailable();
     const next = record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, careerLog.laundry, laundryPrice);
     return notice(action.onBoat ? record(next, null, careerLog.referral, 0) : next,
       action.onBoat ? '阿岑带洗衣班领班登船验货，现结 22 元。' : '洗衣班在柜台验收滤芯，现结 22 元。', 'success');

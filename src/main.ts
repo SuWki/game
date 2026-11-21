@@ -2,7 +2,7 @@ import './style.css';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
 import { shipGap } from './counter';
 import { boatBuildItems, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
-  materialKind, playerBoat, saltPen, shipNight } from './career';
+  materialKind, playerBoat, saltPen, shipNight, ticketExtension } from './career';
 import { outingPlan } from './counter';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
 import { cutCells, cutOrders, cutQuote, jadeGrades, lampCost, stoneFee, stoneOdds, trialCut, usableCell, type CutKind, type CutPlacement, type Jade } from './jade';
@@ -582,17 +582,23 @@ function renderJobs() {
       choices.push(['联系洗衣班', { type: 'career', task: 'bookLaundry', day }]);
       if (laundry.onBoat) choices.push(['邀请洗衣班到我的船上', { type: 'career', task: 'bookLaundry', day, onBoat: true }]);
     }
-    if (laundry.active) {
+    if (laundry.active && !laundry.bookedOnBoat) {
       for (const item of state.inventory.filter((entry) => (entry.filter?.remaining ?? 0) >= 2)) {
         choices.push([`在母船交${item.name}（余 ${item.filter?.remaining} 次） · 收 ${laundryPrice} 元`,
           { type: 'career', task: 'laundry', day, itemId: item.id }]);
       }
-      if (laundry.booked) choices.push(['告知洗衣班缺货', { type: 'career', task: 'cancelLaundry', day }]);
+    }
+    if ((laundry.active || laundry.preview) && laundry.booked && !laundry.filled) {
+      choices.push(['撤销验货预约', { type: 'career', task: 'cancelLaundry', day }]);
     }
     const delivery = laundry.filled ? '本次已验收。' : laundry.cancelled ? '本次已撤约。' : laundry.booked
       ? laundry.bookedOnBoat ? '已约到自有船验货。' : '已约在母船柜台验货。' : '';
+    const credit = laundry.firstSupplyDay === undefined ? '' : `第 ${laundry.firstSupplyDay} 天首次验收，记入班组信用。`;
+    const relationship = laundry.introductionDay === undefined ? '' : `第 ${laundry.introductionDay} 天获得阿岑的私人消息。`;
+    const endorsement = laundry.endorsementDay === undefined ? '' : `第 ${laundry.endorsementDay} 天履约后获得登船担保。`;
+    const suspended = laundry.prioritySuspended ? '上次约见未交付，完成一次公开交货即可恢复预约。' : '';
     addJob(laundry.preview ? '阿岑捎来 · 洗衣班采购' : '浮田洗衣班',
-      `第 ${laundry.start}–${laundry.last} 天收一枚至少余两次的滤芯，现付 ${laundryPrice} 元。${delivery}已合作 ${laundry.certs} 个航段。`, choices);
+      `第 ${laundry.start}–${laundry.last} 天收一枚至少余两次的滤芯，现付 ${laundryPrice} 元。${delivery}${credit}${relationship}${endorsement}${suspended}`, choices);
     if (!laundry.preview && laundry.certs >= 2) {
       const hull = state.inventory.find((item) => materialKind(item) === 0);
       const paid = state.ledger.some((entry) => entry.day >= laundry.start && entry.description === '浮田维修班 · 船材工单');
@@ -1160,7 +1166,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   const ropeGuest = !visit && !saveBlocked && !state.ship?.closed ? ropeVisit(state) : undefined;
   const mechanic = !visit && !ropeGuest?.today && !saveBlocked ? careerVisit(state) : undefined;
   const onboard = !visit && !ropeGuest?.today && !mechanic && !saveBlocked ? laundryOrder(state) : undefined;
-  const shipAppointment = onboard?.active && onboard.onBoat && onboard.bookedOnBoat && !onboard.deferred;
+  const shipAppointment = onboard?.active && onboard.bookedOnBoat && !onboard.deferred;
   const aboard = !atTitle && !saveBlocked && (!visit && playerBoat(state).own || shipAppointment);
   document.documentElement.classList.toggle('own-boat', Boolean(aboard));
   const hints = {
@@ -1251,8 +1257,12 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   tickets.innerHTML = records((saveBlocked ? [] : state.tickets).map((ticket) => {
     const status = { held: '代管中', redeemed: '已赎回', expired: '已逾期归店' }[ticket.status];
     const due = ticket.status === 'held' && ticket.dueDay === state.day ? ' · 今日打烊前仍可赎' : '';
-    return `<li><span>${escapeText(ticket.item.name)}<small>${escapeText(ticket.borrower)} · 第 ${ticket.dueDay} 天到期${due}</small>
-      <small>放款 ${ticket.principal} 元 · 赎回 ${ticket.redeemPrice} 元${ticket.item.authenticity === 'imitation' ? ' · 仿品' : ''}</small></span><span class="tag">${status}</span></li>`;
+    const extension = ticketExtension(state, ticket);
+    const dates = extension ? `原第 ${extension.originalDue} 天到期 · 展期至第 ${extension.currentDue} 天` : `第 ${ticket.dueDay} 天到期`;
+    const amounts = extension ? `原放款 ${extension.originalLoan} 元 · 已还 ${extension.paid} 元 · 剩余应收 ${extension.outstanding} 元`
+      : `放款 ${ticket.principal} 元 · 赎回 ${ticket.redeemPrice} 元`;
+    return `<li><span>${escapeText(ticket.item.name)}<small>${escapeText(ticket.borrower)} · ${dates}${due}</small>
+      <small>${amounts}${ticket.item.authenticity === 'imitation' ? ' · 仿品' : ''}</small></span><span class="tag">${status}</span></li>`;
   }), '暂无当票');
   ledger.innerHTML = records((saveBlocked ? [] : state.ledger).map((entry) =>
     `<li><span>${escapeText(entry.description)}<small>第 ${entry.day} 天</small></span>

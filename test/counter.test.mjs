@@ -759,7 +759,7 @@ test('航程预算按最低补水组合算缺口，靠岸日重置剩余夜数',
 });
 
 test('阿岑展期沿用原当票，部分还款、到期处理与重逢均唯一', async () => {
-  const { careerVisit, mechanicTicket } = await import('../src/career.ts');
+  const { careerVisit, mechanicTicket, ticketExtension } = await import('../src/career.ts');
   const make = (state, day) => ({ ...state, day, activeRoundStart: (Math.floor((day - 1) / 5) * 5 + 1),
     awaitingOpen: false, visitIndex: scheduledVisits(day, 'port') });
   const act = (state, task) => settleVisit(state, { type: 'career', day: state.day, task }).state;
@@ -773,10 +773,14 @@ test('阿岑展期沿用原当票，部分还款、到期处理与重逢均唯�
   assert.equal(extended.cash, 62);
   assert.equal(extended.tickets[0].principal, 18);
   assert.equal(extended.tickets[0].dueDay, 25);
+  assert.deepEqual(ticketExtension(extended, extended.tickets[0]),
+    { originalLoan: 30, originalDue: 23, currentDue: 25, paid: 12, outstanding: 24 });
   assert.equal(act(extended, 'extend'), extended);
   const redeemed = reloadState(act(make(extended, 25), 'redeem'));
   assert.equal(redeemed.cash, 86);
   assert.equal(redeemed.tickets[0].status, 'redeemed');
+  assert.equal(ticketExtension(redeemed, redeemed.tickets[0]).paid, 36);
+  assert.equal(ticketExtension(redeemed, redeemed.tickets[0]).outstanding, 0);
   assert.equal(careerVisit(make(redeemed, 36)).kind, 'reunion');
   const refused = act(due, 'refuse');
   const expired = settleVisit(refused, { type: 'close', day: 23 }).state;
@@ -817,18 +821,38 @@ test('从船坞买料造船，住船跨航段与借宿独立结算', async () =>
 
 test('洗衣班验实物余次，母船交货与受邀登船共用一件额度', async () => {
   const { boatWorkLog, careerLog, laundryOrder } = await import('../src/career.ts');
-  const day = 36;
+  const day = 51;
   const item = { id: 'filter-test', name: '旧芯', model: '滤芯', condition: '旧芯', observations: [],
     cost: 18, filter: { grade: 'worn', remaining: 2 } };
   const entry = (description, refDay) => ({ description, day: refDay, itemId: null, change: 0, balance: 100 });
-  const start = { ...dockAt(100, 40), day, ship: { water: 5 }, inventory: [item], visitIndex: scheduledVisits(day, 'port'),
-    ledger: [entry(careerLog.met, 21), entry(careerLog.laundry, 21), entry(boatWorkLog(3), 31), entry(careerLog.reunion, 36)] };
+  const cashDesk = { ...dockAt(100, 40), day: 36, ship: { water: 5 }, inventory: [item], visitIndex: scheduledVisits(36, 'port'),
+    ledger: [entry(careerLog.met, 21), entry(careerLog.laundry, 21), entry(boatWorkLog(3), 31)] };
+  assert.equal(laundryOrder(cashDesk).priority, true);
+  const reunited = { ...cashDesk, ledger: [...cashDesk.ledger, entry(careerLog.reunion, 36)] };
+  assert.equal(laundryOrder(reunited).onBoat, false);
+  const publicSell = { type: 'career', day: 36, task: 'laundry', itemId: item.id };
+  const firstAfterReunion = settleVisit(reunited, publicSell).state;
+  assert.equal(laundryOrder(firstAfterReunion).introductionDay, 36);
+  const startedByRedemption = { ...reunited, ledger: [...cashDesk.ledger, entry(careerLog.redeemed, 25), entry(careerLog.reunion, 36)] };
+  assert.equal(laundryOrder(startedByRedemption).introductionDay, 36);
+  assert.equal(laundryOrder(startedByRedemption).onBoat, false);
+  const supplied = settleVisit(startedByRedemption, publicSell).state;
+  assert.equal(laundryOrder(supplied).endorsementDay, 36);
+  const start = { ...supplied, cash: 100, inventory: [item], day, activeRoundStart: day, visitIndex: scheduledVisits(day, 'port') };
   assert.equal(laundryOrder(start).onBoat, true);
   const book = { type: 'career', day, task: 'bookLaundry', onBoat: true };
-  const fromPreview = settleVisit({ ...start, day: 35 }, { ...book, day: 35 }).state;
+  const fromPreview = settleVisit({ ...start, day: 50 }, { ...book, day: 50 }).state;
   assert.equal(laundryOrder({ ...fromPreview, day }).booked, true);
   const booked = settleVisit(start, book).state;
   const sell = { type: 'career', day, task: 'laundry', itemId: item.id, onBoat: true };
+  const wrongLocation = { ...sell, onBoat: false };
+  assert.equal(settleVisit(booked, wrongLocation).state, booked);
+  const cancelled = settleVisit(booked, { type: 'career', day, task: 'cancelLaundry' }).state;
+  assert.equal(settleVisit(cancelled, wrongLocation).state.cash, 122);
+  const missed = { ...booked, day: 66, activeRoundStart: 66 };
+  assert.equal(laundryOrder(missed).priority, false);
+  const madeGood = settleVisit(missed, { ...wrongLocation, day: 66 }).state;
+  assert.equal(laundryOrder(madeGood).priority, true);
   const worn = { ...booked, inventory: [{ ...item, filter: { ...item.filter, remaining: 1 } }] };
   assert.equal(settleVisit(worn, sell).state, worn);
   const sold = reloadState(settleVisit(booked, sell).state);
