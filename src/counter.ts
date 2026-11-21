@@ -4,7 +4,7 @@ import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem,
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, shoreOffer, waterPacks } from './ship.ts';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoQuote, shipSaleQuote, waterPacks } from './ship.ts';
 import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
 export const waterLedger = {
@@ -712,9 +712,8 @@ function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' |
   }
   if (action.type === 'sellCargo') {
     const item = state.inventory.find((entry) => entry.id === action.itemId);
-    const kind = cargoKind(action.itemId);
     if (!item) return notice(state, '手上没有这批货。', 'warning');
-    const price = kind === undefined ? shoreOffer(state.day, item) : cargoQuote(state.day, kind).bid;
+    const price = shipSaleQuote(state.day, item)?.bid;
     if (price === undefined) return notice(state, '岸商不收这件货。', 'warning');
     return notice(record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, `靠岸售货 · ${item.name}`, price),
       `${item.name}到账 ${price} 元。`, 'success');

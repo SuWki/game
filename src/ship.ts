@@ -35,6 +35,28 @@ export function cargoQuote(day: number, good: number) {
   return { ask: stop.prices[good] + 2, bid: stop.prices[good], nextBid: next.prices[good] };
 }
 
+export function crossingBudget(day: number, cash: number, water: number) {
+  const { nextDay } = shipStop(day);
+  const nights = nextDay - day;
+  const missingWater = Math.max(0, nights - water);
+  const waterCost = [0];
+  for (let needed = 1; needed <= missingWater; needed++) {
+    waterCost.push(Math.min(...waterPacks.map((pack) => pack.price + waterCost[Math.max(0, needed - pack.days)])));
+  }
+  const waterSpend = waterCost[missingWater];
+  const total = nights * berthFee + waterSpend;
+  const tonight = berthFee + (water > 0 ? 0 : waterPacks[0].price);
+  return { nights, missingWater, waterSpend, total, gap: Math.max(0, total - cash), tonightGap: Math.max(0, tonight - cash) };
+}
+
+export function shipSaleQuote(day: number, item: Item) {
+  const kind = cargoKind(item.id);
+  if (kind !== undefined) return cargoQuote(day, kind);
+  const bid = shoreOffer(day, item);
+  if (bid === undefined) return;
+  return { bid, nextBid: shoreOffer(shipStop(day).nextDay, item)! };
+}
+
 // 岸商按用途给现货报价，已签工单和当票照合同价结算。
 export function shoreOffer(day: number, item: Item) {
   if (item.recyclePrice === undefined) return undefined;

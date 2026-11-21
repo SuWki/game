@@ -693,3 +693,15 @@ test('母船打捞滤芯可给自己制三日水，占用当天制水机会', ()
   assert.equal(filled.cash,106);
   assert.equal(settleVisit(filled,{type:'takeWaterJob',day:21}).state,filled);
 });
+
+test('航程预算按最低补水组合算缺口，靠岸日重置剩余夜数', async () => {
+  const { crossingBudget } = await import('../src/ship.ts');
+  assert.deepEqual(crossingBudget(1, 200, 3), {
+    nights: 5, missingWater: 2, waterSpend: 8, total: 38, gap: 0, tonightGap: 0,
+  });
+  assert.equal(crossingBudget(1, 30, 1).waterSpend, 14);
+  assert.deepEqual(crossingBudget(15, 5, 0), {
+    nights: 1, missingWater: 1, waterSpend: 4, total: 10, gap: 5, tonightGap: 5,
+  });
+  assert.equal(crossingBudget(16, 10, 0).total, 45);
+});

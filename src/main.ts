@@ -1,5 +1,5 @@
 import './style.css';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, shipStop, shoreOffer, waterPacks } from './ship';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, shipSaleQuote, shipStop, waterPacks } from './ship';
 import { shipGap } from './counter';
 import { outingPlan } from './counter';
 import { boatFee, cashReserve, filterGrades, filterOffer, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
@@ -634,12 +634,12 @@ function renderJobs() {
 function stockOutlook(item: Counter['inventory'][number]) {
   const entries: string[] = [];
   const kind = cargoKind(item.id);
-  if (state.ship && kind !== undefined) {
-    const quote = cargoQuote(state.day, kind);
-    entries.push(`本站收 ${quote.bid} 元 · 下站收 ${quote.nextBid} 元`, ...item.observations);
-  }
-  if (state.ship && shoreOffer(state.day, item) !== undefined) {
-    entries.push(`岸商现收 ${shoreOffer(state.day, item)} 元 · 下站收 ${shoreOffer(shipStop(state.day).nextDay, item)} 元`);
+  const shipQuote = state.ship && shipSaleQuote(state.day, item);
+  if (shipQuote) {
+    entries.push(`本站收 ${shipQuote.bid} 元 · 下站收 ${shipQuote.nextBid} 元`);
+    if (kind !== undefined) entries.push(...item.observations);
+    const difference = shipQuote.nextBid - shipQuote.bid;
+    if (difference > 0) entries.push(`留到下站多收 ${difference} 元，期间要先备好船费和饮水。`);
   }
   if (item.jade?.opened) entries.push(`石铺收明料 ${jadeGrades[item.jade.grade].price} 元 · 营业时可交付`);
   if (item.filter) entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
@@ -820,8 +820,8 @@ function renderStockDetail() {
   const target = { day: state.day, itemId: item.id };
   const cargo = cargoKind(item.id);
   if (state.ship && cargo !== undefined) add(`卖给岸市 ${cargoQuote(state.day, cargo).bid} 元`, { ...target, type: 'sellCargo' });
-  const shore = state.ship && shoreOffer(state.day, item);
-  if (shore !== undefined) add(`卖给岸商 ${shore} 元`, { ...target, type: 'sellCargo' });
+  const shore = state.ship && cargo === undefined && shipSaleQuote(state.day, item);
+  if (shore) add(`卖给岸商 ${shore.bid} 元`, { ...target, type: 'sellCargo' });
   if (item.jade && workshopOpen(state)) {
     if (!item.jade.opened) add('开窗验料', { ...target, type: 'openJade' });
     else {
@@ -997,6 +997,20 @@ function renderShip() {
   if (shipGap(state)) {
     const used = ship.reliefLeg === roundStart(state.day);
     action(water, used ? '本航段已值班' : '泵房应急值班 · 领 6 元和一日水', { type: 'shipRelief', day: state.day }, used);
+  }
+  const budget = crossingBudget(state.day, state.cash, ship.water);
+  const missing = budget.missingWater ? `还需补 ${budget.missingWater} 日水，至少 ${budget.waterSpend} 元` : '存水够用';
+  row('撑到下一站', `第 ${nextDay} 天靠泊前，还要交 ${budget.nights} 晚船籍费（${budget.nights * berthFee} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
+  if (budget.tonightGap) {
+    const sales = state.inventory.flatMap((item) => {
+      const quote = shipSaleQuote(state.day, item);
+      return quote ? [{ item, quote }] : [];
+    }).sort((a, b) => a.quote.bid - b.quote.bid);
+    const help = row('今晚筹钱', `船费和最低补水合计还差 ${budget.tonightGap} 元。以下是可立即出售的自有货。`);
+    if (!sales.length) help.querySelector('p')!.textContent = `今晚合计还差 ${budget.tonightGap} 元，手上没有岸商收的货。`;
+    for (const { item, quote } of sales) {
+      action(help, `卖${item.name} ${quote.bid} 元 · 下站 ${quote.nextBid} 元`, { type: 'sellCargo', day: state.day, itemId: item.id });
+    }
   }
   row(stop.name, stop.reason + `第 ${nextDay} 天起换泊${next.name}。`);
   cargoGoods.forEach((good, choice) => {
@@ -1312,7 +1326,10 @@ async function handle(action: Action) {
       jobsResult.textContent = result.message;
       if (!jobsDialog.contains(document.activeElement)) jobsDialog.querySelector('button')?.focus();
     }
-    if (shipDialog.open) document.querySelector('#ship-result')!.textContent = result.message;
+    if (shipDialog.open) {
+      document.querySelector('#ship-result')!.textContent = result.message;
+      if (!shipDialog.contains(document.activeElement)) shipDialog.querySelector('button')?.focus();
+    }
     if (rackDialog.open) {
       rackResult.textContent = result.message;
       if (!rackDialog.contains(document.activeElement)) rackDialog.querySelector('button')?.focus();
