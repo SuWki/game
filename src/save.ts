@@ -132,7 +132,8 @@ export function readSave(raw: string): Save {
         !nonNegative(outingSeed) || outingSeed > 0xffffffff)) ||
       (hasOutingWinch !== undefined && (outingSeed === undefined || hasOutingWinch !== true)) ||
       (voyage !== undefined && (outingSeed === undefined || !state.awaitingOpen || !isObject(voyage) ||
-        voyage.day !== state.day || (voyage.grade !== 'empty' && !isFilterGrade(voyage.grade)) ||
+        voyage.day !== state.day || (voyage.target !== undefined && (voyage.target !== 'materials' || state.ship === undefined)) ||
+        (voyage.grade !== 'empty' && !isFilterGrade(voyage.grade)) ||
         (voyage.stage !== 0 && voyage.stage !== 1 && (voyage.stage !== 2 || voyage.grade === 'empty')))) ||
       (mountedFilter !== undefined && (outingSeed === undefined || !isInventoryItem(mountedFilter) ||
         !mountedFilter.filter || (state.inventory as Counter['inventory']).some((item) => item.id === mountedFilter.id))) ||

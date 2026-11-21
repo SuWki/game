@@ -1,0 +1,108 @@
+import type { Counter } from './counter.ts';
+import { firstOutingDay } from './outing.ts';
+import { roundStart, type Item } from './scenario.ts';
+import { berthFee, cargoKind, shipStop } from './ship.ts';
+
+export const mechanicTicket = 'acen-salinity';
+export const saltPen: Item = {
+  id: 'salinity-pen', name: '测盐笔', model: '浮田维修仪表', condition: '标线清楚，笔盖有锉痕',
+  observations: ['笔盖锉出一道定位槽，戴湿手套也能单手打开。', '两道水位线刻在观察窗上，都是常用的位置。'],
+  recyclePrice: 24,
+};
+export const careerLog = {
+  met: '阿岑 · 初次登门', extend: '阿岑 · 展期先还款', redeemed: '阿岑 · 赎回测盐笔',
+  reunion: '阿岑 · 浮田重逢', laundry: '浮田洗衣班 · 验收滤芯', referral: '阿岑 · 带买家上船',
+  booking: '浮田洗衣班 · 预约验货', cancel: '浮田洗衣班 · 提前告知缺货', materialJob: '浮田维修班 · 船材工单',
+  onboardBooking: '浮田洗衣班 · 预约登船',
+  defer: '浮田洗衣班 · 今日改约',
+  berth: '认领自有泊位', home: '搬进自有小船', mother: '搬回旧港号', tow: '小船拖航与系泊',
+  guest: '补帆工 · 借宿两晚', transfer: '补帆工 · 转介救济站',
+  farewell: '补帆工 · 告别', stay: '补帆工 · 自愿留下', mend: '补帆工 · 修补遮篷',
+} as const;
+export const boatMaterials = [
+  { name: '船壳板', price: 24 }, { name: '龙骨', price: 28 }, { name: '旧货架', price: 16 }, { name: '铺盖', price: 10 },
+] as const;
+export const boatWorks = [
+  { name: '安装船壳板', material: 0, fee: 0 }, { name: '安装龙骨', material: 1, fee: 0 },
+  { name: '做出干铺位', material: -1, fee: 18 }, { name: '架起船上柜台', material: 2, fee: 12 },
+  { name: '添一间客舱', material: 0, fee: 0, bedding: true },
+] as const;
+export const laundryPrice = 22;
+export const materialJobPrice = 32;
+export const dwelling = { ration: 2, tow: 5, guestFood: 2 } as const;
+export const boatWorkLog = (choice: number) => '小船施工 · ' + boatWorks[choice].name;
+
+export function materialKind(item: Item) {
+  const match = /^boat-material-([0-3])-(?:yard|salvage)-\d+$/.exec(item.id);
+  return match ? Number(match[1]) : undefined;
+}
+
+export function playerBoat(state: Counter) {
+  const history = [...state.ledger].reverse();
+  const has = (label: string) => history.some((entry) => entry.description === label);
+  const complete = boatWorks.map((_, choice) => has(boatWorkLog(choice)));
+  const residence = history.find((entry) => entry.description === careerLog.home || entry.description === careerLog.mother);
+  const own = complete[2] && residence?.description === careerLog.home;
+  const guest = history.find((entry) => entry.description === careerLog.guest);
+  const guestEnd = guest && history.some((entry) => entry.day >= guest.day &&
+    [careerLog.transfer, careerLog.farewell, careerLog.stay].some((label) => entry.description === label));
+  const crew = history.find((entry) => entry.description === careerLog.stay || entry.description === careerLog.transfer)?.description === careerLog.stay;
+  const hosting = own && (!!guest && !guestEnd && state.day < guest.day + 2 || crew);
+  return { claimed: has(careerLog.berth), complete, own, guest, guestEnd, crew, hosting, mended: has(careerLog.mend) };
+}
+
+export function shipNight(state: Counter, day = state.day, boat = playerBoat(state)) {
+  const tow = boat.own && !state.ledger.some((entry) => entry.day >= roundStart(day) && entry.day <= day && entry.description === careerLog.tow)
+    ? dwelling.tow : 0;
+  const hosting = boat.own && (boat.crew || !!boat.guest && !boat.guestEnd && day < boat.guest.day + 2);
+  const food = hosting ? dwelling.guestFood : 0;
+  return { own: boat.own, tow, food, water: 1 + Number(hosting), cash: (boat.own ? dwelling.ration : berthFee) + tow + food };
+}
+
+export function careerVisit(state: Counter) {
+  if (!state.ship || state.ship.closed || state.awaitingOpen || state.day < firstOutingDay) return;
+  const history = state.ledger;
+  const farm = shipStop(state.day).stop.name === '浮田水站';
+  const met = history.find((entry) => entry.description === careerLog.met);
+  const ticket = state.tickets.find((entry) => entry.id === mechanicTicket);
+  const extended = history.some((entry) => entry.description === careerLog.extend);
+  if (farm && state.day === roundStart(state.day) && !met) return { kind: 'pawn' } as const;
+  if (ticket?.status === 'held' && ticket.dueDay === state.day &&
+    !history.some((entry) => entry.description === '阿岑 · 按原约处理')) return { kind: extended ? 'redeem' : 'extend', ticket } as const;
+  if (farm && met && ticket?.status !== 'held' && state.day >= met.day + 15 &&
+    !history.some((entry) => entry.description === careerLog.reunion)) return { kind: 'reunion', ticket } as const;
+}
+
+export function laundryOrder(state: Counter) {
+  if (!state.ship || state.ship.closed || state.day < firstOutingDay) return;
+  const history = state.ledger;
+  const certs = new Set(history.filter((entry) => entry.description === careerLog.laundry || entry.description === careerLog.materialJob)
+    .map((entry) => roundStart(entry.day)));
+  const trusted = history.some((entry) => entry.description === careerLog.reunion) &&
+    (certs.size > 0 || history.some((entry) => entry.description === careerLog.redeemed));
+  const ship = shipStop(state.day);
+  const farm = ship.stop.name === '浮田水站';
+  const start = farm ? roundStart(state.day) : ship.nextDay;
+  const preview = !farm && ship.next.name === '浮田水站' && state.day + 1 === start && trusted;
+  if (!farm && !preview) return;
+  const filled = history.some((entry) => entry.day >= start && entry.description === careerLog.laundry);
+  const bookedOnBoat = history.some((entry) => entry.day >= start - 1 && entry.description === careerLog.onboardBooking);
+  const booked = bookedOnBoat || history.some((entry) => entry.day >= start - 1 && entry.description === careerLog.booking);
+  const cancelled = history.some((entry) => entry.day >= start && entry.description === careerLog.cancel);
+  const deferred = history.some((entry) => entry.day === state.day && entry.description === careerLog.defer);
+  const lastBooking = [...history].reverse().find((entry) =>
+    (entry.description === careerLog.booking || entry.description === careerLog.onboardBooking) && entry.day < start - 1);
+  const priority = trusted && (!lastBooking || history.some((entry) => entry.day >= lastBooking.day &&
+    (entry.description === careerLog.cancel || entry.description === careerLog.laundry)));
+  const onBoat = priority && [...certs].some((day) => day < start) && playerBoat(state).complete[3];
+  return { start, last: start + 1, certs: certs.size, trusted, priority, booked, bookedOnBoat, cancelled, deferred, filled, onBoat, preview,
+    active: farm && !state.awaitingOpen && state.day <= start + 1 && !filled && !cancelled };
+}
+
+export function boatBuildItems(state: Counter, choice: number) {
+  const work = boatWorks[choice];
+  if (!work) return [];
+  const part = state.inventory.find((item) => work.material === -1 ? cargoKind(item.id) === 0 : materialKind(item) === work.material);
+  const bedding = 'bedding' in work ? state.inventory.find((item) => materialKind(item) === 3) : undefined;
+  return part && (!('bedding' in work) || bedding) ? [part, ...(bedding ? [bedding] : [])] : [];
+}

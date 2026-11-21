@@ -5,6 +5,9 @@ import { baseItemId, portRound, repairedWinch, roundEnd, roundLength, roundRepai
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, floatFarmOrder, shipSaleQuote, waterPacks } from './ship.ts';
+import { shipStop } from './ship.ts';
+import { boatBuildItems, boatMaterials, boatWorkLog, boatWorks, careerLog, careerVisit, dwelling, laundryOrder,
+  laundryPrice, materialJobPrice, materialKind, mechanicTicket, playerBoat, saltPen, shipNight } from './career.ts';
 import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
 export const waterLedger = {
@@ -70,6 +73,7 @@ export type Counter = {
 };
 
 export type Action =
+  | CareerAction
   | { type: 'boardShip' | 'shipRelief'; day: number }
   | { type: 'buyWater' | 'buyCargo'; day: number; choice: number }
   | { type: 'sellCargo'; day: number; itemId: string }
@@ -98,6 +102,7 @@ export type Action =
   | { type: 'dismissRopeVisit'; day: number }
   | { type: 'deliverRope'; day: number; itemId: string }
   | { type: 'bookVoyage' | 'buyOutingWinch'; day: number }
+  | { type: 'bookMaterialTrip'; day: number }
   | { type: 'bookStoneTrip' | 'buyJadeLamp'; day: number }
   | { type: 'openJade'; day: number; itemId: string }
   | { type: 'sellJade'; day: number; itemId: string }
@@ -107,6 +112,11 @@ export type Action =
   | { type: 'mountFilter'; day: number; itemId: string }
   | { type: 'sellFilter'; day: number; itemId: string }
   | { type: 'close'; day: number; confirmShortfall?: boolean };
+
+type CareerAction = { type: 'career'; day: number; task:
+  'pawn' | 'pass' | 'extend' | 'refuse' | 'redeem' | 'reunion' | 'bookLaundry' | 'cancelLaundry' | 'laundry' | 'declineLaundry' | 'materialJob' |
+  'claim' | 'buy' | 'build' | 'home' | 'mother' | 'host' | 'transfer' | 'farewell' | 'stay' | 'mend';
+  choice?: number; itemId?: string; onBoat?: boolean };
 
 export type Result = { state: Counter; message: string; tone: 'success' | 'warning' | 'neutral' };
 
@@ -160,7 +170,7 @@ export function outingPlan(state: Counter) {
     lampShortfall: Math.max(0, lampCost + cashReserve - state.cash) };
 }
 
-function planOuting(state: Counter, action: Extract<Action, { type: 'bookVoyage' | 'buyOutingWinch' | 'revealVoyage' | 'bookStoneTrip' | 'buyJadeLamp' }>): Result {
+function planOuting(state: Counter, action: Extract<Action, { type: 'bookVoyage' | 'bookMaterialTrip' | 'buyOutingWinch' | 'revealVoyage' | 'bookStoneTrip' | 'buyJadeLamp' }>): Result {
   const plan = outingPlan(state);
   if (state.day !== action.day || !plan || state.outingSeed === undefined) return notice(state, '请在打烊后规划出海。', 'warning');
   if (action.type === 'revealVoyage') {
@@ -189,9 +199,10 @@ function planOuting(state: Counter, action: Extract<Action, { type: 'bookVoyage'
       `已付 ${stoneFee} 元。第 ${state.day} 天清晨带原石回店。`, 'success');
   }
   if (plan.boatShortfall) return notice(state, `留足周转金还差 ${plan.boatShortfall} 元。`, 'warning');
+  if (action.type === 'bookMaterialTrip' && (!state.ship || !playerBoat(state).claimed)) return notice(state, '先在船坞认领泊位。', 'warning');
   const equipped = state.hasOutingWinch === true;
   const grade = voyageResult(voyageRoll(state.outingSeed, state.day, equipped), equipped);
-  const voyage: Voyage = { day: state.day, grade, stage: 0 };
+  const voyage: Voyage = { day: state.day, grade, stage: 0, ...(action.type === 'bookMaterialTrip' ? { target: 'materials' as const } : {}) };
   return notice(record({ ...state, voyage }, null, voyageExpense, -boatFee, state.day - 1),
     `已付 ${boatFee} 元船费。第 ${state.day} 天清晨返港。`, 'success');
 }
@@ -556,6 +567,13 @@ export function counterNotes(state: Counter) {
   if (farm && (state.day <= floatFarmOrder.last || state.readNoteIds?.includes(floatFarmOrder.id))) {
     notes.push({ id: floatFarmOrder.id, day: floatFarmOrder.announce, title: '船员捎来 · 浮田水站加购', text: farm.terms + farm.status });
   }
+  const acquainted = state.ledger.find((entry) => entry.description === careerLog.met);
+  if (acquainted) notes.push({ id: 'acen-mechanic', day: acquainted.day, title: '浮田机修工阿岑',
+    text: '阿岑常搭旧港号去检修种植舱。下次靠浮田时，他会回来看看。' });
+  const laundry = laundryOrder(state);
+  if (laundry && (laundry.preview || laundry.active)) notes.push({ id: `laundry-${laundry.start}`,
+    day: laundry.preview ? laundry.start - 1 : laundry.start, title: laundry.preview ? '阿岑捎来 · 洗衣班采购' : '浮田洗衣班采购',
+    text: `第 ${laundry.start}–${laundry.last} 天收一枚至少余两次的滤芯，现场付 ${laundryPrice} 元。` });
   return notes;
 }
 
@@ -635,6 +653,13 @@ function settleOpening(state: Counter): Result {
   if (voyage) {
     delete next.voyage;
     if (voyage.grade === 'empty') greeting += '打捞船空手返港。';
+    else if (voyage.target === 'materials') {
+      const kind = voyage.grade === 'worn' ? 0 : 1;
+      const item = { id: `boat-material-${kind}-salvage-${voyage.day}`, name: boatMaterials[kind].name, model: '造船材料',
+        condition: '船坞可用', observations: ['可转卖或装到自己的船上。'], recyclePrice: boatMaterials[kind].price - 6, cost: boatFee };
+      next = record({ ...next, inventory: [...next.inventory, item] }, item, `返港入库 · ${item.name}`, 0);
+      greeting += `${item.name}已入库，可用于造船。`;
+    }
     else {
       const grade = filterGrades[voyage.grade];
       const item = {
@@ -719,7 +744,11 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
       if (!confirmShortfall) return notice(state, gap, 'warning');
       return notice({ ...state, ship: { ...state.ship, closed: true } }, `第 ${day} 天离船停业。${gap}`, 'warning');
     }
-    next = record({ ...state, ship: { ...state.ship, water: state.ship.water - 1 } }, null, '船籍日费 · 住宿与口粮', -berthFee);
+    const night = shipNight(state);
+    next = record({ ...state, ship: { ...state.ship, water: state.ship.water - night.water } }, null,
+      night.own ? '自有船 · 口粮' : '船籍日费 · 住宿与口粮', -(night.own ? dwelling.ration : berthFee));
+    if (night.tow) next = record(next, null, careerLog.tow, -night.tow);
+    if (night.food) next = record(next, null, '船客 · 口粮', -night.food);
   }
   const expired = [];
   for (const ticket of state.tickets) {
@@ -760,14 +789,15 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
     delete closed.consignment;
     return notice(closed, `无法支付水费，还差 ${waterShortfall} 元。经营中断。`, 'warning');
   }
-  if (closed.ship) message += `船籍费已付 ${berthFee} 元，饮水余 ${closed.ship.water} 天。`;
+  if (closed.ship) message += `今晚支出 ${shipNight(state).cash} 元，饮水余 ${closed.ship.water} 天。`;
   return notice(closed, message, 'success');
 }
 
 export function shipGap(state: Counter) {
   if (!state.ship) return '';
-  return [state.cash < berthFee ? `船籍费差 ${berthFee - state.cash} 元` : '',
-    state.ship.water < 1 ? '缺今晚的饮水' : ''].filter(Boolean).join('，');
+  const night = shipNight(state);
+  return [state.cash < night.cash ? `${night.own ? '今晚开销' : '船籍费'}差 ${night.cash - state.cash} 元` : '',
+    state.ship.water < night.water ? '缺今晚的饮水' : ''].filter(Boolean).join('，');
 }
 
 function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' | 'shipRelief' | 'buyWater' | 'buyCargo' | 'sellCargo' | 'deliverFloatFarmSeal' }>): Result {
@@ -815,6 +845,100 @@ function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' |
   return notice(state, '');
 }
 
+function handleCareer(state: Counter, action: CareerAction): Result {
+  const unavailable = () => notice(state, '当前无法办理这件事。', 'warning');
+  if (!state.ship || state.awaitingOpen || state.day < firstOutingDay || action.day !== state.day) return unavailable();
+  const { task, choice, itemId } = action;
+  const history = state.ledger;
+  const has = (label: string) => history.some((entry) => entry.description === label);
+  const mark = (label: string, message: string) => notice(record(state, null, label, 0), message);
+  const noQueue = !currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule) && !ropeVisit(state)?.today;
+  const guest = noQueue ? careerVisit(state) : undefined;
+  if (guest?.kind === 'pawn' && task === 'pass') return mark(careerLog.met, '阿岑收起测盐笔，说下趟浮田再见。');
+  if (guest?.kind === 'pawn' && task === 'pawn' && state.cash >= 30) {
+    const ticket: Ticket = { id: mechanicTicket, borrower: '阿岑', item: saltPen, principal: 30, redeemPrice: 36, dueDay: state.day + 2, status: 'held' };
+    const next = record({ ...state, tickets: [...state.tickets, ticket] }, saltPen, careerLog.met, -30);
+    return notice(next, `已放款 30 元。第 ${ticket.dueDay} 天可用 36 元赎回。`);
+  }
+  if (guest?.kind === 'extend' && task === 'refuse') return mark('阿岑 · 按原约处理', '阿岑把笔留在柜台。当票到今晚打烊才逾期。');
+  if (guest?.kind === 'extend' && task === 'extend') {
+    const tickets = state.tickets.map((ticket) => ticket.id === mechanicTicket
+      ? { ...ticket, principal: ticket.principal - 12, redeemPrice: 24, dueDay: state.day + 2 } : ticket);
+    return notice(record({ ...state, tickets }, saltPen, careerLog.extend, 12), `已收 12 元。第 ${state.day + 2} 天付余款 24 元。`, 'success');
+  }
+  if (guest?.kind === 'redeem' && task === 'redeem') {
+    const tickets = state.tickets.map((ticket) => ticket.id === mechanicTicket ? { ...ticket, status: 'redeemed' as const } : ticket);
+    return notice(record({ ...state, tickets }, saltPen, careerLog.redeemed, guest.ticket.redeemPrice), '阿岑结清 24 元，取回测盐笔。', 'success');
+  }
+  if (guest?.kind === 'reunion' && task === 'reunion') {
+    return mark(careerLog.reunion, guest.ticket?.status === 'redeemed'
+      ? '阿岑用那支笔取了水样，还留下洗衣班的采购消息。' : '阿岑拿班里的公用笔取了水样，也指了指浮田的公开采购牌。');
+  }
+
+  const order = laundryOrder(state);
+  if (order && (order.active || order.preview) && !order.booked && task === 'bookLaundry' && order.priority && (!action.onBoat || order.onBoat)) {
+    const location = action.onBoat ? '自有船' : '母船柜台';
+    return notice(record(state, null, action.onBoat ? careerLog.onboardBooking : careerLog.booking, 0),
+      `已约第 ${order.start}–${order.last} 天到${location}验货。`);
+  }
+  if (order?.active && order.booked && task === 'cancelLaundry') return mark(careerLog.cancel, '已告知洗衣班这次缺货。');
+  if (order?.active && order.onBoat && order.bookedOnBoat && !order.deferred && task === 'declineLaundry' && noQueue && !guest) {
+    return mark(careerLog.defer, state.day < order.last ? '领班明天还在泊位。' : '领班已经离开，本次未能交货。');
+  }
+  const item = state.inventory.find((entry) => entry.id === itemId);
+  if (task === 'laundry' && order?.active && item?.filter && item.filter.remaining >= 2 &&
+    (!action.onBoat || order.onBoat && order.bookedOnBoat && !order.deferred && noQueue && !guest)) {
+    const next = record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, careerLog.laundry, laundryPrice);
+    return notice(action.onBoat ? record(next, null, careerLog.referral, 0) : next,
+      action.onBoat ? '阿岑带洗衣班领班登船验货，现结 22 元。' : '洗衣班在柜台验收滤芯，现结 22 元。', 'success');
+  }
+  if (task === 'materialJob' && order && !order.preview && order.certs >= 2 && item && materialKind(item) === 0 &&
+    !history.some((entry) => entry.day >= order.start && entry.description === careerLog.materialJob)) {
+    return notice(record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, careerLog.materialJob, materialJobPrice),
+      '浮田维修班验收船壳板，现结 32 元。', 'success');
+  }
+
+  const boat = playerBoat(state);
+  const yard = shipStop(state.day).stop.name === '避风修船坞';
+  if (task === 'claim' && yard && !boat.claimed) return mark(careerLog.berth, '空泊位已挂上你的工料单。');
+  if (!boat.claimed) return unavailable();
+  if (task === 'buy' && yard && choice !== undefined) {
+    const material = boatMaterials[choice];
+    const id = `boat-material-${choice}-yard-${state.day}`;
+    if (!material || state.cash < material.price || history.some((entry) => entry.itemId === id)) return unavailable();
+    const part = { ...material, id, model: '造船材料', condition: '船坞验收合格',
+      observations: ['可装到自己的船上。'], recyclePrice: material.price - 6, cost: material.price };
+    return notice(record({ ...state, inventory: [...state.inventory, part] }, part, `船坞采购 · ${part.name}`, -material.price), '材料已入库。');
+  }
+  if (task === 'build' && choice !== undefined) {
+    const work = boatWorks[choice];
+    if (!work || boat.complete[choice] || (choice === 2 && !boat.complete.slice(0, 2).every(Boolean)) ||
+      (choice > 2 && !boat.complete[2]) || state.cash < work.fee) return unavailable();
+    const parts = boatBuildItems(state, choice);
+    if (!parts.length) return unavailable();
+    let next = { ...state, inventory: state.inventory.filter((entry) => !parts.includes(entry)) };
+    if (parts.some((part) => part.id === next.consignment?.itemId)) delete next.consignment;
+    next = record(next, parts[0], boatWorkLog(choice), -work.fee);
+    return notice(next, `已完成「${work.name}」。`, 'success');
+  }
+  if (task === 'home' && boat.complete[2] && !boat.own) return mark(careerLog.home, '今晚起住自己的船。');
+  if (task === 'mother' && boat.own && !boat.hosting) return mark(careerLog.mother, '今晚回旧港号住宿。');
+  if (task === 'host' && boat.own && boat.complete[4] && !boat.guest && !has(careerLog.transfer)) {
+    return mark(careerLog.guest, '补帆工借宿两晚，每晚多用一日水和 2 元口粮。');
+  }
+  if (task === 'transfer' && (boat.complete[4] && (!boat.guest || !boat.guestEnd) || boat.hosting) && !has(careerLog.transfer)) {
+    return mark(careerLog.transfer, '救济站确认了铺位，补帆工已转介。');
+  }
+  if (boat.guest && !boat.guestEnd && state.day >= boat.guest.day + 2) {
+    if (task === 'farewell') return mark(careerLog.farewell, '补帆工在下一段旅程找到了亲友，来道别。');
+    if (task === 'stay' && boat.own) return mark(careerLog.stay, '补帆工愿意留下，想接些有报酬的活。');
+  }
+  if (task === 'mend' && boat.crew && !boat.mended && state.cash >= 6) {
+    return notice(record(state, null, careerLog.mend, -6), '已付 6 元工钱，补帆工修好漏雨遮篷。');
+  }
+  return unavailable();
+}
+
 function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' | 'install' }>): Result {
   if (state.day !== action.day || state.day < waterStartDay || pastLastDay(state) || state.awaitingOpen) {
     return notice(state, '当前无法处理库存。', 'warning');
@@ -836,9 +960,10 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 
 export function settleVisit(state: Counter, action: Action): Result {
   if (state.ship?.closed) return notice(state, '本局已离船停业。');
+  if (action.type === 'career') return handleCareer(state, action);
   if (action.type === 'boardShip' || action.type === 'shipRelief' || action.type === 'buyWater' || action.type === 'buyCargo' ||
     action.type === 'sellCargo' || action.type === 'deliverFloatFarmSeal') return shipTrade(state, action);
-  if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage' ||
+  if (action.type === 'bookVoyage' || action.type === 'bookMaterialTrip' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage' ||
       action.type === 'bookStoneTrip' || action.type === 'buyJadeLamp') return planOuting(state, action);
   if (action.type === 'openJade' || action.type === 'sellJade' || action.type === 'sendJade') return handleJade(state, action);
   if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob' || action.type === 'fillShipWater') return handleFilter(state, action);

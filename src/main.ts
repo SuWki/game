@@ -1,8 +1,10 @@
 import './style.css';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
 import { shipGap } from './counter';
+import { boatBuildItems, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
+  materialKind, playerBoat, saltPen, shipNight } from './career';
 import { outingPlan } from './counter';
-import { boatFee, cashReserve, filterGrades, filterOffer, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
+import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
 import { cutCells, cutOrders, cutQuote, jadeGrades, lampCost, stoneFee, stoneOdds, trialCut, usableCell, type CutKind, type CutPlacement, type Jade } from './jade';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
@@ -301,7 +303,7 @@ function itemSprite(item?: Item) {
 }
 
 function waterLine() {
-  if (state.ship) return `今晚船籍费 ${berthFee} 元 · 存水 ${state.ship.water} 天`;
+  if (state.ship) return `今晚生活支出 ${shipNight(state).cash} 元 · 存水 ${state.ship.water} 天`;
   if (state.economy === 'port') return '居民饮水由水站配给。';
   const water = nightlyWater(state);
   return `今晚用水 · ${water.source} · 实付 ${water.cost} 元`;
@@ -573,6 +575,31 @@ function renderJobs() {
     jobsContent.append(section);
   };
   const day = state.day;
+  const laundry = laundryOrder(state);
+  if (laundry) {
+    const choices: [string, Action][] = [];
+    if ((laundry.active || laundry.preview) && laundry.priority && !laundry.booked) {
+      choices.push(['联系洗衣班', { type: 'career', task: 'bookLaundry', day }]);
+      if (laundry.onBoat) choices.push(['邀请洗衣班到我的船上', { type: 'career', task: 'bookLaundry', day, onBoat: true }]);
+    }
+    if (laundry.active) {
+      for (const item of state.inventory.filter((entry) => (entry.filter?.remaining ?? 0) >= 2)) {
+        choices.push([`在母船交${item.name}（余 ${item.filter?.remaining} 次） · 收 ${laundryPrice} 元`,
+          { type: 'career', task: 'laundry', day, itemId: item.id }]);
+      }
+      if (laundry.booked) choices.push(['告知洗衣班缺货', { type: 'career', task: 'cancelLaundry', day }]);
+    }
+    const delivery = laundry.filled ? '本次已验收。' : laundry.cancelled ? '本次已撤约。' : laundry.booked
+      ? laundry.bookedOnBoat ? '已约到自有船验货。' : '已约在母船柜台验货。' : '';
+    addJob(laundry.preview ? '阿岑捎来 · 洗衣班采购' : '浮田洗衣班',
+      `第 ${laundry.start}–${laundry.last} 天收一枚至少余两次的滤芯，现付 ${laundryPrice} 元。${delivery}已合作 ${laundry.certs} 个航段。`, choices);
+    if (!laundry.preview && laundry.certs >= 2) {
+      const hull = state.inventory.find((item) => materialKind(item) === 0);
+      const paid = state.ledger.some((entry) => entry.day >= laundry.start && entry.description === '浮田维修班 · 船材工单');
+      addJob('浮田维修班 · 代找船壳板', paid ? '本次已交货。' : `本次靠站收一块船壳板，验货付 ${materialJobPrice} 元。`,
+        hull && !paid ? [[`交船壳板 ${materialJobPrice} 元`, { type: 'career', task: 'materialJob', day, itemId: hull.id }]] : []);
+    }
+  }
   if (rope) {
     addJob('搬运班的短绳委托', rope.terms + rope.status,
       rope.canBook ? [['联系搬运班', { type: 'bookRopeVisit', day }]] : []);
@@ -652,7 +679,11 @@ function stockOutlook(item: Counter['inventory'][number]) {
     if (farm) entries.push(farm.terms + farm.status);
   }
   if (item.jade?.opened) entries.push(`石铺收明料 ${jadeGrades[item.jade.grade].price} 元 · 营业时可交付`);
-  if (item.filter) entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
+  if (item.filter) {
+    entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
+    const order = laundryOrder(state);
+    if (order?.active || order?.preview) entries.push(`洗衣班第 ${order.start}–${order.last} 天收 ${laundryPrice} 元 · ${item.filter.remaining >= 2 ? '剩余次数符合' : '至少要剩两次'}`);
+  }
   if (state.economy === 'port' && state.day > lastDay && (sealedCrateId.test(item.id) || cratePartId.test(item.id))) {
     const { first, last } = salvageWindow(state.day, state.harborSchedule);
     const price = sealedCrateId.test(item.id) ? sealedCratePrice : cratePartPrice(item);
@@ -1006,17 +1037,23 @@ function renderShip() {
     bindAction(button, command);
     section.append(button);
   };
-  const water = row('生活甲板 · 水柜', `打烊付 ${berthFee} 元住宿口粮费，并消耗一日饮水。手上 ${state.cash} 元，水柜现存 ${ship.water} 天。`);
+  const boat = playerBoat(state);
+  const today = shipNight(state, state.day, boat);
+  const water = row('生活甲板 · 水柜', `今晚支出 ${today.cash} 元，需 ${today.water} 日水。手上 ${state.cash} 元，水柜现存 ${ship.water} 日。`);
   waterPacks.forEach((pack, choice) => action(water, `${pack.name} · ${pack.days} 天 / ${pack.price} 元`,
     { type: 'buyWater', day: state.day, choice }, state.cash < pack.price));
   if (shipGap(state)) {
     const used = ship.reliefLeg === roundStart(state.day);
     action(water, used ? '本航段已值班' : '泵房应急值班 · 领 6 元和一日水', { type: 'shipRelief', day: state.day }, used);
   }
-  const budget = crossingBudget(state.day, state.cash, ship.water);
+  const costs = Array.from({ length: nextDay - state.day }, (_, index) => {
+    const night = shipNight(state, state.day + index, boat);
+    return { ...night, cash: night.cash - (index ? night.tow : 0) };
+  });
+  const budget = crossingBudget(state.day, state.cash, ship.water, costs);
   const farm = floatFarmRequest(state);
   const missing = budget.missingWater ? `还需补 ${budget.missingWater} 日水，至少 ${budget.waterSpend} 元` : '存水够用';
-  row('撑到下一站', `第 ${nextDay} 天靠泊前，还要交 ${budget.nights} 晚船籍费（${budget.nights * berthFee} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
+  row('撑到下一站', `第 ${nextDay} 天靠泊前，还要付 ${budget.nights} 晚生活开销（${budget.total - budget.waterSpend} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
   if (budget.tonightGap) {
     const sales = state.inventory.flatMap((item) => {
       const quote = shipSaleQuote(state.day, item);
@@ -1053,6 +1090,45 @@ function renderShip() {
     }
   }
   row(stop.name, stop.reason + `第 ${nextDay} 天起换泊${next.name}。`);
+  if (state.day >= firstOutingDay) {
+    const yard = stop.name === '避风修船坞';
+    const target = (task: Extract<Action, { type: 'career' }>['task'], choice?: number): Action =>
+      ({ type: 'career', day: state.day, task, choice });
+    const pier = row('自己的小船', boat.claimed
+      ? `${boat.complete[2] ? '干铺位已验收。' : '工料单已挂在系泊桩。'}${boat.own ? '今晚住自有船，口粮 2 元，每航段首晚拖航 5 元。' : '今晚住旧港号。'}`
+      : '在避风修船坞认领空泊位。船材可在船坞购买，也可打烊后专程打捞。');
+    if (!boat.claimed && yard) action(pier, '认领空泊位', target('claim'));
+    if (boat.claimed) {
+      if (yard) boatMaterials.forEach((part, choice) => {
+        const bought = state.ledger.some((entry) => entry.description === `船坞采购 · ${part.name}` && entry.day === state.day);
+        action(pier, `买${part.name} ${part.price} 元`, target('buy', choice), bought || state.cash < part.price);
+      });
+      boatWorks.forEach((work, choice) => {
+        const parts = boatBuildItems(state, choice);
+        const label = work.material === -1 ? '舱门密封条' : boatMaterials[work.material].name;
+        const required = 'bedding' in work ? label + '、铺盖' : label;
+        const unlocked = choice < 2 || (choice === 2 ? boat.complete.slice(0, 2).every(Boolean) : boat.complete[2]);
+        const step = row(work.name, boat.complete[choice] ? '已完成' : `需${required}。${work.fee ? `工钱 ${work.fee} 元，支付后余 ${state.cash - work.fee} 元。` : ''}`);
+        if (!boat.complete[choice]) action(step, `确认${work.name}`, target('build', choice), !parts.length || !unlocked || state.cash < work.fee);
+      });
+      if (boat.complete[2]) action(pier, boat.own ? '今晚回旧港号住' : '今晚搬进自己的船', target(boat.own ? 'mother' : 'home'), boat.hosting);
+      if (boat.complete[4]) {
+        const pending = boat.guest && !boat.guestEnd && state.day >= boat.guest.day + 2;
+        const transferred = state.ledger.some((entry) => entry.description === '补帆工 · 转介救济站');
+        const berth = row('客舱 · 一个床位', boat.crew ? '补帆工已自愿留下，每晚多用一日水和 2 元口粮。'
+          : pending ? '两晚借期结束，补帆工在等你商量去处。'
+          : boat.hosting ? '补帆工借宿中，每晚多用一日水和 2 元口粮。'
+          : boat.guestEnd || transferred ? '救济站的补帆工已安置。' : '救济站的补帆工想借宿两晚，合计两日水和 4 元口粮。');
+        if (!boat.guest && !transferred) action(berth, '答应借宿两晚', target('host'), !boat.own);
+        if ((!boat.guest && !transferred) || boat.hosting || pending) action(berth, '转介救济站', target('transfer'));
+        if (pending) {
+          action(berth, '送别补帆工', target('farewell'));
+          action(berth, '邀请他留下', target('stay'), !boat.own);
+        }
+        if (boat.crew && !boat.mended) action(berth, '付 6 元请他修遮篷', target('mend'), state.cash < 6);
+      }
+    }
+  }
   if (farm && state.day <= floatFarmOrder.last) {
     const seals = state.inventory.filter((item) => cargoKind(item.id) === floatFarmOrder.kind);
     const stock = farm.active && !seals.length ? '手上没有可交付的自有密封条。' : '';
@@ -1082,6 +1158,11 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   const finished = pastLastDay(state) || roundSummary || state.waterShortfall > 0 || firstSummary || state.ship?.closed;
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule) : undefined;
   const ropeGuest = !visit && !saveBlocked && !state.ship?.closed ? ropeVisit(state) : undefined;
+  const mechanic = !visit && !ropeGuest?.today && !saveBlocked ? careerVisit(state) : undefined;
+  const onboard = !visit && !ropeGuest?.today && !mechanic && !saveBlocked ? laundryOrder(state) : undefined;
+  const shipAppointment = onboard?.active && onboard.onBoat && onboard.bookedOnBoat && !onboard.deferred;
+  const aboard = !atTitle && !saveBlocked && (!visit && playerBoat(state).own || shipAppointment);
+  document.documentElement.classList.toggle('own-boat', Boolean(aboard));
   const hints = {
     purchase: '当前在收货。先看看成色，再决定愿意给多少。',
     pawn: '当前在收当。对照货物线索，再看放款、赎回金额和到期日。',
@@ -1100,8 +1181,8 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   document.documentElement.dataset.phase = phase;
   dockFlag.hidden = atTitle || saveBlocked || state.economy !== 'port' || !state.chapterTwoStarted ||
     state.day < winchOrderDay(state.economy, state.harborSchedule);
-  setSprite(guestArt, !saveBlocked && !atTitle ? visit?.portrait ?? (ropeGuest?.today ? 'deckhand' : undefined) : undefined,
-    visit?.id ?? (ropeGuest?.today ? `rope-${ropeGuest.start}` : undefined));
+  setSprite(guestArt, !saveBlocked && !atTitle ? visit?.portrait ?? (mechanic ? 'mechanic' : ropeGuest?.today || shipAppointment ? 'deckhand' : undefined) : undefined,
+    visit?.id ?? (ropeGuest?.today ? `rope-${ropeGuest.start}` : mechanic?.kind ?? (shipAppointment ? 'laundry' : undefined)));
   if (saveBlocked || !visit || atTitle) {
     setSprite(itemArt);
     setSprite(inspectThumb);
@@ -1129,6 +1210,8 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   rackStatus.textContent = [
     mounted?.filter ? `${mounted.name} · 还能制水 ${mounted.filter.remaining} 次。` : '机架空着，可从自有库存装入滤芯。',
     jobDone ? '今天的机架班次已用完。' : `今天有一张制水单，净付 ${waterJobPay} 元。`,
+    mounted?.filter && (laundryOrder(state)?.active || laundryOrder(state)?.preview)
+      ? `本次用后余 ${mounted.filter.remaining - 1} 次，洗衣班要求至少两次。` : '',
   ].join('');
   rackActions.replaceChildren();
   if (mounted) {
@@ -1219,6 +1302,8 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
       addAction('开门营业', { type: 'open', day: state.day });
       addAction(`随船打捞 ${boatFee} 元`, { type: 'bookVoyage', day: state.day }, true, !plan.remaining || !!plan.boatShortfall,
         !plan.remaining ? '本轮船位已用完' : plan.boatShortfall ? `留足 ${cashReserve} 元还差 ${plan.boatShortfall} 元` : `付费后剩 ${state.cash - boatFee} 元`);
+      if (state.ship && playerBoat(state).claimed) addAction(`出海捞船材 ${boatFee} 元`, { type: 'bookMaterialTrip', day: state.day },
+        true, !plan.remaining || !!plan.boatShortfall, '寻找可造船的船壳板或龙骨，与其他外出共用船位');
       if (!state.hasOutingWinch) addAction(`买定位绞具 ${winchUpgradeCost} 元`, { type: 'buyOutingWinch', day: state.day },
         true, !!plan.gearShortfall, plan.gearShortfall ? `留足 ${cashReserve} 元还差 ${plan.gearShortfall} 元` : `付费后剩 ${state.cash - winchUpgradeCost} 元`);
       addAction(`去挑原石 ${stoneFee} 元`, { type: 'bookStoneTrip', day: state.day }, true, !plan.remaining || !!plan.stoneShortfall,
@@ -1233,11 +1318,13 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
       const grade = voyage.grade === 'empty' ? undefined : filterGrades[voyage.grade];
       const line = voyage.stage === 0 ? '打捞船靠岸了，吊篮还在水里。'
         : !grade ? '收上来一篮碎壳和泥沙，船队空手返港。'
+        : voyage.target === 'materials' ? voyage.stage === 1 ? '吊篮里有一件船材，先冲掉淤泥。'
+          : `验出可用的${boatMaterials[voyage.grade === 'worn' ? 0 : 1].name}，开门后入库。`
         : voyage.stage === 1 ? '吊篮里有一枚沾泥的滤芯。擦净铭牌，再看压力表。'
         : `${grade.name} · 可用 ${grade.uses} 次 · 货商出 ${grade.price} 元。`;
       scene.querySelector('.visitor')?.insertAdjacentHTML('beforeend', `<div class="outing-slip"><h3>清晨返港</h3><p>${line}</p></div>`);
       if (voyage.stage === 0) addAction('收绳看吊篮', { type: 'revealVoyage', day: state.day, stage: 0 });
-      if (voyage.stage === 1 && grade) addAction('擦净铭牌', { type: 'revealVoyage', day: state.day, stage: 1 });
+      if (voyage.stage === 1 && grade) addAction(voyage.target === 'materials' ? '冲洗并检查船材' : '擦净铭牌', { type: 'revealVoyage', day: state.day, stage: 1 });
       addAction('开门营业', { type: 'open', day: state.day }, voyage.stage < 2 && !!grade);
     } else addAction('开门营业', { type: 'open', day: state.day });
   } else if (visit) {
@@ -1250,6 +1337,31 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     const day = state.day;
     if (item) addAction(`交付短绳 ${ropeVisitPrice} 元`, { type: 'deliverRope', day, itemId: item.id });
     addAction(item ? '留货，谢客' : '说明缺货', { type: 'dismissRopeVisit', day }, true);
+  } else if (mechanic) {
+    const day = state.day;
+    const title = '阿岑 · 浮田机修工';
+    const story = mechanic.kind === 'pawn' ? '换班要先垫路费。我押这支测盐笔，借 30 元，两晚后拿 36 元来赎。'
+      : mechanic.kind === 'extend' ? '工钱只拿到 12 元。先还这 12，余下 24 再宽两晚，行吗？'
+      : mechanic.kind === 'redeem' ? '工钱结了。余下 24 元在这儿，我来取笔。'
+      : mechanic.ticket?.status === 'redeemed' ? '还是那支笔顺手。洗衣班缺滤芯，我把你写进靠泊名单。'
+      : '这回来用班里的公用笔。浮田采购牌上新贴了消息，你有空看看。';
+    scene.innerHTML = `<div class="visitor"><h2>${title}</h2><blockquote>“${story}”</blockquote>
+      ${mechanic.kind === 'pawn' ? `<details><summary>近看测盐笔</summary>${appraisalView(saltPen)}</details>` : ''}</div>`;
+    if (mechanic.kind === 'pawn') {
+      addAction('放款 30 元', { type: 'career', task: 'pawn', day }, false, state.cash < 30);
+      addAction('谢客', { type: 'career', task: 'pass', day }, true);
+    } else if (mechanic.kind === 'extend') {
+      addAction('先收 12 元，展期两晚', { type: 'career', task: 'extend', day }, false, false, `第 ${day + 2} 天应收 24 元`);
+      addAction('按原约处理', { type: 'career', task: 'refuse', day }, true, false, `第 ${day} 天打烊后归店，今天无回款`);
+    } else if (mechanic.kind === 'redeem') addAction('收余款 24 元并还笔', { type: 'career', task: 'redeem', day });
+    else addAction('听阿岑说说近况', { type: 'career', task: 'reunion', day });
+  } else if (shipAppointment) {
+    const items = state.inventory.filter((item) => (item.filter?.remaining ?? 0) >= 2);
+    const day = state.day;
+    scene.innerHTML = `<div class="visitor"><h2>自有船 · 洗衣班登船验货</h2><blockquote>“阿岑带我来看看货，这张桌够干。滤芯还有两次就收。”</blockquote>
+      <p>${items.length ? '请选要交付的滤芯。' : '今天手上没有合用的滤芯。'}</p></div>`;
+    for (const item of items) addAction(`交${item.name} · 收 22 元`, { type: 'career', task: 'laundry', day, itemId: item.id, onBoat: true });
+    addAction('改天再接待', { type: 'career', task: 'declineLaundry', day }, true);
   } else {
     const due = state.tickets.some((ticket) => ticket.status === 'held' && ticket.dueDay === state.day);
     const text = due ? '今天仍可赎，打烊后才归店。' : '今天的客人都接待完了。';

@@ -13,7 +13,7 @@ export const filterGrades = {
 } as const;
 export type FilterGrade = keyof typeof filterGrades;
 export type FilterLife = { grade: FilterGrade; remaining: number };
-export type Voyage = { day: number; grade: FilterGrade | 'empty'; stage: 0 | 1 | 2 };
+export type Voyage = { day: number; grade: FilterGrade | 'empty'; stage: 0 | 1 | 2; target?: 'materials' };
 
 export const voyageOdds = (equipped: boolean) => equipped ? [35, 33, 27, 5] : [45, 30, 22, 3];
 
