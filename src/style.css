@@ -242,6 +242,32 @@ dialog::backdrop { background: #110f16bd; }
   color: #f7e5ca;
 }
 .outing-slip h3, .outing-slip p { margin: 0 0 4px; }
+.outing-slip summary { cursor: pointer; }
+.jade-workbench {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #af9273;
+}
+.jade-workbench > :not(:first-child) { margin-top: 8px; }
+.jade-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 43px);
+  gap: 4px;
+}
+.jade-grid button {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  min-height: 0;
+  padding: 0;
+  background: #2b5148;
+  color: #f4ead4;
+}
+.jade-grid button[data-tile="crack"] { background: #5b4338; color: #f5d3bc; opacity: 1; }
+.jade-grid button[data-tile="occupied"] { background: #547659; }
+.jade-grid button[data-tile="selected"], .jade-workbench button[aria-pressed="true"] { outline: 2px solid #bb7b30; outline-offset: 1px; }
+.jade-workbench [role="status"]:empty { display: none; }
 .harbor-good button { margin-top: 6px; color: #fff0d2; }
 #harbor-result:not(:empty), #consignment-result:not(:empty) { padding-top: 8px; font-weight: 700; }
 #jobs-dialog { width: min(585px, calc(100vw - 42px)); }

@@ -1,5 +1,6 @@
 import { rentalDays, usablePurifier, type Counter, type Result, type Ticket } from './counter.ts';
 import { filterGrades, firstOutingDay, type FilterGrade } from './outing.ts';
+import { cutQuote, trialCut, type Jade } from './jade.ts';
 import { consignmentPrices, emergencyWaterDay, emergencyWaterPrice, firstChapterEnd, itemDetails, lastDay, maxOffers, roundStart, secondChapterStart, waterPrice, waterStartDay, type Item } from './scenario.ts';
 
 export const saveVersion = 3;
@@ -11,6 +12,9 @@ const integer = (value: unknown): value is number => typeof value === 'number' &
 const nonNegative = (value: unknown): value is number => integer(value) && value >= 0;
 const isFilterGrade = (value: unknown): value is FilterGrade =>
   value === 'worn' || value === 'sound' || value === 'long';
+const isJade = (value: unknown): value is Jade => isObject(value) &&
+  (value.grade === 'rough' || value.grade === 'plain' || value.grade === 'fine' || value.grade === 'rare') &&
+  (value.face === 'edge' || value.face === 'split') && typeof value.opened === 'boolean';
 
 function isItem(value: unknown): value is Item {
   return isObject(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
@@ -19,6 +23,7 @@ function isItem(value: unknown): value is Item {
     (value.authenticity === undefined || value.authenticity === 'genuine' || value.authenticity === 'imitation') &&
     (value.reference === undefined || typeof value.reference === 'string') &&
     (value.recyclePrice === undefined || nonNegative(value.recyclePrice)) &&
+    (value.jade === undefined || (value.filter === undefined && isJade(value.jade))) &&
     (value.filter === undefined || (isObject(value.filter) && isFilterGrade(value.filter.grade) &&
       integer(value.filter.remaining) && value.filter.remaining > 0 && value.filter.remaining <= filterGrades[value.filter.grade].uses));
 }
@@ -129,5 +134,23 @@ export function readSave(raw: string): Save {
         !mountedFilter.filter || (state.inventory as Counter['inventory']).some((item) => item.id === mountedFilter.id))) ||
       (waterJobDay !== undefined && (outingSeed === undefined || !integer(waterJobDay) ||
         waterJobDay < firstOutingDay || waterJobDay > state.day))) throw new Error('Invalid outing state');
+  const { hasJadeLamp, stoneTrip, jadeOrders } = state;
+  if ((hasJadeLamp !== undefined && (outingSeed === undefined || hasJadeLamp !== true)) ||
+      (stoneTrip !== undefined && (outingSeed === undefined || !state.awaitingOpen || voyage !== undefined ||
+        !isObject(stoneTrip) || stoneTrip.day !== state.day || !isJade(stoneTrip.jade) || stoneTrip.jade.opened))) {
+    throw new Error('Invalid stone trip');
+  }
+  if (jadeOrders !== undefined) {
+    const ids = new Set((state.inventory as Counter['inventory']).map((item) => item.id));
+    const dueDay = state.day + Number(!state.awaitingOpen);
+    if (outingSeed === undefined || !Array.isArray(jadeOrders) || !jadeOrders.every((order) => {
+      if (!isObject(order) || !isInventoryItem(order.item) || !order.item.jade?.opened ||
+        (order.kind !== 'pendants' && order.kind !== 'seal') || order.dueDay !== dueDay || !nonNegative(order.payout) ||
+        ids.has(order.item.id)) return false;
+      const max = cutQuote(order.item.jade, order.kind, trialCut(order.item.jade, order.kind));
+      ids.add(order.item.id);
+      return max !== undefined && order.payout > 0 && order.payout <= max.payout;
+    })) throw new Error('Invalid jade orders');
+  }
   return save as Save;
 }

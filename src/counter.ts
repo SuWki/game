@@ -4,6 +4,7 @@ import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem,
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
+import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
 export const waterLedger = {
   purchase: '买水', reservation: '预订用水', purifier: 'F2 集雨供水', ticket: '水票抵扣', unused: '水票到期未使用',
@@ -11,6 +12,7 @@ export const waterLedger = {
 
 type InventoryItem = Item & { cost: number };
 export type WorkshopOrder = { kind: 'repair' | 'rent'; item: InventoryItem; dueDay: number };
+export type JadeOrder = { item: InventoryItem; kind: CutKind; dueDay: number; payout: number };
 export const repairFee = 22;
 export const rentalFee = 12;
 export const rentalDays = 3;
@@ -52,6 +54,9 @@ export type Counter = {
   outingSeed?: number;
   hasOutingWinch?: true;
   voyage?: Voyage;
+  stoneTrip?: StoneTrip;
+  hasJadeLamp?: true;
+  jadeOrders?: JadeOrder[];
   mountedFilter?: InventoryItem;
   waterJobDay?: number;
   f2Appointment?: { day: number; status: 'booked' | 'closed' };
@@ -84,6 +89,10 @@ export type Action =
   | { type: 'openCrate'; day: number; itemId: string }
   | { type: 'sellCrateGoods'; day: number; itemId: string }
   | { type: 'bookVoyage' | 'buyOutingWinch'; day: number }
+  | { type: 'bookStoneTrip' | 'buyJadeLamp'; day: number }
+  | { type: 'openJade'; day: number; itemId: string }
+  | { type: 'sellJade'; day: number; itemId: string }
+  | { type: 'sendJade'; day: number; itemId: string; kind: CutKind; placements: CutPlacement[] }
   | { type: 'removeFilter' | 'takeWaterJob'; day: number }
   | { type: 'revealVoyage'; day: number; stage: 0 | 1 }
   | { type: 'mountFilter'; day: number; itemId: string }
@@ -128,17 +137,21 @@ function record(state: Counter, item: Item | null, description: string, change: 
 export function outingPlan(state: Counter) {
   if (!state.awaitingOpen || state.economy !== 'port' || state.outingSeed === undefined || atRoundSummary(state)) return;
   const first = roundStart(state.day);
-  const used = state.ledger.filter((entry) => entry.description === voyageExpense &&
+  const used = state.ledger.filter((entry) => (entry.description === voyageExpense || entry.description === stoneExpense) &&
     entry.day + 1 >= first && entry.day + 1 <= state.day).length;
   const rent = state.workshopOrders?.some((order) => order.kind === 'rent' && order.dueDay === state.day) ? rentalFee : 0;
   const listed = state.inventory.find((item) => item.id === state.consignment?.itemId);
   const guaranteedSale = listed && consignmentPrices(listed)?.[0] === state.consignment?.price ? state.consignment?.price ?? 0 : 0;
-  return { remaining: Math.max(0, outingLimit - used), knownReceipts: rent + guaranteedSale,
+  const jadePayout = (state.jadeOrders ?? []).filter((order) => order.dueDay === state.day)
+    .reduce((sum, order) => sum + order.payout, 0);
+  return { remaining: Math.max(0, outingLimit - used), knownReceipts: rent + guaranteedSale + jadePayout,
     boatShortfall: Math.max(0, boatFee + cashReserve - state.cash),
-    gearShortfall: Math.max(0, winchUpgradeCost + cashReserve - state.cash) };
+    gearShortfall: Math.max(0, winchUpgradeCost + cashReserve - state.cash),
+    stoneShortfall: Math.max(0, stoneFee + cashReserve - state.cash),
+    lampShortfall: Math.max(0, lampCost + cashReserve - state.cash) };
 }
 
-function planVoyage(state: Counter, action: Extract<Action, { type: 'bookVoyage' | 'buyOutingWinch' | 'revealVoyage' }>): Result {
+function planOuting(state: Counter, action: Extract<Action, { type: 'bookVoyage' | 'buyOutingWinch' | 'revealVoyage' | 'bookStoneTrip' | 'buyJadeLamp' }>): Result {
   const plan = outingPlan(state);
   if (state.day !== action.day || !plan || state.outingSeed === undefined) return notice(state, '请在打烊后规划出海。', 'warning');
   if (action.type === 'revealVoyage') {
@@ -146,7 +159,13 @@ function planVoyage(state: Counter, action: Extract<Action, { type: 'bookVoyage'
     if (!voyage || voyage.stage !== action.stage || (voyage.grade === 'empty' && action.stage === 1)) return notice(state, '');
     return notice({ ...state, voyage: { ...voyage, stage: action.stage === 0 ? 1 : 2 } }, '船已返港。');
   }
-  if (state.voyage) return notice(state, '明早的船位已订好。', 'warning');
+  if (state.voyage || state.stoneTrip) return notice(state, '明早的行程已订好。', 'warning');
+  if (action.type === 'buyJadeLamp') {
+    if (state.hasJadeLamp) return notice(state, '店里已有透光灯。', 'warning');
+    if (plan.lampShortfall) return notice(state, `留足周转金还差 ${plan.lampShortfall} 元。`, 'warning');
+    return notice(record({ ...state, hasJadeLamp: true }, null, '装备 · 挑料透光灯', -lampCost, state.day - 1),
+      '透光灯已买下，之后挑石都可使用。', 'success');
+  }
   if (action.type === 'buyOutingWinch') {
     if (state.hasOutingWinch) return notice(state, '店里已有定位绞具。', 'warning');
     if (plan.gearShortfall) return notice(state, `留足周转金还差 ${plan.gearShortfall} 元。`, 'warning');
@@ -154,12 +173,43 @@ function planVoyage(state: Counter, action: Extract<Action, { type: 'bookVoyage'
       '定位绞具已买下，之后出海都可使用。', 'success');
   }
   if (!plan.remaining) return notice(state, '本轮船位已用完。', 'warning');
+  if (action.type === 'bookStoneTrip') {
+    if (plan.stoneShortfall) return notice(state, `留足周转金还差 ${plan.stoneShortfall} 元。`, 'warning');
+    const stoneTrip = { day: state.day, jade: pickStone(state.outingSeed, state.day, state.hasJadeLamp === true) };
+    return notice(record({ ...state, stoneTrip }, null, stoneExpense, -stoneFee, state.day - 1),
+      `已付 ${stoneFee} 元。第 ${state.day} 天清晨带原石回店。`, 'success');
+  }
   if (plan.boatShortfall) return notice(state, `留足周转金还差 ${plan.boatShortfall} 元。`, 'warning');
   const equipped = state.hasOutingWinch === true;
   const grade = voyageResult(voyageRoll(state.outingSeed, state.day, equipped), equipped);
   const voyage: Voyage = { day: state.day, grade, stage: 0 };
   return notice(record({ ...state, voyage }, null, voyageExpense, -boatFee, state.day - 1),
     `已付 ${boatFee} 元船费。第 ${state.day} 天清晨返港。`, 'success');
+}
+
+function handleJade(state: Counter, action: Extract<Action, { type: 'openJade' | 'sellJade' | 'sendJade' }>): Result {
+  if (state.day !== action.day || !workshopOpen(state)) return notice(state, '请在营业中处理原石。', 'warning');
+  const item = state.inventory.find((entry) => entry.id === action.itemId);
+  if (!item?.jade) return notice(state, '这块料已离开库存。', 'warning');
+  const grade = jadeGrades[item.jade.grade];
+  if (action.type === 'openJade') {
+    if (item.jade.opened) return notice(state, '这块料已经开过窗。', 'warning');
+    const opened = { ...item, name: `明料 · ${grade.name}`, condition: grade.name, jade: { ...item.jade, opened: true } };
+    return notice({ ...state, inventory: state.inventory.map((entry) => entry.id === item.id ? opened : entry) },
+      `开窗见${grade.name}，石铺出 ${grade.price} 元。`, 'success');
+  }
+  if (!item.jade.opened) return notice(state, '开窗验料后可出售或加工。', 'warning');
+  const next = { ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) };
+  if (action.type === 'sellJade') {
+    return notice(record(next, item, '售货 · 明料', grade.price), `明料已售，到账 ${grade.price} 元。`, 'success');
+  }
+  const quote = cutQuote(item.jade, action.kind, action.placements);
+  if (!quote) return notice(state, '样式不能越界、压裂格或互相重叠。', 'warning');
+  if (state.cash < quote.fee) return notice(state, `工钱还差 ${quote.fee - state.cash} 元。`, 'warning');
+  const order = { item, kind: action.kind, dueDay: state.day + 1, payout: quote.payout };
+  const name = cutOrders[order.kind].name;
+  return notice(record({ ...next, jadeOrders: [...(state.jadeOrders ?? []), order] }, item, `加工 · ${name}`, -quote.fee),
+    `已付工钱 ${quote.fee} 元，第 ${order.dueDay} 天开门到账 ${order.payout} 元。`, 'success');
 }
 
 function handleFilter(state: Counter, action: Extract<Action, { type: 'mountFilter' | 'sellFilter' | 'removeFilter' | 'takeWaterJob' }>): Result {
@@ -483,6 +533,12 @@ function settleOpening(state: Counter): Result {
   let next = returned.state;
   let greeting = `第 ${state.day} 天开始营业。${returned.message}`;
   const voyage = state.voyage;
+  if (state.stoneTrip) {
+    const item = { id: `outing-${state.day}-jade`, name: '待开窗原石', model: '玉料',
+      condition: '石皮完整', observations: [], jade: state.stoneTrip.jade, cost: stoneFee };
+    next = record({ ...next, stoneTrip: undefined, inventory: [...next.inventory, item] }, item, '返港入库 · 待开窗原石', 0);
+    greeting += '原石已放到自有库存，可开窗验料。';
+  }
   if (voyage) {
     delete next.voyage;
     if (voyage.grade === 'empty') greeting += '打捞船空手返港。';
@@ -495,6 +551,16 @@ function settleOpening(state: Counter): Result {
       };
       next = record({ ...next, inventory: [...next.inventory, item] }, item, `返港入库 · ${item.name}`, 0);
       greeting += `${item.name}已入库，可用 ${grade.uses} 次，货商出 ${grade.price} 元。`;
+    }
+  }
+  if (next.jadeOrders?.length) {
+    const orders = next.jadeOrders;
+    next = { ...next, jadeOrders: orders.filter((order) => order.dueDay > state.day) };
+    for (const order of orders) {
+      if (order.dueDay > state.day) continue;
+      const name = cutOrders[order.kind].name;
+      next = record(next, order.item, `加工成品交付 · ${name}`, order.payout);
+      greeting += `${name}交货，到账 ${order.payout} 元。`;
     }
   }
   const listing = next.consignment;
@@ -616,7 +682,9 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
-  if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage') return planVoyage(state, action);
+  if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage' ||
+      action.type === 'bookStoneTrip' || action.type === 'buyJadeLamp') return planOuting(state, action);
+  if (action.type === 'openJade' || action.type === 'sellJade' || action.type === 'sendJade') return handleJade(state, action);
   if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob') return handleFilter(state, action);
   if (action.type === 'buyCrate' || action.type === 'openCrate' || action.type === 'sellCrateGoods') return handleSalvage(state, action);
   if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);

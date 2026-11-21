@@ -1,6 +1,7 @@
 import './style.css';
 import { outingPlan } from './counter';
 import { boatFee, cashReserve, filterGrades, filterOffer, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
+import { cutCells, cutOrders, cutQuote, jadeGrades, lampCost, stoneFee, stoneOdds, trialCut, usableCell, type CutKind, type CutPlacement, type Jade } from './jade';
 import { atFirstChapterSummary, heldTicket, nightlyWater, openCounter, ownedImitation, saleOffer, settleVisit, usablePurifier, waterCost, waterLedger, type Action, type Counter, type Result } from './counter';
 import { currentVisit, falseTimerPrice, firstChapterEnd, harborPeriod, harborPeriods, honestTimerPrice, imitationPurchasePrice, lastDay, maxOffers, openingCash, scheduledVisits, secondChapterStart, waterPrice, waterReservePrice, waterStartDay, type Item, type Visit } from './scenario';
 import { readSave, saveVersion } from './save';
@@ -212,6 +213,7 @@ const stockTitle = document.querySelector<HTMLElement>('#stock-title')!;
 const stockDetail = document.querySelector<HTMLElement>('#stock-detail')!;
 const stockResult = document.querySelector<HTMLElement>('#stock-result')!;
 let selectedStockId: string | undefined;
+let showCutLayout = false;
 const guideDialog = document.querySelector<HTMLDialogElement>('#guide-dialog')!;
 const currentGuide = document.querySelector<HTMLElement>('#current-guide')!;
 const ledgerDialog = document.querySelector<HTMLDialogElement>('#ledger-dialog')!;
@@ -407,9 +409,15 @@ function renderVisit(visit: Visit) {
 function renderInventory() {
   const items = saveBlocked ? [] : state.inventory;
   const orders = saveBlocked ? [] : state.workshopOrders ?? [];
-  document.querySelector('#work-orders')!.innerHTML = orders.length
-    ? `<h3>离店货物</h3>${records(orders.map(({ item, dueDay, kind }) =>
-      `<li><span>${escapeText(item.name)} · ${kind === 'repair' ? '送修中' : '出租中'}</span><span>第 ${dueDay} 天开门归还</span></li>`), '')}`
+  const jadeOrders = saveBlocked ? [] : state.jadeOrders ?? [];
+  const away = [
+    ...orders.map(({ item, dueDay, kind }) =>
+      `<li><span>${escapeText(item.name)} · ${kind === 'repair' ? '送修中' : '出租中'}</span><span>第 ${dueDay} 天开门归还</span></li>`),
+    ...jadeOrders.map(({ item, dueDay, kind, payout }) =>
+      `<li><span>${escapeText(item.name)} · ${cutOrders[kind].name}</span><span>第 ${dueDay} 天开门收 ${payout} 元</span></li>`),
+  ];
+  document.querySelector('#work-orders')!.innerHTML = away.length
+    ? `<h3>离店货物</h3>${records(away, '')}`
     : '';
   inventory.innerHTML = records(items.map((item) => {
     const authenticity = item.authenticity === 'imitation' ? ' · 仿品' : item.authenticity === 'genuine' ? ' · 正品' : '';
@@ -604,6 +612,7 @@ function renderJobs() {
 
 function stockOutlook(item: Counter['inventory'][number]) {
   const entries: string[] = [];
+  if (item.jade?.opened) entries.push(`石铺收明料 ${jadeGrades[item.jade.grade].price} 元 · 营业时可交付`);
   if (item.filter) entries.push(`设备货商收 ${filterOffer(item.filter)} 元 · 营业时可交付`);
   if (state.economy === 'port' && state.day > lastDay && (sealedCrateId.test(item.id) || cratePartId.test(item.id))) {
     const { first, last } = salvageWindow(state.day, state.harborSchedule);
@@ -635,6 +644,129 @@ function stockOutlook(item: Counter['inventory'][number]) {
   return entries;
 }
 
+function renderCutLayout(jade: Jade, target: { day: number; itemId: string }) {
+  const section = document.createElement('section');
+  section.className = 'jade-workbench';
+  let kind: CutKind = 'pendants';
+  let placements: CutPlacement[] = [];
+  let history: CutPlacement[][] = [];
+  let vertical = false;
+  let selected = -1;
+  let hint = '';
+  const apply = (next: CutPlacement[]) => {
+    history.push(placements);
+    placements = next;
+  };
+
+  const draw = (focusCell?: number) => {
+    section.replaceChildren();
+    const makeButton = (label: string, onClick: () => void) => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.className = 'quiet';
+      button.addEventListener('click', onClick);
+      return button;
+    };
+    const menu = document.createElement('div');
+    menu.className = 'actions';
+    for (const option of ['pendants', 'seal'] as const) {
+      const button = makeButton(cutOrders[option].name, () => {
+        if (kind === option) return;
+        kind = option;
+        placements = [];
+        history = [];
+        selected = -1;
+        hint = '';
+        draw();
+      });
+      button.setAttribute('aria-pressed', String(kind === option));
+      menu.append(button);
+    }
+    const help = document.createElement('p');
+    help.textContent = jade.face === 'edge' ? '最后一行有裂，前三行可用。' : '第二列有贯穿裂，摆不下整面印章。';
+    const grid = document.createElement('div');
+    grid.className = 'jade-grid';
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', '原石料面');
+    for (let cell = 0; cell < 16; cell++) {
+      const owner = placements.findIndex((placement) => cutCells(kind, placement).includes(cell));
+      const valid = usableCell(jade.face, cell);
+      const square = makeButton(valid ? owner < 0 ? '·' : String(owner + 1) : '裂', () => {
+        if (owner !== -1 && selected === -1) {
+          selected = owner;
+          hint = '已选中，点目标格移动。';
+        } else if (owner !== -1 && owner === selected && placements[owner].anchor === cell) {
+          selected = -1;
+          hint = '';
+        } else {
+          const placement = { anchor: cell, vertical: selected < 0 ? vertical : placements[selected].vertical };
+          const next = [...placements];
+          if (selected < 0) next.push(placement);
+          else next[selected] = placement;
+          if (cutQuote(jade, kind, next)) {
+            apply(next);
+            selected = -1;
+            hint = '';
+          } else hint = '这里摆不下。检查裂格、边缘和已放入的样式。';
+        }
+        draw(cell);
+      });
+      square.disabled = !valid;
+      square.dataset.cell = String(cell);
+      square.dataset.tile = !valid ? 'crack' : owner < 0 ? 'free' : owner === selected ? 'selected' : 'occupied';
+      square.setAttribute('aria-label', `第 ${Math.floor(cell / 4) + 1} 行第 ${cell % 4 + 1} 列${!valid ? ' · 裂格' : owner < 0 ? '' : ` · 样式 ${owner + 1}`}`);
+      grid.append(square);
+    }
+    const edit = document.createElement('div');
+    edit.className = 'actions';
+    const orientation = selected < 0 ? vertical : placements[selected].vertical;
+    if (kind === 'pendants') edit.append(makeButton(`旋转 · ${orientation ? '竖放' : '横放'}`, () => {
+      if (selected < 0) vertical = !vertical;
+      else {
+        const next = placements.map((placement, index) => index === selected ? { ...placement, vertical: !placement.vertical } : placement);
+        if (cutQuote(jade, kind, next)) { apply(next); hint = ''; }
+        else hint = '当前格子无法旋转，可先移动样式。';
+      }
+      draw();
+    }));
+    edit.append(makeButton('试排', () => {
+      apply(trialCut(jade, kind));
+      selected = -1;
+      hint = placements.length ? '' : '这块料没有连续的 3×3 净面。';
+      draw();
+    }));
+    const undo = makeButton(selected >= 0 ? '撤下选中' : '撤回上一步', () => {
+      if (selected >= 0) apply(placements.filter((_, index) => index !== selected));
+      else placements = history.pop() ?? placements;
+      selected = -1;
+      hint = '';
+      draw();
+    });
+    undo.disabled = selected < 0 && !history.length;
+    edit.append(undo);
+    const quote = cutQuote(jade, kind, placements);
+    const price = jadeGrades[jade.grade].price;
+    const net = quote ? quote.payout - quote.fee : 0;
+    const difference = net - price;
+    const preview = document.createElement('p');
+    preview.setAttribute('aria-live', 'polite');
+    preview.textContent = quote
+      ? `占用 ${quote.cells}/16 格 · 利用率 ${quote.cells * 6.25}% · 工钱 ${quote.fee} 元 · 次日到账 ${quote.payout} 元。净到手 ${net} 元，${difference === 0 ? '与直接卖持平' : `比直售${difference > 0 ? '多' : '少'} ${Math.abs(difference)} 元`}。`
+      : `直售 ${price} 元 · ${cutOrders[kind].name}工钱 ${cutOrders[kind].fee} 元。摆入样式后可查看报价。`;
+    const status = document.createElement('p');
+    status.setAttribute('role', 'status');
+    status.textContent = hint || (quote && state.cash < quote.fee ? `工钱还差 ${quote.fee - state.cash} 元。` : '');
+    const send = document.createElement('button');
+    send.textContent = '确认送工坊';
+    send.disabled = !quote || state.cash < quote.fee;
+    bindAction(send, { ...target, type: 'sendJade', kind, placements });
+    section.append(menu, help, grid, edit, preview, status, send);
+    if (focusCell !== undefined) grid.querySelector<HTMLButtonElement>(`[data-cell="${focusCell}"]`)?.focus();
+  };
+  draw();
+  return section;
+}
+
 function renderStockDetail() {
   if (!stockDialog.open) return;
   const item = saveBlocked ? undefined : state.inventory.find((entry) => entry.id === selectedStockId);
@@ -645,7 +777,7 @@ function renderStockDetail() {
   const outlook = stockOutlook(item);
   stockDetail.innerHTML = `${sprite ? `<img class="inspect-art" src="${artwork(sprite)}" alt="">` : ''}
     <p>${escapeText(item.condition)}${condition} · 成本 ${item.cost} 元</p>
-    ${records(outlook.map((line) => `<li>${escapeText(line)}</li>`), '暂无线索显示有约定买家。')}`;
+    ${records(outlook.map((line) => `<li>${escapeText(line)}</li>`), item.jade && !item.jade.opened ? '开窗后可询价。' : '暂无线索显示有约定买家。')}`;
   if (state.day < waterStartDay || pastLastDay(state) || state.awaitingOpen) return;
   const actions = document.createElement('div');
   actions.className = 'actions stock-actions';
@@ -657,6 +789,19 @@ function renderStockDetail() {
     actions.append(button);
   };
   const target = { day: state.day, itemId: item.id };
+  if (item.jade && workshopOpen(state)) {
+    if (!item.jade.opened) add('开窗验料', { ...target, type: 'openJade' });
+    else {
+      add(`直接卖明料 ${jadeGrades[item.jade.grade].price} 元`, { ...target, type: 'sellJade' });
+      if (!showCutLayout) {
+        const layout = document.createElement('button');
+        layout.textContent = '看料面并排样';
+        layout.className = 'quiet';
+        layout.addEventListener('click', () => { showCutLayout = true; renderStockDetail(); });
+        actions.append(layout);
+      }
+    }
+  }
   if (item.filter && workshopOpen(state)) {
     const terms = document.createElement('p');
     terms.textContent = `可制水 ${item.filter.remaining}/${filterGrades[item.filter.grade].uses} 次。船厂每日收一单，净付 ${waterJobPay} 元。`;
@@ -708,6 +853,7 @@ function renderStockDetail() {
       }
   }
   if (actions.childElementCount) stockDetail.append(actions);
+  if (item.jade?.opened && showCutLayout && workshopOpen(state)) stockDetail.append(renderCutLayout(item.jade, target));
 }
 
 function renderDesk() {
@@ -729,6 +875,7 @@ function renderDesk() {
     chip.append(item.name, state.consignment?.itemId === item.id ? ' · 寄售中' : '');
     chip.addEventListener('click', () => {
       selectedStockId = item.id;
+      showCutLayout = false;
       stockResult.textContent = '';
       stockDialog.showModal();
       renderStockDetail();
@@ -739,6 +886,9 @@ function renderDesk() {
   const custody = held.length ? [`代管 ${held.length} 件 · 尚未归店`] : [];
   for (const order of state.workshopOrders ?? []) {
     custody.push(`${order.item.name}${order.kind === 'repair' ? '送修中' : '出租中'} · 第 ${order.dueDay} 天归还`);
+  }
+  for (const order of state.jadeOrders ?? []) {
+    custody.push(`${cutOrders[order.kind].name}加工中 · 第 ${order.dueDay} 天收 ${order.payout} 元`);
   }
   if (state.mountedFilter?.filter) custody.push(`${state.mountedFilter.name}已安装 · 余 ${state.mountedFilter.filter.remaining} 次`);
   deskHeld.textContent = custody.join(' / ');
@@ -792,7 +942,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
   currentGuide.textContent = saveBlocked ? '' : visit ? hints[visit.kind] :
     state.chapterTwoStarted && !finished ? state.economy === 'port' ? '港务字条会写上到港日和受影响的订单。' : '打烊时结算饮水。现金不足时，可返回账本回收自有库存或安装 F2。' : '';
   const plan = saveBlocked ? undefined : outingPlan(state);
-  const planningOuting = plan && !state.voyage;
+  const planningOuting = plan && !state.voyage && !state.stoneTrip;
   const phase = planningOuting ? 'evening'
     : harborPeriod(state.visitIndex, scheduledVisits(state.day, state.economy, state.harborSchedule), state.awaitingOpen && !finished);
   const lightLabel = { morning: '早晨', noon: '日间', evening: '傍晚' }[phase];
@@ -878,6 +1028,7 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
       scene.innerHTML = `<div class="visitor"><h2>${portRound(start, state.harborSchedule).title} · 收档</h2>
         <p class="terms">本轮净收支 ${change >= 0 ? '+' : ''}${change} 元 · 现金 ${state.cash} 元 · 自有库存 ${state.inventory.length} 件 · 代管 ${held} 件</p>
         ${mounted?.filter ? `<p class="terms">机架滤芯还能制水 ${mounted.filter.remaining} 次。</p>` : ''}
+        ${state.jadeOrders?.length ? `<p class="terms">工坊有 ${state.jadeOrders.length} 件待交付 · 下一轮开门收 ${state.jadeOrders.reduce((sum, order) => sum + order.payout, 0)} 元。</p>` : ''}
         ${state.consignment ? '<p class="terms">寄售将在下一轮开门时结算。</p>' : ''}</div>`;
     } else scene.innerHTML = endingView(state.chapterTwoStarted === true);
     if (roundSummary) {
@@ -891,19 +1042,32 @@ function render(message = '船工在等你的报价。', tone: Result['tone'] = 
     scene.innerHTML = `<div class="visitor"><h2>第 ${state.day} 天</h2>
       ${state.day > lastDay && state.day === roundStart(state.day) ? `<p class="terms">${portRound(state.day, state.harborSchedule).notice}</p>` : ''}</div>`;
     const voyage = state.voyage;
-    if (plan && !voyage) {
+    if (planningOuting) {
       const odds = voyageOdds(state.hasOutingWinch === true);
+      const jadeOdds = stoneOdds(state.hasJadeLamp === true);
       scene.querySelector('.visitor')?.insertAdjacentHTML('beforeend', `<div class="outing-slip">
         <h3>码头拼船单 · 第 ${state.day} 天出发</h3>
         <p>本轮船位剩 ${plan.remaining}/${outingLimit} · 手头 ${state.cash} 元 · 明早已知到账 ${plan.knownReceipts} 元</p>
-        <p>空船 ${odds[0]}% · 旧芯 ${odds[1]}% · 完好芯 ${odds[2]}% · 长寿命芯 ${odds[3]}%</p>
-        <p>${state.hasOutingWinch ? '已装备定位绞具。' : '定位绞具永久使用。出货率 55% → 65%，长寿命芯 3% → 5%。'}</p>
+        <details><summary>查看出货概率与装备</summary>
+          <p>打捞 · 空船 ${odds[0]}% · 旧芯 ${odds[1]}% · 完好芯 ${odds[2]}% · 长寿命芯 ${odds[3]}%</p>
+          <p>挑石 · 石性重 ${jadeOdds[0]}% · 普通料 ${jadeOdds[1]}% · 好料 ${jadeOdds[2]}% · 精品 ${jadeOdds[3]}%</p>
+          <p>${state.hasOutingWinch ? '已装备定位绞具。' : '定位绞具永久使用，出货率 55% → 65%。'}
+          ${state.hasJadeLamp ? '已装备透光灯。' : '透光灯永久使用，好料和精品合计 23% → 30%。'}</p>
+        </details>
       </div>`);
       addAction('开门营业', { type: 'open', day: state.day });
       addAction(`随船打捞 ${boatFee} 元`, { type: 'bookVoyage', day: state.day }, true, !plan.remaining || !!plan.boatShortfall,
         !plan.remaining ? '本轮船位已用完' : plan.boatShortfall ? `留足 ${cashReserve} 元还差 ${plan.boatShortfall} 元` : `付费后剩 ${state.cash - boatFee} 元`);
       if (!state.hasOutingWinch) addAction(`买定位绞具 ${winchUpgradeCost} 元`, { type: 'buyOutingWinch', day: state.day },
         true, !!plan.gearShortfall, plan.gearShortfall ? `留足 ${cashReserve} 元还差 ${plan.gearShortfall} 元` : `付费后剩 ${state.cash - winchUpgradeCost} 元`);
+      addAction(`去挑原石 ${stoneFee} 元`, { type: 'bookStoneTrip', day: state.day }, true, !plan.remaining || !!plan.stoneShortfall,
+        !plan.remaining ? '本轮船位已用完' : plan.stoneShortfall ? `留足 ${cashReserve} 元还差 ${plan.stoneShortfall} 元` : `付费后剩 ${state.cash - stoneFee} 元`);
+      if (!state.hasJadeLamp) addAction(`买透光灯 ${lampCost} 元`, { type: 'buyJadeLamp', day: state.day },
+        true, !!plan.lampShortfall, plan.lampShortfall ? `留足 ${cashReserve} 元还差 ${plan.lampShortfall} 元` : `付费后剩 ${state.cash - lampCost} 元`);
+    } else if (state.stoneTrip) {
+      scene.querySelector('.visitor')?.insertAdjacentHTML('beforeend',
+        '<div class="outing-slip"><h3>清晨返港</h3><p>带回一块封着石皮的原石。开门收入库存，再开窗看料。</p></div>');
+      addAction('开门营业', { type: 'open', day: state.day });
     } else if (voyage) {
       const grade = voyage.grade === 'empty' ? undefined : filterGrades[voyage.grade];
       const line = voyage.stage === 0 ? '打捞船靠岸了，吊篮还在水里。'

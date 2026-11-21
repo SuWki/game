@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { counterNotes, openCounter, outingPlan, settleVisit } from '../src/counter.ts';
 import { voyageOdds, voyageResult, voyageRoll } from '../src/outing.ts';
+import { cutQuote, pickStone, stoneOdds, stoneResult, trialCut } from '../src/jade.ts';
 import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
 import { readSave, saveVersion } from '../src/save.ts';
 
@@ -571,5 +572,62 @@ test('滤芯可换装、拆回按余次出售，制水每天一次且用尽时�
       assert.equal(sold.cash, 142);
       assert.equal(settleVisit(sold, { type: 'sellFilter', day: 22, itemId }).state, sold);
     }
+  }
+});
+
+test('打捞和挑石共用船位及现钱门槛，透光灯永久生效', () => {
+  const closed = settleVisit(dockAt(55), { type: 'close', day: 20 }).state;
+  const first = settleVisit(closed, { type: 'continue', day: 21 }).state;
+  const book = { type: 'bookStoneTrip', day: 21 };
+  const lamp = { type: 'buyJadeLamp', day: 21 };
+  assert.equal(outingPlan(first).stoneShortfall, 1);
+  assert.equal(settleVisit(first, book).state, first);
+  const lit = reloadState(settleVisit({ ...first, cash: 82 }, lamp).state);
+  assert.equal(lit.cash, 56);
+  assert.equal(settleVisit(lit, lamp).state, lit);
+  const paid = reloadState(settleVisit(lit, book).state);
+  assert.equal(paid.cash, 32);
+  assert.deepEqual(paid.stoneTrip.jade, pickStone(lit.outingSeed, 21, true));
+  assert.equal(settleVisit(paid, { type: 'bookVoyage', day: 21 }).state, paid);
+  assert.equal(settleVisit(paid, book).state, paid);
+  const opened = settleVisit(paid, { type: 'open', day: 21 }).state;
+  assert.equal(opened.inventory.length, 1);
+  assert.equal(opened.inventory[0].jade.opened, false);
+  assert.equal(settleVisit(opened, { type: 'open', day: 21 }).state, opened);
+  const second = settleVisit({ ...opened, day: 22, awaitingOpen: true, cash: 50 }, { type: 'bookVoyage', day: 22 }).state;
+  assert.equal(outingPlan({ ...second, voyage: undefined, day: 23 }).remaining, 0);
+  assert.equal(outingPlan({ ...second, voyage: undefined, day: 26, activeRoundStart: 26 }).remaining, 2);
+  for (const equipped of [false, true]) {
+    const results = Array.from({ length: 100 }, (_, roll) => stoneResult(roll, equipped));
+    assert.deepEqual(['rough', 'plain', 'fine', 'rare'].map((grade) => results.filter((result) => result === grade).length), stoneOdds(equipped));
+  }
+});
+
+test('工坊校验裂纹和重叠，净到手 42/48 元，跨轮开门只结算一次', () => {
+  const edge = { grade: 'fine', face: 'edge', opened: true };
+  const split = { ...edge, face: 'split' };
+  assert.equal(cutQuote(split, 'seal', [{ anchor: 0, vertical: false }]), undefined);
+  assert.equal(cutQuote(edge, 'pendants', [{ anchor: 3, vertical: false }]), undefined);
+  assert.equal(cutQuote(edge, 'pendants', [{ anchor: 0, vertical: false }, { anchor: 1, vertical: false }]), undefined);
+  assert.equal(cutQuote(split, 'pendants', trialCut(split, 'pendants')).cells, 12);
+  for (const [kind, fee, payout] of [['pendants', 5, 47], ['seal', 8, 56]]) {
+    const item = { id: 'outing-25-jade', name: '待开窗原石', model: '玉料', condition: '石皮完整', observations: [], jade: { ...edge, opened: false }, cost: 24 };
+    const start = { ...dockAt(100, 25), outingSeed: 42, inventory: [item] };
+    const target = { day: 25, itemId: item.id };
+    assert.equal(settleVisit(start, { ...target, type: 'sellJade' }).state, start);
+    const opened = reloadState(settleVisit(start, { ...target, type: 'openJade' }).state);
+    assert.equal(settleVisit(opened, { ...target, type: 'sellJade' }).state.cash, 142);
+    const action = { ...target, type: 'sendJade', kind, placements: trialCut(edge, kind) };
+    const sent = settleVisit(opened, action).state;
+    assert.equal(sent.cash, 100 - fee);
+    assert.equal(sent.inventory.length, 0);
+    assert.equal(settleVisit(sent, action).state, sent);
+    const closed = reloadState(settleVisit(sent, { type: 'close', day: 25 }).state);
+    const plan = settleVisit(closed, { type: 'continue', day: 26 }).state;
+    assert.equal(outingPlan(plan).knownReceipts, payout);
+    const ready = settleVisit(plan, { type: 'open', day: 26 }).state;
+    assert.equal(ready.cash, 100 - fee + payout);
+    assert.equal(ready.jadeOrders.length, 0);
+    assert.equal(settleVisit(reloadState(ready), { type: 'open', day: 26 }).state.cash, ready.cash);
   }
 });

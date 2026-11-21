@@ -1,4 +1,5 @@
 import type { FilterLife } from './outing.ts';
+import type { Jade } from './jade.ts';
 
 export const openingCash = 200;
 export const maxOffers = 2;
@@ -45,6 +46,7 @@ export type Item = {
   reference?: string;
   recyclePrice?: number;
   filter?: FilterLife;
+  jade?: Jade;
 };
 
 const resaleBands: Record<string, readonly [number, number, number]> = {
