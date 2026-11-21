@@ -242,6 +242,8 @@ dialog::backdrop { background: #110f16bd; }
   color: #f7e5ca;
 }
 .outing-slip h3, .outing-slip p { margin: 0 0 4px; }
+.ship-status { margin: 0 0 8px; padding: 6px 12px; color: #f1dec2; background: #363d39; border-left: 3px solid #be9256; }
+#ship-offers button { margin-right: 6px; }
 .outing-slip summary { cursor: pointer; }
 .jade-workbench {
   margin-top: 14px;

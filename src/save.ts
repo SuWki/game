@@ -102,6 +102,10 @@ export function readSave(raw: string): Save {
     return { version: saveVersion, state: migrated, message: save.message, tone: save.tone };
   }
   const listing = state.consignment;
+  if (state.ship !== undefined && (state.economy !== 'port' || !isObject(state.ship) ||
+    !nonNegative(state.ship.water) || (state.ship.closed !== undefined && state.ship.closed !== true) ||
+    (state.ship.reliefLeg !== undefined && (!integer(state.ship.reliefLeg) || state.ship.reliefLeg < 1 ||
+      state.ship.reliefLeg > state.day || state.ship.reliefLeg !== roundStart(state.ship.reliefLeg))))) throw new Error('Invalid ship provisions');
   if (listing !== undefined) {
     if (!isObject(listing) || !integer(listing.price) || !integer(listing.listedDay) ||
       listing.listedDay < secondChapterStart || (state.economy !== 'port' && listing.listedDay >= lastDay) ||

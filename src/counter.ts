@@ -4,6 +4,7 @@ import { harborNotice, itemDetails, mechanicRequest, onTimePortNotice, portItem,
 import { baseItemId, portRound, repairedWinch, roundRepairStock, roundStart } from './scenario.ts';
 import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, sealedCrateId, sealedCratePrice, unpackCrate } from './scenario.ts';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, shoreOffer, waterPacks } from './ship.ts';
 import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
 export const waterLedger = {
@@ -33,6 +34,7 @@ export type Ticket = {
   status: 'held' | 'redeemed' | 'expired';
 };
 export type Counter = {
+  ship?: { water: number; reliefLeg?: number; closed?: true };
   day: number;
   awaitingOpen: boolean;
   visitIndex: number;
@@ -68,6 +70,9 @@ export type Counter = {
 };
 
 export type Action =
+  | { type: 'boardShip' | 'shipRelief'; day: number }
+  | { type: 'buyWater' | 'buyCargo'; day: number; choice: number }
+  | { type: 'sellCargo'; day: number; itemId: string }
   | { type: 'offer'; visitId: string; attempt: number; amount: number }
   | { type: 'dismiss' | 'sell' | 'redeem' | 'sellBoard'; visitId: string }
   | { type: 'appraiseTimer' | 'buyImitation' | 'sellTimerHonestly' | 'sellTimerAsGenuine' | 'reserveWater'; visitId: string }
@@ -93,7 +98,7 @@ export type Action =
   | { type: 'openJade'; day: number; itemId: string }
   | { type: 'sellJade'; day: number; itemId: string }
   | { type: 'sendJade'; day: number; itemId: string; kind: CutKind; placements: CutPlacement[] }
-  | { type: 'removeFilter' | 'takeWaterJob'; day: number }
+  | { type: 'removeFilter' | 'takeWaterJob' | 'fillShipWater'; day: number }
   | { type: 'revealVoyage'; day: number; stage: 0 | 1 }
   | { type: 'mountFilter'; day: number; itemId: string }
   | { type: 'sellFilter'; day: number; itemId: string }
@@ -212,24 +217,26 @@ function handleJade(state: Counter, action: Extract<Action, { type: 'openJade' |
     `已付工钱 ${quote.fee} 元，第 ${order.dueDay} 天开门到账 ${order.payout} 元。`, 'success');
 }
 
-function handleFilter(state: Counter, action: Extract<Action, { type: 'mountFilter' | 'sellFilter' | 'removeFilter' | 'takeWaterJob' }>): Result {
+function handleFilter(state: Counter, action: Extract<Action, { type: 'mountFilter' | 'sellFilter' | 'removeFilter' | 'takeWaterJob' | 'fillShipWater' }>): Result {
   if (state.day !== action.day || !workshopOpen(state)) return notice(state, '请在营业中处理滤芯。', 'warning');
   const mounted = state.mountedFilter;
-  if (action.type === 'takeWaterJob' || action.type === 'removeFilter') {
+  if (action.type === 'fillShipWater' || action.type === 'takeWaterJob' || action.type === 'removeFilter') {
     if (!mounted?.filter) return notice(state, '机架上没有滤芯。', 'warning');
     if (action.type === 'removeFilter') {
       const next = { ...state, inventory: [...state.inventory, mounted] };
       delete next.mountedFilter;
       return notice(next, '滤芯已拆回库存。', 'success');
     }
-    if (state.waterJobDay === state.day) return notice(state, '今天的制水单已结清。', 'warning');
+    if (state.waterJobDay === state.day || (action.type === 'fillShipWater' && !state.ship)) return notice(state, '今天无法再用机架制水。', 'warning');
     const remaining = mounted.filter.remaining - 1;
     const next = { ...state, waterJobDay: state.day };
     if (remaining) next.mountedFilter = { ...mounted, filter: { ...mounted.filter, remaining } };
     else delete next.mountedFilter;
-    const paid = record(next, mounted, '制水服务 · 船厂订单', waterJobPay);
+    const ownWater = action.type === 'fillShipWater' && state.ship;
+    if (ownWater) next.ship = { ...ownWater, water: ownWater.water + 3 };
+    const paid = ownWater ? record(next, mounted, '淡化自用 · 三日饮水', 0) : record(next, mounted, '制水服务 · 船厂订单', waterJobPay);
     return notice(remaining ? paid : record(paid, mounted, '滤芯用尽 · 报废', 0),
-      `制水到账 ${waterJobPay} 元。${remaining ? `滤芯还可用 ${remaining} 次。` : '滤芯已用尽并报废。'}`, 'success');
+      `${ownWater ? '三日饮水已入柜。' : `制水到账 ${waterJobPay} 元。`}${remaining ? `滤芯还可用 ${remaining} 次。` : '滤芯已用尽并报废。'}`, 'success');
   }
   const itemId = 'itemId' in action ? action.itemId : undefined;
   const item = state.inventory.find((entry) => entry.id === itemId);
@@ -425,7 +432,8 @@ export function roundReferral(state: Counter) {
 
 export function portBulletin(state: Counter) {
   if (state.economy !== 'port') return harborNotice;
-  return state.harborSchedule === 'late' ? portNotice : onTimePortNotice;
+  const bulletin = state.harborSchedule === 'late' ? portNotice : onTimePortNotice;
+  return state.ship ? bulletin.replace('水站照常发放居民饮水。', '船上水柜照常营业。') : bulletin;
 }
 
 export function winchBulletin(state: Counter) {
@@ -546,7 +554,7 @@ function settleOpening(state: Counter): Result {
       const grade = filterGrades[voyage.grade];
       const item = {
         id: `voyage-${voyage.day}-filter`, name: `海水淡化滤芯 · ${grade.name}`, model: '海水淡化滤芯',
-        condition: grade.name, observations: ['可装在船厂的岸上淡化机架，给船队交制水单。'],
+        condition: grade.name, observations: [state.ship ? '配套生活甲板的淡化机架，可以交制水单或储存自用饮水。' : '可装在船厂的岸上淡化机架，给船队交制水单。'],
         filter: { grade: voyage.grade, remaining: grade.uses }, cost: boatFee,
       };
       next = record({ ...next, inventory: [...next.inventory, item] }, item, `返港入库 · ${item.name}`, 0);
@@ -620,6 +628,14 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
     return notice(state, `水费还差 ${waterShortfall} 元。`, 'warning');
   }
   let next = state;
+  if (state.ship) {
+    const gap = shipGap(state);
+    if (gap) {
+      if (!confirmShortfall) return notice(state, gap, 'warning');
+      return notice({ ...state, ship: { ...state.ship, closed: true } }, `第 ${day} 天离船停业。${gap}`, 'warning');
+    }
+    next = record({ ...state, ship: { ...state.ship, water: state.ship.water - 1 } }, null, '船籍日费 · 住宿与口粮', -berthFee);
+  }
   const expired = [];
   for (const ticket of state.tickets) {
     if (ticket.status !== 'held' || ticket.dueDay > day) continue;
@@ -659,7 +675,51 @@ function closeDay(state: Counter, { day, confirmShortfall }: Extract<Action, { t
     delete closed.consignment;
     return notice(closed, `无法支付水费，还差 ${waterShortfall} 元。经营中断。`, 'warning');
   }
+  if (closed.ship) message += `船籍费已付 ${berthFee} 元，饮水余 ${closed.ship.water} 天。`;
   return notice(closed, message, 'success');
+}
+
+export function shipGap(state: Counter) {
+  if (!state.ship) return '';
+  return [state.cash < berthFee ? `船籍费差 ${berthFee - state.cash} 元` : '',
+    state.ship.water < 1 ? '缺今晚的饮水' : ''].filter(Boolean).join('，');
+}
+
+function shipTrade(state: Counter, action: Extract<Action, { type: 'boardShip' | 'shipRelief' | 'buyWater' | 'buyCargo' | 'sellCargo' }>): Result {
+  if (state.economy !== 'port' || state.awaitingOpen || state.day !== action.day) return notice(state, '请在营业中办理。', 'warning');
+  const ship = state.ship;
+  if (action.type === 'boardShip' && !ship) return notice({ ...state, ship: { water: boardingWater } }, '已登船，领到三日饮水。今晚起结算船籍费。', 'success');
+  if (!ship) return notice(state, '尚未登船。');
+  if (action.type === 'shipRelief') {
+    const leg = roundStart(state.day);
+    if (!shipGap(state) || ship.reliefLeg === leg) return notice(state, '本航段应急值班仅在缺水或缺费时可领一次。', 'warning');
+    return notice(record({ ...state, ship: { ...ship, water: ship.water + 1, reliefLeg: leg } }, null, '应急泵房值班', berthFee),
+      '值班领到一日饮水和六元工钱。', 'success');
+  }
+  if (action.type === 'buyWater') {
+    const pack = waterPacks[action.choice];
+    if (!pack || state.cash < pack.price) return notice(state, '无法购买这份饮水。', 'warning');
+    return notice(record({ ...state, ship: { ...ship, water: ship.water + pack.days } }, null, `补水 · ${pack.name}`, -pack.price), `存水增加 ${pack.days} 天。`, 'success');
+  }
+  if (action.type === 'buyCargo') {
+    const good = cargoGoods[action.choice];
+    if (!good) return notice(state, '没有这批货。');
+    const id = cargoId(state.day, action.choice);
+    const cost = cargoQuote(state.day, action.choice).ask;
+    if (state.cash < cost || state.ledger.some((entry) => entry.itemId === id)) return notice(state, '这批货已收过或现钱不足。', 'warning');
+    const item = { id, name: good.name, model: good.model, condition: '验收合格', observations: [good.clue], cost };
+    return notice(record({ ...state, inventory: [...state.inventory, item] }, item, `靠岸进货 · ${good.name}`, -cost), `${good.name}已入库。`, 'success');
+  }
+  if (action.type === 'sellCargo') {
+    const item = state.inventory.find((entry) => entry.id === action.itemId);
+    const kind = cargoKind(action.itemId);
+    if (!item) return notice(state, '手上没有这批货。', 'warning');
+    const price = kind === undefined ? shoreOffer(state.day, item) : cargoQuote(state.day, kind).bid;
+    if (price === undefined) return notice(state, '岸商不收这件货。', 'warning');
+    return notice(record({ ...state, inventory: state.inventory.filter((entry) => entry.id !== item.id) }, item, `靠岸售货 · ${item.name}`, price),
+      `${item.name}到账 ${price} 元。`, 'success');
+  }
+  return notice(state, '');
 }
 
 function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' | 'install' }>): Result {
@@ -682,10 +742,12 @@ function disposeItem(state: Counter, action: Extract<Action, { type: 'recycle' |
 }
 
 export function settleVisit(state: Counter, action: Action): Result {
+  if (state.ship?.closed) return notice(state, '本局已离船停业。');
+  if (action.type === 'boardShip' || action.type === 'shipRelief' || action.type === 'buyWater' || action.type === 'buyCargo' || action.type === 'sellCargo') return shipTrade(state, action);
   if (action.type === 'bookVoyage' || action.type === 'buyOutingWinch' || action.type === 'revealVoyage' ||
       action.type === 'bookStoneTrip' || action.type === 'buyJadeLamp') return planOuting(state, action);
   if (action.type === 'openJade' || action.type === 'sellJade' || action.type === 'sendJade') return handleJade(state, action);
-  if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob') return handleFilter(state, action);
+  if (action.type === 'mountFilter' || action.type === 'sellFilter' || action.type === 'removeFilter' || action.type === 'takeWaterJob' || action.type === 'fillShipWater') return handleFilter(state, action);
   if (action.type === 'buyCrate' || action.type === 'openCrate' || action.type === 'sellCrateGoods') return handleSalvage(state, action);
   if (action.type === 'sendRepair' || action.type === 'rentF2') return sendToWorkshop(state, action);
   if (action.type === 'buyRepairStock' || action.type === 'sellRepairStock') {

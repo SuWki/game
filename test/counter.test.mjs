@@ -631,3 +631,65 @@ test('工坊校验裂纹和重叠，净到手 42/48 元，跨轮开门只结算�
     assert.equal(settleVisit(reloadState(ready), { type: 'open', day: 26 }).state.cash, ready.cash);
   }
 });
+
+test('母船每日收一次船籍费并耗一日水，缺额可值班或确认停业', () => {
+  const start = { ...openCounter(25), day: 1, economy: 'port', visitIndex: 2 };
+  const act = (s, type, extra = {}) => settleVisit(s, { type, day: s.day, ...extra }).state;
+  const aboard = act(start, 'boardShip');
+  assert.equal(aboard.ship.water, 3);
+  assert.equal(act(aboard, 'boardShip'), aboard);
+  for (const [choice, days, price] of [[0,1,4],[1,3,10],[2,5,15]]) {
+    const stocked = act(aboard, 'buyWater', {choice});
+    assert.equal(stocked.cash, 25-price);
+    assert.equal(stocked.ship.water, 3+days);
+  }
+  const closed = reloadState(act(aboard, 'close'));
+  assert.equal(closed.cash, 19);
+  assert.equal(closed.ship.water, 2);
+  assert.equal(act(closed, 'close'), closed);
+  const poor = { ...aboard, cash: 2, ship: { water: 0 } };
+  assert.equal(act(poor, 'close'), poor);
+  const helped = act(poor, 'shipRelief');
+  assert.equal(helped.cash, 8);
+  assert.equal(act(helped, 'shipRelief'), helped);
+  const paid = act(helped, 'close');
+  assert.equal(paid.cash, 2);
+  assert.equal(paid.ship.water, 0);
+  const tomorrow = { ...act(paid, 'open'), visitIndex: 2 };
+  assert.equal(act(tomorrow, 'shipRelief'), tomorrow);
+  const ended = reloadState(act(tomorrow, 'close', {confirmShortfall:true}));
+  assert.equal(ended.ship.closed, true);
+  assert.equal(act(ended, 'buyWater', {choice:0}), ended);
+  assert.equal(reloadState(start).ship, undefined);
+});
+
+test('母船跨站沿用实物成本，密封条只进一批，岸市收购一次', () => {
+  const start = { ...openCounter(100), day: 5, economy:'port', ship:{water:2}, visitIndex:1 };
+  const buy = {type:'buyCargo', day:5, choice:0};
+  const bought = settleVisit(start,buy).state;
+  assert.equal(bought.cash,86);
+  assert.equal(settleVisit(bought,buy).state,bought);
+  const itemId=bought.inventory[0].id;
+  assert.equal(settleVisit(bought,{type:'sellCargo',day:5,itemId}).state.cash,98);
+  const closed=reloadState(settleVisit(bought,{type:'close',day:5}).state);
+  const continued=settleVisit(closed,{type:'continue',day:6}).state;
+  const opened=settleVisit(continued,{type:'open',day:6}).state;
+  const sale={type:'sellCargo',day:6,itemId};
+  const paid=settleVisit(opened,sale).state;
+  assert.equal(paid.cash,107);
+  assert.equal(paid.inventory.length,0);
+  assert.equal(settleVisit(paid,sale).state,paid);
+});
+
+test('母船打捞滤芯可给自己制三日水，占用当天制水机会', () => {
+  const start = { ...dockAt(124), day:21, activeRoundStart:21, awaitingOpen:true,
+    outingSeed:voyageSeed(21,'worn'), ship:{water:0} };
+  const trip = settleVisit(start,{type:'bookVoyage',day:21}).state;
+  const open = settleVisit(trip,{type:'open',day:21}).state;
+  const mounted = settleVisit(open,{type:'mountFilter',day:21,itemId:open.inventory[0].id}).state;
+  const filled = reloadState(settleVisit(mounted,{type:'fillShipWater',day:21}).state);
+  assert.equal(filled.ship.water,3);
+  assert.equal(filled.mountedFilter.filter.remaining,1);
+  assert.equal(filled.cash,106);
+  assert.equal(settleVisit(filled,{type:'takeWaterJob',day:21}).state,filled);
+});
