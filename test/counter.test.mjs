@@ -874,3 +874,13 @@ test('船材打捞共用外出名额，保存后按指定目标回港入库', ()
   assert.equal(restored.inventory[0].name, '船壳板');
   assert.equal(settleVisit(restored, { type: 'open', day }).state, restored);
 });
+
+test('施工预览把付款、缺水和当晚应付计入同一个现金缺口', async () => {
+  const { nightBudget } = await import('../src/ship.ts');
+  assert.deepEqual(nightBudget(21, 0, { cash: 6, water: 1 }, 18),
+    { missingWater: 1, waterSpend: 4, balance: 3, gap: 7 });
+  assert.deepEqual(nightBudget(32, 0, { cash: 9, water: 2 }, 18),
+    { missingWater: 2, waterSpend: 8, balance: 14, gap: 3 });
+  assert.deepEqual(nightBudget(24, 1, { cash: 6, water: 1 }, 18),
+    { missingWater: 0, waterSpend: 0, balance: 6, gap: 0 });
+});

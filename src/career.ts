@@ -126,10 +126,16 @@ export function ticketExtension(state: Counter, ticket: Ticket) {
   };
 }
 
-export function boatBuildItems(state: Counter, choice: number) {
+export function boatBuildMaterials(state: Counter, choice: number) {
   const work = boatWorks[choice];
   if (!work) return [];
   const part = state.inventory.find((item) => work.material === -1 ? cargoKind(item.id) === 0 : materialKind(item) === work.material);
-  const bedding = 'bedding' in work ? state.inventory.find((item) => materialKind(item) === 3) : undefined;
-  return part && (!('bedding' in work) || bedding) ? [part, ...(bedding ? [bedding] : [])] : [];
+  const materials = [{ name: work.material === -1 ? '舱门密封条' : boatMaterials[work.material].name, item: part }];
+  if ('bedding' in work) materials.push({ name: boatMaterials[3].name, item: state.inventory.find((item) => materialKind(item) === 3) });
+  return materials;
+}
+
+export function boatBuildItems(state: Counter, choice: number) {
+  const materials = boatBuildMaterials(state, choice);
+  return materials.every(({ item }) => item) ? materials.flatMap(({ item }) => item ? [item] : []) : [];
 }

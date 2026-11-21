@@ -1,8 +1,9 @@
 import './style.css';
-import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
+import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, nightBudget, shipSaleQuote, shipStop, waterPacks } from './ship';
 import { shipGap } from './counter';
-import { boatBuildItems, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
+import { boatBuildMaterials, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
   materialKind, playerBoat, saltPen, shipNight, ticketExtension } from './career';
+import { drawBoat } from './boat-view';
 import { outingPlan } from './counter';
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageOdds, waterJobPay, winchUpgradeCost } from './outing';
 import { cutCells, cutOrders, cutQuote, jadeGrades, lampCost, stoneFee, stoneOdds, trialCut, usableCell, type CutKind, type CutPlacement, type Jade } from './jade';
@@ -52,6 +53,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <div class="backdrop" aria-hidden="true">
     <div class="scenery">
       ${harborPeriods.map((name) => `<img class="harbor" data-light="${name}" src="${artwork(`harbor-${name}`)}" alt="">`).join('')}
+      <canvas id="window-boat" width="96" height="56" hidden></canvas>
       <img class="shop-room" src="${artwork('shop')}" alt="">
       <span id="dock-flag" hidden></span>
       <img id="guest-art" class="guest-art" alt="" hidden>
@@ -73,7 +75,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </div>
   </header>
   <main>
-    <p id="ship-status" class="ship-status" hidden></p>
+    <dl id="ship-status" class="ship-status" aria-label="当日船务" hidden></dl>
     ${sandboxCash === null ? '' : `<p class="test-note">验收模式 · 开局现金 ${sandboxCash} 元</p>`}
       <section class="counter" aria-label="柜台">
         <div class="scene-column">
@@ -1040,6 +1042,10 @@ function renderNotes() {
 function renderShip() {
   const ship = state.ship;
   const status = document.querySelector<HTMLElement>('#ship-status')!;
+  const windowBoat = document.querySelector<HTMLCanvasElement>('#window-boat')!;
+  const boat = playerBoat(state);
+  windowBoat.hidden = !ship || saveBlocked || !boat.claimed;
+  if (!windowBoat.hidden) drawBoat(windowBoat, boat.complete);
   boardEntry.hidden = saveBlocked || !!ship || state.economy !== 'port' || state.awaitingOpen;
   shipEntry.hidden = saveBlocked || !ship || !!ship.closed || state.awaitingOpen;
   status.hidden = saveBlocked || !ship;
@@ -1047,18 +1053,29 @@ function renderShip() {
   if (shipEntry.hidden && shipDialog.open) shipDialog.close();
   if (!ship || saveBlocked) return;
   const { stop, next, nextDay } = shipStop(state.day);
-  status.textContent = `旧港号 · ${stop.name}　｜　${waterLine()}　｜　第 ${nextDay} 天靠泊${next.name}`;
+  const today = shipNight(state, state.day, boat);
+  const dueToday = state.tickets.filter((ticket) => ticket.status === 'held' && ticket.dueDay === state.day).length;
+  const provision = nightBudget(state.cash, ship.water, today);
+  const evening = state.awaitingOpen ? '下次营业夜' : '今晚';
+  status.innerHTML = `<div><dt>当前泊位</dt><dd>${escapeText(stop.name)}</dd><small>第 ${nextDay} 天 → ${escapeText(next.name)}</small></div>
+    <div data-alert="${provision.missingWater > 0}"><dt>饮水</dt><dd>${ship.water} <span>日存量</span></dd>
+      <small>${provision.missingWater ? `${evening}缺 ${provision.missingWater} 日水` : `${evening}用 ${today.water} 日水`}</small></div>
+    <div data-alert="${provision.gap > 0}"><dt>${evening}开销</dt><dd>${today.cash + provision.waterSpend} <span>元</span></dd>
+      <small>${provision.gap ? `还差 ${provision.gap} 元` : provision.waterSpend ? `含最低补水 ${provision.waterSpend} 元` : boat.own ? '今晚住自有船' : '今晚住旧港号'}</small></div>
+    <div data-alert="${dueToday > 0}"><dt>${state.awaitingOpen ? '下次开门到期' : '今日到期'}</dt><dd>${dueToday} <span>张当票</span></dd>
+      <small>${dueToday ? '打烊后处理逾期物品' : '查阅账本可看当票'}</small></div>`;
   const offers = document.querySelector<HTMLElement>('#ship-offers')!;
   offers.replaceChildren();
-  const row = (heading: string, detail: string) => {
+  const row = (heading: string, detail: string, parent = offers) => {
     const section = document.createElement('section');
     section.className = 'harbor-good';
     const title = document.createElement('h3');
     title.textContent = heading;
     const info = document.createElement('p');
     info.textContent = detail;
-    section.append(title, info);
-    offers.append(section);
+    section.append(title);
+    if (detail) section.append(info);
+    parent.append(section);
     return section;
   };
   const action = (section: HTMLElement, label: string, command: Action, disabled = false) => {
@@ -1069,8 +1086,6 @@ function renderShip() {
     bindAction(button, command);
     section.append(button);
   };
-  const boat = playerBoat(state);
-  const today = shipNight(state, state.day, boat);
   const water = row('生活甲板 · 水柜', `今晚支出 ${today.cash} 元，需 ${today.water} 日水。手上 ${state.cash} 元，水柜现存 ${ship.water} 日。`);
   waterPacks.forEach((pack, choice) => action(water, `${pack.name} · ${pack.days} 天 / ${pack.price} 元`,
     { type: 'buyWater', day: state.day, choice }, state.cash < pack.price));
@@ -1126,22 +1141,59 @@ function renderShip() {
     const yard = stop.name === '避风修船坞';
     const target = (task: Extract<Action, { type: 'career' }>['task'], choice?: number): Action =>
       ({ type: 'career', day: state.day, task, choice });
+    const project = document.createElement('div');
+    project.className = 'boat-project';
+    if (provision.gap || provision.missingWater) water.after(project);
+    else offers.prepend(project);
     const pier = row('自己的小船', boat.claimed
-      ? `${boat.complete[2] ? '干铺位已验收。' : '工料单已挂在系泊桩。'}${boat.own ? '今晚住自有船，口粮 2 元，每航段首晚拖航 5 元。' : '今晚住旧港号。'}`
-      : '在避风修船坞认领空泊位。船材可在船坞购买，也可打烊后专程打捞。');
+      ? `${boat.complete[2] ? '干铺位已验收。' : '船材可从船坞采购，也可以外出打捞。'}${boat.own ? '今晚住自有船。' : '今晚住旧港号。'}`
+      : '认领泊位后，可以从船坞买料或打捞造船。', project);
+    pier.classList.add('boat-overview');
+    const preview = document.createElement('canvas');
+    preview.width = 96;
+    preview.height = 56;
+    preview.className = 'boat-preview';
+    preview.setAttribute('aria-hidden', 'true');
+    pier.prepend(preview);
+    drawBoat(preview, boat.complete);
     if (!boat.claimed && yard) action(pier, '认领空泊位', target('claim'));
     if (boat.claimed) {
+      const milestones = document.createElement('ul');
+      milestones.className = 'boat-milestones';
+      const milestoneLabels = ['船壳板', '龙骨', '干铺位', '船上柜台', '客舱'];
+      milestones.innerHTML = milestoneLabels.map((label, index) =>
+        `<li data-complete="${boat.complete[index]}">${label} <small>${boat.complete[index] ? '已建' : '待建'}</small></li>`).join('');
+      pier.append(milestones);
       if (yard) boatMaterials.forEach((part, choice) => {
         const bought = state.ledger.some((entry) => entry.description === `船坞采购 · ${part.name}` && entry.day === state.day);
         action(pier, `买${part.name} ${part.price} 元`, target('buy', choice), bought || state.cash < part.price);
       });
+      const workList = document.createElement('div');
+      workList.className = 'boat-work-list';
+      project.append(workList);
       boatWorks.forEach((work, choice) => {
-        const parts = boatBuildItems(state, choice);
-        const label = work.material === -1 ? '舱门密封条' : boatMaterials[work.material].name;
-        const required = 'bedding' in work ? label + '、铺盖' : label;
+        if (boat.complete[choice]) return;
+        const materials = boatBuildMaterials(state, choice);
         const unlocked = choice < 2 || (choice === 2 ? boat.complete.slice(0, 2).every(Boolean) : boat.complete[2]);
-        const step = row(work.name, boat.complete[choice] ? '已完成' : `需${required}。${work.fee ? `工钱 ${work.fee} 元，支付后余 ${state.cash - work.fee} 元。` : ''}`);
-        if (!boat.complete[choice]) action(step, `确认${work.name}`, target('build', choice), !parts.length || !unlocked || state.cash < work.fee);
+        const step = row(work.name, '', workList);
+        const requirements = document.createElement('ul');
+        requirements.className = 'boat-materials';
+        requirements.innerHTML = materials.map(({ name, item }) =>
+          `<li data-ready="${Boolean(item)}">${name} <small>${item ? '已备 · 消耗 1 件' : '缺 1 件'}</small></li>`).join('');
+        step.append(requirements);
+        if (!unlocked) {
+          const prerequisite = document.createElement('p');
+          prerequisite.textContent = choice === 2 ? '需先装船壳板和龙骨。' : '需先建成干铺位。';
+          step.append(prerequisite);
+        }
+        const projected = nightBudget(state.cash, ship.water, today, work.fee);
+        const summary = document.createElement('p');
+        summary.className = 'boat-payment';
+        summary.dataset.alert = String(projected.gap > 0 || projected.missingWater > 0);
+        summary.innerHTML = `<strong>${work.fee ? `工钱 ${work.fee} 元` : '免工钱'} · ${projected.balance >= 0 ? `施工后余 ${projected.balance} 元` : `工钱差 ${-projected.balance} 元`}</strong>
+          <span>${projected.gap ? `施工后今晚差 ${projected.gap} 元` : '施工后够付今晚开销'}${projected.missingWater ? ` · 缺 ${projected.missingWater} 日水，最低 ${projected.waterSpend} 元补齐` : ' · 饮水够用'}</span>`;
+        step.append(summary);
+        action(step, `确认${work.name}`, target('build', choice), materials.some(({ item }) => !item) || !unlocked || state.cash < work.fee);
       });
       if (boat.complete[2]) action(pier, boat.own ? '今晚回旧港号住' : '今晚搬进自己的船', target(boat.own ? 'mother' : 'home'), boat.hosting);
       if (boat.complete[4]) {
@@ -1150,7 +1202,7 @@ function renderShip() {
         const berth = row('客舱 · 一个床位', boat.crew ? '补帆工已自愿留下，每晚多用一日水和 2 元口粮。'
           : pending ? '两晚借期结束，补帆工在等你商量去处。'
           : boat.hosting ? '补帆工借宿中，每晚多用一日水和 2 元口粮。'
-          : boat.guestEnd || transferred ? '救济站的补帆工已安置。' : '救济站的补帆工想借宿两晚，合计两日水和 4 元口粮。');
+          : boat.guestEnd || transferred ? '救济站的补帆工已安置。' : '救济站的补帆工想借宿两晚，合计两日水和 4 元口粮。转介在当天生效。', project);
         if (!boat.guest && !transferred) action(berth, '答应借宿两晚', target('host'), !boat.own);
         if ((!boat.guest && !transferred) || boat.hosting || pending) action(berth, '转介救济站', target('transfer'));
         if (pending) {

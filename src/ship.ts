@@ -46,15 +46,27 @@ export function cargoQuote(day: number, good: number) {
   return { ask: stop.prices[good] + 2, bid: stop.prices[good], nextBid: next.prices[good] };
 }
 
+function waterCosts(missingWater: number) {
+  const waterCost = [0];
+  for (let needed = 1; needed <= missingWater; needed++) {
+    waterCost.push(Math.min(...waterPacks.map((pack) => pack.price + waterCost[Math.max(0, needed - pack.days)])));
+  }
+  return waterCost;
+}
+
+export function nightBudget(cash: number, water: number, night: { cash: number; water: number }, payment = 0) {
+  const missingWater = Math.max(0, night.water - water);
+  const waterSpend = waterCosts(missingWater)[missingWater];
+  const balance = cash - payment;
+  return { missingWater, waterSpend, balance, gap: Math.max(0, night.cash + waterSpend - balance) };
+}
+
 export function crossingBudget(day: number, cash: number, water: number,
   livingCosts?: { cash: number; water: number }[]) {
   const { nextDay } = shipStop(day);
   const nights = nextDay - day;
   const missingWater = Math.max(0, (livingCosts?.reduce((sum, night) => sum + night.water, 0) ?? nights) - water);
-  const waterCost = [0];
-  for (let needed = 1; needed <= missingWater; needed++) {
-    waterCost.push(Math.min(...waterPacks.map((pack) => pack.price + waterCost[Math.max(0, needed - pack.days)])));
-  }
+  const waterCost = waterCosts(missingWater);
   const waterSpend = waterCost[missingWater];
   const total = (livingCosts?.reduce((sum, night) => sum + night.cash, 0) ?? nights * berthFee) + waterSpend;
   const tonight = (livingCosts?.[0]?.cash ?? berthFee) + waterCost[Math.max(0, (livingCosts?.[0]?.water ?? 1) - water)];

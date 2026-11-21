@@ -50,6 +50,7 @@ body { margin: 0; min-width: 320px; }
 .scenery img { position: absolute; image-rendering: pixelated; }
 .harbor, .shop-room, .shop-front { inset: 0; width: 100%; height: 100%; }
 .harbor { opacity: 0; transition: opacity 260ms ease; }
+#window-boat { position: absolute; left: 31%; top: 42%; width: 27%; image-rendering: pixelated; filter: var(--room-light); }
 [data-phase="morning"] .harbor[data-light="morning"],
 [data-phase="noon"] .harbor[data-light="noon"],
 [data-phase="evening"] .harbor[data-light="evening"] { opacity: 1; }
@@ -252,7 +253,32 @@ dialog::backdrop { background: #110f16bd; }
   color: #f7e5ca;
 }
 .outing-slip h3, .outing-slip p { margin: 0 0 4px; }
-.ship-status { margin: 0 0 8px; padding: 6px 12px; color: #f1dec2; background: #363d39; border-left: 3px solid #be9256; }
+.ship-status:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.ship-status { margin: 0 0 10px; color: #fbedd8; background: #171d1b; border: 1px solid #ad8a5e; padding: 4px; }
+.ship-status > div { padding: 7px 10px; background: #28362f; border-left: 2px solid #6c917b; }
+.ship-status dt { font-size: 12px; color: #e6cfac; }
+.ship-status dd { margin: 0; font-size: clamp(14px, 2vw, 22px); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ship-status dd span, .ship-status small { font-size: 12px; }
+.ship-status > [data-alert="true"] { background: #553125; border-left-color: #ffb277; }
+.ship-status > [data-alert="true"] small { color: #ffd1a1; font-weight: 700; }
+.boat-project { margin: 12px 0; padding: 12px; border: 1px solid #9f744c; background: #f5e5ca; }
+.boat-overview.harbor-good { margin: 0; padding-top: 0; border: 0; }
+.boat-overview h3 { font-size: 20px; }
+.boat-preview { float: right; width: min(35%, 170px); image-rendering: pixelated; margin: 0 0 6px 12px; background: #324a47; border: 1px solid #7e937b; }
+.boat-milestones, .boat-materials { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; padding: 0; margin: 8px 0; }
+.boat-milestones { clear: both; }
+.boat-milestones li, .boat-materials li { padding: 3px 6px; background: #e4cba8; border: 1px solid #b08b66; font-weight: 700; }
+.boat-milestones [data-complete="true"], .boat-materials [data-ready="true"] { background: #dce8cd; border-color: #779069; color: #274b2f; }
+.boat-materials [data-ready="false"] { background: #f4dac4; color: #7d3221; }
+.boat-milestones small, .boat-materials small { font-size: 11px; }
+.boat-work-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 6px; }
+.boat-work-list .harbor-good { margin: 0; border: 1px solid #c7a883; padding: 8px; }
+.boat-payment { background: #e5e9d5; padding: 6px 8px; margin-top: 8px; color: #304832; }
+.boat-payment span { display: block; font-size: 12px; }
+.boat-payment[data-alert="true"] { background: #f4dac4; color: #7b3021; border-left: 3px solid #a95233; }
+@media (max-width: 580px) {
+  .ship-status:not([hidden]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 #ship-offers button { margin-right: 6px; }
 .outing-slip summary { cursor: pointer; }
 .jade-workbench {
