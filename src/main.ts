@@ -1006,8 +1006,29 @@ function renderShip() {
       const quote = shipSaleQuote(state.day, item);
       return quote ? [{ item, quote }] : [];
     }).sort((a, b) => a.quote.bid - b.quote.bid);
-    const help = row('今晚筹钱', `船费和最低补水合计还差 ${budget.tonightGap} 元。以下是可立即出售的自有货。`);
-    if (!sales.length) help.querySelector('p')!.textContent = `今晚合计还差 ${budget.tonightGap} 元，手上没有岸商收的货。`;
+    const help = row('今晚筹钱', `船费和最低补水合计还差 ${budget.tonightGap} 元。`);
+    const addHint = (text: string) => {
+      const hint = document.createElement('p');
+      hint.textContent = text;
+      help.append(hint);
+    };
+    const referral = roundReferral(state);
+    if (referral?.available && !referral.paid) {
+      addHint(referral.text);
+      action(help, '牵线介绍 · 现在收 8 元', { type: 'roundReferral', day: state.day });
+    }
+    const visit = currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule);
+    if (visit?.kind === 'sale') {
+      const offer = saleOffer(state, visit);
+      if (offer.item) addHint(`柜台上的${visit.person}正等着收${offer.item.name}，返回柜台成交可收 ${offer.price} 元。`);
+    } else if (visit?.kind === 'redeem') {
+      const ticket = heldTicket(state, visit);
+      if (ticket) addHint(`柜台上的${visit.person}正等着赎${ticket.item.name}，返回柜台交还可收 ${ticket.redeemPrice} 元。`);
+    }
+    const tomorrowPayout = state.jadeOrders?.filter((order) => order.dueDay === state.day + 1)
+      .reduce((sum, order) => sum + order.payout, 0) ?? 0;
+    if (tomorrowPayout) addHint(`工坊明天开门结款 ${tomorrowPayout} 元，今晚仍需凑齐船费和饮水。`);
+    if (!sales.length) addHint('手上没有岸商收的自有货。');
     for (const { item, quote } of sales) {
       action(help, `卖${item.name} ${quote.bid} 元 · 下站 ${quote.nextBid} 元`, { type: 'sellCargo', day: state.day, itemId: item.id });
     }
