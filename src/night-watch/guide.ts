@@ -18,7 +18,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (tab === "archive") {
     return save.victories[0] ? {
       id: "archive", title: "换路与重演",
-      text: "从这里可以换巡夜地点。已平息的大妖也能免费重演，补悟传承或试一套新配招。",
+      text: "标着「当前地点」的是阿照所在的山道。点地名旁的「前往」换路，点「重演」再会大妖。",
     } : undefined;
   }
   if (tab === "skills" && result && !result.won) return defeatTip(save, result.region);
@@ -79,7 +79,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       target: { tab: "patrol", action: "auto-patrol", label: "沿路巡夜" },
     };
     if (save.region === 0 && !save.kills[1]) return {
-      id: "ferry-road", title: "去芦花渡夜行", text: "渡口每只小妖给 3 道行。收集线索，准备挑战河伯。",
+      id: "ferry-road", title: "去芦花渡夜行", text: "渡口的路已开。点「前往芦花渡」换路，每斩一只小妖可得 3 道行。",
       target: { tab: "patrol", action: "region:1", label: "前往芦花渡" },
     };
     if (save.region === 1 && canChallenge(save, 1)) return {

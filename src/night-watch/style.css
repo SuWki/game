@@ -464,3 +464,25 @@ footer { color:#6c6554; }
 .match-rounds li { display: grid; grid-template-columns: 5em minmax(0,1fr) minmax(0,1fr); gap: 6px; padding: 6px 2px; font-size: 13px; border-top: 1px solid #cabb9d; }
 .match-rounds strong { color: #8a4028; }
 .duel p.duel-moves { color: #ffe3a1; }
+
+.route-list { padding: 0 0 0 9px; margin: 18px 0; list-style: none; }
+.route-stop { position: relative; padding: 0 0 22px 22px; border-left: 2px solid #b6a583; }
+.route-stop:last-child { border-color: transparent; padding-bottom: 0; }
+.route-stop::before { content: ""; position: absolute; top: 4px; left: -7px; width: 10px; height: 10px; border: 1px solid #8c7b5d; background: #e1d3b6; transform: rotate(45deg); }
+.route-stop[data-here=true]::before { background: #96492e; }
+.route-stop[data-locked=true] { color: #6e6656; }
+.route-stop p { margin: 5px 0 9px; font-size: 14px; }
+.route-stop .choices button,.back { min-height: 44px; }
+.realm-entry { padding: 10px 0; }
+.realm-entry progress { width: 100%; height: 9px; }
+.dao-ledger { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border-block: 1px solid #bda984; }
+.dao-ledger div { padding: 10px 4px; }
+.dao-ledger dd { margin: 4px 0; font-size: 22px; }
+.dao-ledger small { color: #675940; }
+.outcome-actions:empty { display:none; }
+#challenge { order: -1; }
+@media(max-width:819px) {
+  .layout > .nav { position: sticky; top: 0; bottom: auto; z-index: 5; background: #e9dfc9; }
+  .technique,.art-mastery,#round-preview { scroll-margin-top: 52px; }
+  .patrol-buttons:has(#challenge:not([hidden])) #challenge { flex: 1 0 100%; }
+}

@@ -1,6 +1,6 @@
 import "./style.css";
 import { arts, breakthrough, mountainFirstReward, realms, regions } from "./content.ts";
-import { bossEquipment, equipment, knownGear, slots, traitText } from "./equipment.ts";
+import { equipment, knownGear, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import type { Response } from "./tactics.ts";
 import { encounters } from "./tactics.ts";
@@ -24,8 +24,30 @@ let openSlot: GearSlot | undefined;
 let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
-let result: { region: Region; won: boolean; report: string[]; reason?: string; first?: boolean; drop?: boolean;
-  recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number; turningPoint?: string } | null = null;
+type BattleResult = { region: Region; won: boolean; report: string[]; reason?: string; first?: boolean; drop?: boolean;
+  recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number; turningPoint?: string };
+let result: BattleResult | null = null;
+type PageLocation = { tab: Tab; journal: boolean; result: BattleResult | null; scroll: number };
+const backTrail: PageLocation[] = [];
+let battleOrigin: PageLocation | null = null;
+
+function pageLocation(): PageLocation {
+  return { tab, journal, result, scroll: window.scrollY };
+}
+
+function pageName(page: PageLocation) {
+  if (page.tab !== "patrol") return tabs[page.tab];
+  return page.result ? "战果" : page.journal ? "本地妖案" : "巡夜";
+}
+
+function returnTo(page?: PageLocation) {
+  tab = page?.tab ?? "patrol";
+  journal = page?.journal ?? false;
+  result = page?.result ?? null;
+  paintPanel();
+  window.scrollTo(0, page?.scroll ?? 0);
+}
+
 let notice = "";
 let rest = regions[0].patrolInterval - 500;
 let previousFrame = performance.now();
@@ -50,6 +72,7 @@ root.innerHTML = `
       </div>
   </header>
   <main class="layout">
+    <nav aria-label="巡夜手札目录" class="nav">${Object.entries(tabs).filter(([key]) => key !== "practice").map(([key, label]) => `<button data-action="tab:${key}">${label}</button>`).join("")}</nav>
     <div class="theatre">
       <div class="road"><section class="stage" aria-label="巡夜战场">
         <div class="scenery"></div><div class="shade"></div>
@@ -79,9 +102,9 @@ root.innerHTML = `
 
       <div id="home-guide" class="paper" hidden></div></div>
     </div>
-    <section id="book" hidden><button class="back" type="button" data-action="home">‹　回山道</button>
+    <section id="book" hidden><button class="back" type="button" data-action="back">‹　返回巡夜</button>
     <aside id="panel" class="paper" aria-label="巡夜手札"></aside></section>
-    <nav aria-label="巡夜手札目录" class="nav">${Object.entries(tabs).filter(([key]) => key !== "practice").map(([key, label]) => `<button data-action="tab:${key}">${label}</button>`).join("")}</nav>
+
     <footer><span id="status">正在载入</span></footer>
   </main>
   <dialog id="pack-sheet" class="paper" aria-labelledby="pack-title"><div class="guide-head"><h2 id="pack-title"></h2><form method="dialog"><button>收起</button></form></div><div id="pack-list"></div></dialog>
@@ -91,6 +114,7 @@ root.innerHTML = `
     <button data-action="motion" class="motion" type="button">动效</button><p id="guide-current"></p>
     <button type="button" data-action="guide-toggle"></button>
     <div class="help-topics">
+      <details><summary>怎么找回我要去的地方</summary><p>巡夜找小妖、看掉落。点场景里的线索看本地妖案。线索齐后点「挑战」，首胜后可以直接前往下一地。招式页管修习和配招，斩妖录管换路和重演。点顶栏境界查看道行，左上方的返回按钮会写明回到哪一页。</p></details>
       <details><summary>夜行与线索</summary><p>点「提灯夜行」出刀。收齐三条线索并满足境界要求后，可挑战当地大妖。胜过吊睛山君后，点「沿路巡夜」，阿照便会一路寻妖。想停下来时，点「收灯歇脚」。</p></details>
       <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。拾得新装备，阿照会停下来。箭头标出换装后的刀伤或气血变化，「获得」「失去」列出会换掉的本领。选「穿戴」或「收入行囊」，处理完最后一件才会继续。点行装里的部位，随时都能再换。每个部位可穿戴一件，属性和回合效果会带入下一场大妖战。</p></details>
       <details><summary>挑战与战报</summary><p>在「招式」可查看前六轮招谱。初遇山君，第 3 回合见它伏肩，就要提防虎啸。伏身避啸至多损失 4 点气血，迎啸进刀则多打 12 点刀伤。每战可临场应变两次，依原招出手会保留机会。重演时也会在险招前停手。熟悉招路后，可选「余下险招不停手」。败阵后可看逐轮战报，免费再战。</p></details>
@@ -154,16 +178,16 @@ function patrolPanel(): string {
       (awakening ? '<p class="intro"><strong>天赋初醒 · 观化</strong><br>虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。</p>' : "") +
       (result.won ? `<p class="prize">${prize}</p>` : "") +
       (result.drop ? artCard(result.region, true) : "") +
-      (result.recovered ? `<p>寻回 · ${equipment[result.recovered].name}</p>` : "") +
       (save.newGear[0] ? lootCard(save.newGear[0]) : "") +
-      (result.first ? `<p class="prize">首胜佩饰 · ${equipment[bossEquipment[result.region]].name}</p>` : "") +
       (awakening ? '<p class="meta">回山道后可开启沿路巡夜，达到本地上限就会收灯。</p>' : "") +
-      (Object.keys(result.links).length ? `<div class="battle-links"><b>此战交手</b> ${Object.entries(result.links).map(([name, times]) => `<span>${escape(name)} ×${times}</span>`).join("")}</div>` : "") +
-      `<p class="meta">第 ${result.round} 回合结束 · 阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
-      <details data-remember="report"><summary>交锋详情</summary>${result.turningPoint ? `<p>${escape(result.turningPoint)}</p>` : ""}<ul class="log">${result.report.map(line => `<li>${escape(line)}</li>`).join("")}</ul></details><div class="actions">` +
-      (result.first && nextRegion < 3 ? button(`region:${nextRegion}`, `去${regions[nextRegion].name}`, !!fight, !awakening) : "") +
-      (!result.won ? button(`fight:${result.region}`, "再战", !ready || !!fight, true) + button("tab:skills", "调整招式") : "") +
-      button("dismiss", "回到巡夜") + "</div>";
+      '<div class="actions outcome-actions">' +
+      (result.first && nextRegion < regions.length ? button(`region:${nextRegion}`, `前往${regions[nextRegion].name}`, !!fight, true) : "") +
+      (!result.won ? button("tab:skills", "调整招式", false, true) + button(`fight:${result.region}`, "再战", !ready || !!fight) : "") +
+      `</div><details data-remember="report"><summary>交锋详情 · 第 ${result.round} 回合结束</summary>
+      <p>阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
+      <div class="battle-links">${Object.entries(result.links).map(([name, times]) => `<span>${escape(name)} ×${times}</span>`).join("")}</div>
+      ${result.turningPoint ? `<p>${escape(result.turningPoint)}</p>` : ""}<ul class="log">${result.report.map(line => `<li>${escape(line)}</li>`).join("")}</ul></details>`;
+
   }
   if (!save.victories[0]) {
     return title(location.tag, location.title, location.intro) +
@@ -194,10 +218,14 @@ function patrolPanel(): string {
 function practicePanel(): string {
   const next = breakthrough[save.realm];
   const state = cultivation(save.lifetimeDao);
-  return title("灯下修行", realmLabel(save.lifetimeDao), "每境十层。道行积满便升一层，每升一层增加气血。") +
-    `<p>累计道行 ${integer(save.lifetimeDao)} · 可用道行 ${integer(save.dao)}</p>
-    <p>${state.full ? "已达首卷最高层" : `再得 ${state.needed - state.progress} 道行升到下一层`}</p>
-    ${next ? `<p>进入${realms[save.realm + 1]}境后，${next.gift}</p>` : ""}`;
+  return `<h2>灯下修行</h2><section class="realm-entry"><div class="section-title"><strong>${realmLabel(save.lifetimeDao)}</strong><span>${state.full ? "首卷圆满" : `本层 ${state.progress} / ${state.needed}`}</span></div>
+    <progress aria-label="本层道行" max="${state.needed}" value="${state.progress}"></progress>
+    <p>${state.full ? "听息十层，首卷修行已圆满。" : `再得 ${state.needed - state.progress} 道行便可升层。`}</p></section>
+    <dl class="dao-ledger"><div><dt>累计道行</dt><dd>${integer(save.lifetimeDao)}</dd><small>决定境界与层数</small></div>
+    <div><dt>可用道行</dt><dd>${integer(save.dao)}</dd><small>可用于修习、精通招式</small></div></dl>
+    ${next ? `<p>进入${realms[save.realm + 1]}境后，${next.gift}</p>` : ""}
+    ${save.drops.some((known, i) => known && !save.ranks[i]) ? button("tab:skills", "查看待修习的招谱") : ""}`;
+
 }
 
 const artActions = ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"] as const;
@@ -277,7 +305,7 @@ function skillsPanel(): string {
         return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "短刀"}</span><span>${enemy}${opening ? " · 可应变" : ""}</span></li>`;
       }).join("")}</ol>
     </details>` +
-    (result && !result.won ? `<div class="actions rematch">${button(`fight:${result.region}`, `再战${regions[result.region].boss}`, !ready || !!fight, true)}${button("review", "返回交锋详情")}</div>` : "");
+    (result && !result.won ? `<div class="actions rematch">${button(`fight:${result.region}`, `再战${regions[result.region].boss}`, !ready || !!fight, true)}</div>` : "");
 }
 
 const iconOrder: GearId[] = ["pineBlade", "reedBlade", "templeBlade", "hillCoat", "ferryCoat", "templeCoat", "tigerFang", "tideSeal", "mirrorPearl"];
@@ -345,17 +373,23 @@ function slotContents(slot: GearSlot) {
 }
 
 function archivePanel(): string {
-  return title("青芦夜话", "斩妖录", "从巡簿换一条夜路，也可在灯下重演已经平息的妖案。") +
+  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p><ol class="route-list">` +
     regions.map((region, i) => {
       const id = i as Region;
+      const here = id === save.region;
       const access = unlocked(save, id);
       const wins = save.victories[id];
-      const progress = access && !patrolRemaining(save, id) ? "小妖已扫清" : wins ? save.drops[id] ? "传承已悟得" : `至多再胜 ${5 - wins} 场可悟得传承`
-        : access ? `线索 ${clueCount(save, id)} / 3` : `先击败${regions[id - 1]?.boss}`;
-      return `<section class="art"><div class="section-title"><strong>${region.name}</strong><span>${region.chapter}</span></div>
-        <p class="meta">${progress}</p><div class="choices">${button(`region:${id}`, "去巡夜", !ready || !access || !!fight)}
-        ${wins ? button(`fight:${id}`, `重演${region.boss}`, !ready || !!fight) : ""}</div></section>`;
-    }).join("");
+      const swept = !patrolRemaining(save, id);
+      const state = !access ? "未通行" : here ? "当前地点" : wins ? "已平息" : "可前往";
+      const progress = !access ? `胜过${regions[i - 1].boss}后开路` :
+        [swept ? "小妖已扫清" : `线索 ${clueCount(save, id)} / 3`,
+         wins ? (save.drops[id] ? "传承已悟得" : `至多再胜 ${5 - wins} 场可悟得传承`) : region.boss].join(" · ");
+      return `<li class="route-stop" data-here="${here}" data-locked="${!access}">
+        <div class="section-title"><strong>${region.name}</strong><span>${state}</span></div><p>${progress}</p>
+        ${access ? `<div class="choices">${here ? button("home", "回到巡夜") : button(`region:${id}`, `前往${region.name}`, !ready || !!fight)}
+        ${wins ? button(`fight:${id}`, `重演${region.boss}`, !ready || !!fight) : ""}</div>` : ""}</li>`;
+    }).join("") + "</ol>";
+
 }
 
 function paintHelp() {
@@ -385,6 +419,7 @@ function paintPanel() {
       : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel }[tab]();
   const inBook = !!pending || !ready || tab !== "patrol" || journal || !!result;
   const homeTip = !inBook && patrolRemaining(save) > 0 && !save.newGear.length && currentTip;
+  const repeatsControl = homeTip && (homeTip.target?.action === "auto-patrol" || homeTip.target?.action?.startsWith("region:") || homeTip.id.startsWith("learn-"));
   const outfit = element("#outfit");
   outfit.hidden = inBook || !!fight?.boss;
   if (!outfit.hidden) {
@@ -405,17 +440,19 @@ function paintPanel() {
   const guide = element("#home-guide");
   guide.hidden = !homeTip;
   const tipHtml = homeTip ? `<div class="margin-note"><p>${homeTip.text}</p>
-    ${homeTip.target ? button("guide-jump", homeTip.target.label) : ""}${button("guide-dismiss", "知道了")}</div>` : "";
+    ${homeTip.target && !repeatsControl ? button("guide-jump", homeTip.target.label) : ""}${button("guide-dismiss", "知道了")}</div>` : "";
   if (guide.dataset.tip !== tipHtml) { guide.innerHTML = tipHtml; guide.dataset.tip = tipHtml; }
   element(".theatre").hidden = inBook;
   element("#book").hidden = !inBook;
-  element(".back").hidden = !!pending || !ready;
+  const parent = backTrail[backTrail.length - 1];
+  element(".back").hidden = !!pending || !ready || (!parent && tab !== "patrol" && tab !== "practice");
+  changedText(".back", "‹　返回" + (parent ? pageName(parent) : "巡夜"));
   element<HTMLButtonElement>(".cultivation").disabled = !!fight?.boss || !ready || !!pending;
   const bookLoot = inBook && ready && !pending && !fight?.boss && !(result && tab === "patrol") && save.newGear[0];
   const drop = bookLoot ? lootCard(bookLoot) : "";
-  const html = (tab === "skills" ? "" : drop) +
-    (inBook && tab !== "skills" && currentTip && !(result?.won && tab === "patrol") ? guideCard(currentTip) : "") +
-    body + (tab === "skills" ? drop : "");
+  const html =
+    (inBook && tab !== "skills" && tab !== "archive" && currentTip && !(result?.won && tab === "patrol") ? guideCard(currentTip) : "") +
+    body + drop;
   if (html !== renderedPanel) {
     const scroll = panel.scrollTop;
     const openDetails = [...panel.querySelectorAll<HTMLDetailsElement>("details[open][data-remember]")].map(item => item.dataset.remember);
@@ -463,15 +500,15 @@ function paintPatrolControls() {
   const done = save.victories[save.region] > 0;
   changedText("#case-progress", done ? "已平息 · 查看妖案" : `妖案线索　${clueCount(save)} / 3`);
   changedText("#case-name", region.title);
-  element(".case-link").hidden = !!fight?.boss;
+  element(".case-link").hidden = !!fight?.boss || clueCount(save) === 0;
   element(".retreat").hidden = !fight?.boss;
   element(".gauges").hidden = !fight?.boss;
   element(".patrol-controls").hidden = !!fight?.boss || save.newGear.length > 0;
   changedText("[data-action=auto-patrol]", save.autoPatrol ? "收灯歇脚" : "沿路巡夜");
   const challenge = element<HTMLButtonElement>("#challenge");
   const swept = patrolRemaining(save) === 0;
-  challenge.hidden = (!swept && done) || !canChallenge(save, save.region) || !!fight?.boss;
-  const onward = done && swept && save.region < 2;
+  const onward = done && save.region < regions.length - 1;
+  challenge.hidden = (!swept && done && !onward) || !canChallenge(save, save.region) || !!fight?.boss;
   challenge.dataset.action = onward ? "region:" + (save.region + 1) : "fight:" + save.region;
   changedText("#challenge", onward ? "前往" + regions[save.region + 1].name : (done ? "重演" : "挑战") + region.boss);
   challenge.disabled = locked || !!fight;
@@ -480,9 +517,9 @@ function paintPatrolControls() {
   changedText("[data-action=hunt]", challenge.hidden ? "提灯夜行" : "继续夜行");
   const objective = element("#objective");
   objective.hidden = !swept && !save.guide.enabled;
-  if (!objective.hidden) changedText("#objective", swept ? "此地小妖已扫清" : !challenge.hidden ? region.boss + "现身了。" :
+  if (!objective.hidden) changedText("#objective", swept ? "此地小妖已扫清" : onward ? region.boss + "已退，通往" + regions[save.region + 1].name + "的路开了。" : !challenge.hidden ? region.boss + "现身了。" :
     !save.kills[0] ? "提灯上山，找出第一只小妖。" :
-    done ? (save.region < 2 ? "此地已平息，可在斩妖录前往" + regions[save.region + 1].name + "。" : "首卷已平，可重演大妖补全传承。") :
+    done ? (save.region < 2 ? "此地已平息，前往" + regions[save.region + 1].name + "。" : "首卷已平，可重演大妖补全传承。") :
     clueCount(save) < 3 ? `再斩 ${region.thresholds[clueCount(save)] - save.kills[save.region]} 只小妖，寻找下一条线索。` : "继续积累道行，提升境界后挑战大妖。");
   const drop = element("#gear-find");
   const id = save.newGear[0];
@@ -648,6 +685,10 @@ function settleBoss(current: Fight) {
   if (!won) draft.guide.defeats[current.region] = Math.min(2, draft.guide.defeats[current.region] + 1);
   commit(draft, () => {
     panel.scrollTop = 0;
+    backTrail.length = 0;
+    if (battleOrigin?.tab === "archive") backTrail.push(battleOrigin);
+    battleOrigin = null;
+    window.scrollTo(0, 0);
     result = { region: current.region, won, report: current.log, reason: current.lastThreat,
       links: current.links, round: current.round, life: Math.max(0, current.life), hp: Math.max(0, current.hp), turningPoint: current.turningPoint, ...loot };
     tab = "patrol";
@@ -714,17 +755,17 @@ root.addEventListener("click", event => {
   const id = Number(value) as Region;
   if (name === "slot" && Object.hasOwn(slots, value) && ready && !pending && !fight?.boss) {
     showSlot(value as GearSlot);
+  } else if (name === "back") {
+    returnTo(backTrail.pop());
   } else if (name === "home" || name === "tab" && value === "patrol") {
+    backTrail.length = 0;
     journal = false;
     result = null;
     tab = "patrol";
     paintPanel();
     window.scrollTo(0, 0);
-  } else if (name === "review" && result) {
-    tab = "patrol";
-    paintPanel();
-    window.scrollTo(0, 0);
   } else if (name === "journal" && !fight?.boss) {
+    backTrail.push(pageLocation());
     journal = true;
     paintPanel();
     window.scrollTo(0, 0);
@@ -736,7 +777,7 @@ root.addEventListener("click", event => {
     help.showModal();
   } else if (name === "guide-jump" && currentTip?.target) {
     const target = currentTip.target;
-    if (tab !== target.tab) panel.scrollTop = 0;
+    if (tab !== target.tab) { backTrail.push(pageLocation()); panel.scrollTop = 0; }
     tab = target.tab;
     journal = tab === "patrol" && target.action?.startsWith("region:") === true && patrolRemaining(save) > 0;
     if (tab === "patrol" && !journal) result = null;
@@ -766,14 +807,20 @@ root.addEventListener("click", event => {
     card?.scrollIntoView({ block: "nearest" });
     card?.focus({ preventScroll: true });
   } else if (name === "tab") {
-    if (tab !== value) panel.scrollTop = 0;
+    if (tab === value) return;
+    const fromDetail = journal || (tab === "patrol" && !!result);
+    const fromNav = !!(event.target as HTMLElement).closest(".nav");
+    const parent = backTrail[backTrail.length - 1];
+    if (parent?.tab === value && !fromNav) {
+      returnTo(backTrail.pop());
+      return;
+    }
+    if (!fromNav || fromDetail) backTrail.push(pageLocation());
+    else backTrail.length = 0;
+    panel.scrollTop = 0;
     tab = value as Tab;
     journal = false;
     window.scrollTo(0, 0);
-    paintPanel();
-  } else if (name === "dismiss") {
-    result = null;
-    journal = false;
     paintPanel();
   } else if (name === "retry" && pending) {
     commit(pending.draft, pending.next);
@@ -791,9 +838,9 @@ root.addEventListener("click", event => {
     } else if (name === "respond" && fight?.boss && (value === "safe" || value === "risk" || value === "pass")) {
       answerOpening(fight, value);
     } else if (name === "retreat" && fight?.boss) {
-      result = null;
       resetPatrol();
-      paintPanel();
+      returnTo(battleOrigin ?? undefined);
+      battleOrigin = null;
     } else if (!fight?.boss) {
       if (name === "hunt" && canPatrol(save) && !fight && !save.autoPatrol && !document.hidden) {
         if (result?.won) result = null;
@@ -812,8 +859,10 @@ root.addEventListener("click", event => {
       } else if (name === "region" && unlocked(save, id) && !fight) {
         draft.region = id;
         if (!patrolRemaining(draft)) draft.autoPatrol = false;
-        commit(draft, () => { result = null; journal = false; tab = "patrol"; resetPatrol(); });
+        commit(draft, () => { backTrail.length = 0; resetPatrol(); returnTo(); });
       } else if (name === "fight" && canChallenge(save, id) && !fight) {
+        battleOrigin = pageLocation();
+        window.scrollTo(0, 0);
         result = null;
         journal = false;
         tab = "patrol";
