@@ -73,6 +73,18 @@ export function careerVisit(state: Counter) {
     !history.some((entry) => entry.description === careerLog.reunion)) return { kind: 'reunion', ticket } as const;
 }
 
+const isLaundryBooking = (entry: Counter['ledger'][number]) =>
+  entry.description === careerLog.booking || entry.description === careerLog.onboardBooking;
+
+export function laundryWindow(state: Counter, start: number) {
+  const last = start + 1;
+  const entries = state.ledger.filter((entry) => entry.day >= start - 1 && entry.day <= last);
+  const receipt = entries.find((entry) => entry.day >= start && entry.description === careerLog.laundry);
+  const departure = entries.find((entry) => entry.day === last && entry.description === careerLog.defer);
+  const booking = entries.reverse().find((entry) => isLaundryBooking(entry) || entry.description === careerLog.cancel);
+  return { last, receipt, booking, departure };
+}
+
 export function laundryOrder(state: Counter) {
   if (!state.ship || state.ship.closed || state.day < firstOutingDay) return;
   const history = state.ledger;
@@ -90,17 +102,14 @@ export function laundryOrder(state: Counter) {
   const start = farm ? roundStart(state.day) : ship.nextDay;
   const preview = !farm && ship.next.name === '浮田水站' && state.day + 1 === start && trusted;
   if (!farm && !preview) return;
-  const filled = history.some((entry) => entry.day >= start && entry.description === careerLog.laundry);
-  const isBooking = (entry: Counter['ledger'][number]) =>
-    entry.description === careerLog.booking || entry.description === careerLog.onboardBooking;
-  const latest = history.slice().reverse().find((entry) =>
-    entry.day >= start - 1 && (isBooking(entry) || entry.description === careerLog.cancel));
+  const { last, receipt, booking: latest, departure } = laundryWindow(state, start);
+  const filled = Boolean(receipt);
   const bookedOnBoat = latest?.description === careerLog.onboardBooking;
   const booked = bookedOnBoat || latest?.description === careerLog.booking;
   const cancelled = latest?.description === careerLog.cancel;
   const deferred = history.some((entry) => entry.day === state.day && entry.description === careerLog.defer);
-  const departed = history.some((entry) => entry.day === start + 1 && entry.description === careerLog.defer);
-  const lastBooking = history.map((entry) => isBooking(entry) && entry.day < start - 1).lastIndexOf(true);
+  const departed = Boolean(departure);
+  const lastBooking = history.map((entry) => isLaundryBooking(entry) && entry.day < start - 1).lastIndexOf(true);
   const priorBooking = history[lastBooking];
   const previousWindowEnd = priorBooking && (shipStop(priorBooking.day).stop.name === '浮田水站'
     ? roundStart(priorBooking.day) + 1 : priorBooking.day + 2);
@@ -111,9 +120,9 @@ export function laundryOrder(state: Counter) {
   const priority = restored && (trusted || !!firstSupply && firstSupply.day < start);
   const endorsement = trusted ? history.find((entry, index) => index > introduction && isSupply(entry)) : undefined;
   const onBoat = priority && !!endorsement && endorsement.day < start && playerBoat(state).complete[3];
-  return { start, last: start + 1, certs: certs.size, priority, booked, bookedOnBoat, cancelled, deferred, departed, filled, onBoat, preview,
+  return { start, last, certs: certs.size, priority, booked, bookedOnBoat, cancelled, deferred, departed, filled, onBoat, preview,
     introductionDay: history[introduction]?.day, endorsementDay: endorsement?.day, firstSupplyDay: firstSupply?.day,
-    prioritySuspended: !restored, active: farm && !state.awaitingOpen && state.day <= start + 1 && !filled && !departed };
+    prioritySuspended: !restored, active: farm && !state.awaitingOpen && state.day <= last && !filled && !departed };
 }
 
 export function ticketExtension(state: Counter, ticket: Ticket) {

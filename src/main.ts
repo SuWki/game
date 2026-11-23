@@ -1027,7 +1027,7 @@ function endingView(chapterTwo: boolean) {
 }
 
 function renderNotes() {
-  const notes = saveBlocked ? [] : counterNotes(state).reverse();
+  const notes = saveBlocked ? [] : counterNotes(state).reverse().sort((a, b) => b.day - a.day);
   const unread = notes.filter((note) => !state.readNoteIds?.includes(note.id));
   const latest = unread[0];
   noteCount.hidden = unread.length === 0;

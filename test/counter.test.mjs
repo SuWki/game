@@ -928,6 +928,48 @@ test('失约后公开交船壳板或滤芯恢复预约，卖给普通岸商不�
   assert.equal(laundryOrder(shoreSale).priority, false);
 });
 
+test('已读洗衣班字条跨成交、撤约、送客、过期、换泊和旧档留存', async () => {
+  const { careerLog, laundryOrder } = await import('../src/career.ts');
+  const id = 'laundry-51';
+  const note = (state) => counterNotes(state).find((entry) => entry.id === id);
+  const at = (state, day) => reloadState({ ...state, day, visitIndex: scheduledVisits(day, 'port') });
+  const read = (state) => settleVisit(state, { type: 'readNotes', day: state.day }).state;
+  const act = (state, task) => settleVisit(state,
+    { type: 'career', day: state.day, task, itemId: reviewFilter.id }).state;
+
+  const initial = reviewState(51, [reviewFilter], [careerLog.onboardBooking]);
+  const seen = reloadState(read(initial));
+  assert.deepEqual(seen.readNoteIds.filter((key) => key === id), [id]);
+  assert.equal(read(seen), seen);
+  const cancelled = reloadState(act(seen, 'cancelLaundry'));
+  assert.match(note(cancelled).text, /第 51 天已撤约/);
+  const delivered = at(act(cancelled, 'laundry'), 66);
+  assert.match(note(delivered).text, /第 51–52 天.*第 51 天已验收，实收 22 元/);
+  assert.equal(delivered.cash, 122);
+  assert.equal(laundryOrder(delivered).active, true);
+  assert.equal(counterNotes(delivered).filter((entry) => entry.id === 'laundry-66').length, 1);
+  assert.ok(!delivered.readNoteIds.includes('laundry-66'));
+
+  const sentAway = reloadState(act(at(seen, 52), 'declineLaundry'));
+  assert.match(note(sentAway).text, /第 52 天买手已离开/);
+  assert.equal(laundryOrder(sentAway).active, false);
+  assert.match(note(at(cancelled, 56)).text, /已撤约。验货期已结束/);
+  assert.equal(note(at(initial, 56)), undefined);
+
+  const old = reloadState({ ...reviewState(56), ledger: [], readNoteIds: [id, 'laundry-49', 'laundry-66'] });
+  assert.match(note(old).text, /第 51–52 天.*验货期已结束/);
+  assert.doesNotMatch(note(old).text, /阿岑|已验收|撤约|买手已离开/);
+  assert.deepEqual(counterNotes(old).filter((entry) => entry.id.startsWith('laundry-')).map((entry) => entry.id), [id]);
+
+  const trusted = [careerLog.redeemed, careerLog.reunion]
+    .map((description) => ({ day: 36, itemId: null, description, change: 0, balance: 100 }));
+  const previewRead = read({ ...reviewState(50), ledger: trusted });
+  const previewArchive = note(at(previewRead, 56));
+  assert.equal(previewArchive.day, 50);
+  assert.match(previewArchive.title, /阿岑捎来/);
+  assert.match(previewArchive.text, /验货期已结束/);
+});
+
 test('零水可用机架时保留水柜报价，先制水后只付固定夜费', async () => {
   const { shipProvisions } = await import('../src/counter.ts');
   const { boatWorkLog, careerLog } = await import('../src/career.ts');

@@ -6,7 +6,7 @@ import { crateCost, cratePartId, cratePartPrice, salvageCrate, salvageWindow, se
 import { boatFee, cashReserve, filterGrades, filterOffer, firstOutingDay, outingLimit, voyageExpense, voyageResult, voyageRoll, waterJobPay, winchUpgradeCost, type Voyage } from './outing.ts';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, floatFarmOrder, nightBudget, shipSaleQuote, waterPacks } from './ship.ts';
 import { shipStop } from './ship.ts';
-import { boatBuildItems, boatMaterials, boatWorkLog, boatWorks, careerLog, careerVisit, dwelling, laundryOrder,
+import { boatBuildItems, boatMaterials, boatWorkLog, boatWorks, careerLog, careerVisit, dwelling, laundryOrder, laundryWindow,
   laundryPrice, materialJobPrice, materialKind, mechanicTicket, playerBoat, saltPen, shipNight } from './career.ts';
 import { cutOrders, cutQuote, jadeGrades, lampCost, pickStone, stoneExpense, stoneFee, type CutKind, type CutPlacement, type StoneTrip } from './jade.ts';
 
@@ -526,6 +526,36 @@ export function floatFarmRequest(state: Counter) {
   return { active, terms, status };
 }
 
+const laundryPreviewRead = (start: number) => `laundry-preview-${start}`;
+
+function laundryNotes(state: Counter) {
+  if (!state.ship) return [];
+  const order = laundryOrder(state);
+  const visibleStart = order?.preview || order?.active ? order.start : undefined;
+  const starts = new Set<number>();
+  for (const id of state.readNoteIds ?? []) {
+    const match = /^laundry-([1-9]\d*)$/.exec(id);
+    if (!match) continue;
+    const start = Number(match[1]);
+    if (start >= firstOutingDay && start <= state.day + 1 && roundStart(start) === start &&
+      shipStop(start).stop.name === '浮田水站') starts.add(start);
+  }
+  if (visibleStart !== undefined) starts.add(visibleStart);
+  return [...starts].map((start) => {
+    const { last, receipt, booking, departure } = laundryWindow(state, start);
+    const fromAcen = order?.preview && start === visibleStart || state.readNoteIds?.includes(laundryPreviewRead(start));
+    const status = receipt ? `第 ${receipt.day} 天已验收，实收 ${receipt.change} 元。`
+      : departure ? `第 ${departure.day} 天买手已离开，本次采购结束。`
+      : booking?.description === careerLog.cancel ? `第 ${booking.day} 天已撤约。` : '';
+    const expired = !receipt && !departure && state.day > last ? '验货期已结束。' : '';
+    return {
+      id: `laundry-${start}`, day: fromAcen ? start - 1 : start,
+      title: fromAcen ? '阿岑捎来 · 洗衣班采购' : '浮田洗衣班采购',
+      text: `第 ${start}–${last} 天收一枚至少余两次的滤芯，现场付 ${laundryPrice} 元。${status}${expired}`,
+    };
+  });
+}
+
 export function counterNotes(state: Counter) {
   const notes: { id: string; day: number; title: string; text: string }[] = [];
   const visit = !state.awaitingOpen ? currentVisit(state.day, state.visitIndex) : undefined;
@@ -570,11 +600,7 @@ export function counterNotes(state: Counter) {
   const acquainted = state.ledger.find((entry) => entry.description === careerLog.met);
   if (acquainted) notes.push({ id: 'acen-mechanic', day: acquainted.day, title: '浮田机修工阿岑',
     text: '阿岑常搭旧港号去检修种植舱。下次靠浮田时，他会回来看看。' });
-  const laundry = laundryOrder(state);
-  if (laundry && (laundry.preview || laundry.active)) notes.push({ id: `laundry-${laundry.start}`,
-    day: laundry.preview ? laundry.start - 1 : laundry.start, title: laundry.preview ? '阿岑捎来 · 洗衣班采购' : '浮田洗衣班采购',
-    text: `第 ${laundry.start}–${laundry.last} 天收一枚至少余两次的滤芯，现场付 ${laundryPrice} 元。` });
-  return notes;
+  return [...notes, ...laundryNotes(state)];
 }
 
 export function harborOpen(state: Counter) {
@@ -1009,6 +1035,8 @@ export function settleVisit(state: Counter, action: Action): Result {
       action.type === 'acceptReferral' || action.type === 'referSupplier') return handlePortJob(state, action);
   if (action.type === 'readNotes') {
     const ids = counterNotes(state).map((note) => note.id);
+    const order = laundryOrder(state);
+    if (order?.preview) ids.push(laundryPreviewRead(order.start));
     if (state.day !== action.day || ids.every((id) => state.readNoteIds?.includes(id))) return notice(state, '');
     return notice({ ...state, readNoteIds: [...new Set([...(state.readNoteIds ?? []), ...ids])] }, '');
   }
