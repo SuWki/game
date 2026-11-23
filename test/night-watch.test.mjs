@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, answerOpening, canChallenge, clueCount, combatStats, cultivation, earnDao, decode, newSave,
-  recordPatrolKill, startFight, study, tickFight, win,
+  accrueOffline, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
+  previewOpening, recordPatrolKill, startFight, study, tickFight, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
 import { nextTip } from "../src/night-watch/guide.ts";
+
+function stowThenPatrol(save, random) {
+  save.newGear = [];
+  return recordPatrolKill(save, random);
+}
 
 function fightToEnd(save, region) {
   const fight = startFight(save, region, true);
@@ -18,7 +23,7 @@ function fightToEnd(save, region) {
 test("新档靠守式赢山君，首胜发镇山喝和一份教学道行", () => {
   const save = newSave(100);
   assert.equal(canChallenge(save, 0), false);
-  for (let i = 0; i < regions[0].thresholds[2]; i++) recordPatrolKill(save, () => 1);
+  for (let i = 0; i < regions[0].thresholds[2]; i++) stowThenPatrol(save, () => 1);
   assert.equal(canChallenge(save, 0), true);
   save.kit.stance = "attack";
   assert.equal(fightToEnd(save, 0).result, "lost");
@@ -41,7 +46,7 @@ test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
   win(save, 0);
   assert.equal(save.realm, 1);
   assert.equal(canChallenge(save, 1), true);
-  assert.equal(fightToEnd(save, 1).result, "won");
+  assert.equal(fightToEnd(save, 1).result, "lost");
   save.kit.stance = "attack";
   assert.equal(fightToEnd(save, 1).result, "lost");
   assert.equal(study(save, 0), true);
@@ -62,7 +67,7 @@ test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
 test("巡夜依次产出线索和破境道行，击退山君后可以立刻学招，随后靠巡夜逐层升级", () => {
   const save = newSave(100);
   for (let kill = 1; kill <= 12; kill++) {
-    recordPatrolKill(save);
+    stowThenPatrol(save);
     assert.equal(canChallenge(save, 0), kill === 12);
     assert.equal(clueCount(save), [3, 7, 12].filter(target => kill >= target).length);
   }
@@ -72,12 +77,12 @@ test("巡夜依次产出线索和破境道行，击退山君后可以立刻学�
   assert.equal(save.lifetimeDao, 30);
   assert.equal(save.dao, 0);
   save.region = 1;
-  for (let kill = 1; kill <= 100; kill++) recordPatrolKill(save);
+  for (let kill = 1; kill <= 100; kill++) stowThenPatrol(save);
   assert.equal(canChallenge(save, 1), true);
   assert.equal(save.realm, 1);
   win(save, 1, () => 0.9);
   save.region = 2;
-  for (let kill = 1; kill <= 42; kill++) recordPatrolKill(save);
+  for (let kill = 1; kill <= 42; kill++) stowThenPatrol(save);
   assert.equal(save.realm, 2);
   assert.equal(canChallenge(save, 2), false);
 });
@@ -94,9 +99,9 @@ test("短流程旧档的已得线索、已解锁挑战和真实击杀数一起�
   assert.equal(canChallenge(migrated, 0), true);
   assert.equal(clueCount(migrated, 1), 2);
   migrated.region = 1;
-  for (let kill = 9; kill <= 99; kill++) recordPatrolKill(migrated);
+  for (let kill = 9; kill <= 99; kill++) stowThenPatrol(migrated);
   assert.equal(clueCount(migrated, 1), 2);
-  recordPatrolKill(migrated);
+  stowThenPatrol(migrated);
   assert.equal(clueCount(decode(JSON.stringify(migrated), 700), 1), 3);
 });
 
@@ -156,14 +161,14 @@ test("离线最多八小时，仅入账道行，同一时间点不会重复到�
 
 test("夜行装备按地区分阶，第二只小妖必出教学装备且同款只收一份", () => {
   const save = newSave(0);
-  assert.equal(recordPatrolKill(save, () => 0.9).found, undefined);
-  assert.equal(recordPatrolKill(save, () => 0.9).found, "pineBlade");
-  assert.equal(recordPatrolKill(save, () => 0).found, "hillCoat");
-  assert.equal(recordPatrolKill(save, () => 0).found, undefined);
+  assert.equal(stowThenPatrol(save, () => 0.9).found, undefined);
+  assert.equal(stowThenPatrol(save, () => 0.9).found, "pineBlade");
+  assert.equal(stowThenPatrol(save, () => 0).found, "hillCoat");
+  assert.equal(stowThenPatrol(save, () => 0).found, undefined);
   save.region = 1;
-  assert.equal(equipment[recordPatrolKill(save, () => 0).found].level, 2);
+  assert.equal(equipment[stowThenPatrol(save, () => 0).found].level, 2);
   save.region = 2;
-  assert.equal(equipment[recordPatrolKill(save, () => 0).found].level, 3);
+  assert.equal(equipment[stowThenPatrol(save, () => 0).found].level, 3);
 });
 
 test("旧档补发首胜佩饰，兵刃护具和佩饰在大妖战中分别生效", () => {
@@ -218,7 +223,7 @@ function playRounds(f, count, decisions = {}) {
   return f;
 }
 
-test("首战等人读招，留力免费，同一轮不能重复下令；重演直接照谱", () => {
+test("首战等人读招，留力免费，同一轮不能重复下令；重演也可读招", () => {
   const save = newSave(0);
   const f = startFight(save, 0, true);
   for (let i = 0; i < 150; i++) tickFight(f);
@@ -227,7 +232,7 @@ test("首战等人读招，留力免费，同一轮不能重复下令；重演�
   assert.equal(answerOpening(f, "safe"), false);
   assert.equal(f.focus, 2);
   save.victories[0] = 1;
-  assert.equal(startFight(save, 0, true).consult, false);
+  assert.equal(startFight(save, 0, true).consult, true);
   assert.equal(startFight(save, 1, true).consult, true);
 });
 
@@ -395,4 +400,92 @@ test("超出黑风岭上限的老存档保留境界和余额，载入后停止�
   assert.equal(restored.dao, 670);
   assert.equal(restored.lifetimeDao, 670);
   assert.equal(restored.kills[0], 0);
+});
+
+test("新装备未处置前手动、沿路与离线停在同一刻，逐件收好后才恢复", () => {
+  const save = newSave(0);
+  save.victories[0] = 1;
+  save.autoPatrol = true;
+  assert.equal(recordPatrolKill(save, () => 0).found, "hillCoat");
+  assert.equal(recordPatrolKill(save, () => 0).reward, 0);
+  const restored = decode(JSON.stringify(save), 60000);
+  assert.equal(accrueOffline(restored, 60000).earned, 0);
+  assert.deepEqual(restored.kills, [1, 0, 0]);
+  assert.equal(restored.lifetimeDao, 2);
+  assert.equal(restored.autoPatrol, true);
+  restored.newGear = ["hillCoat", "tigerFang"];
+  restored.newGear.shift();
+  assert.equal(recordPatrolKill(restored).reward, 0);
+  restored.newGear.shift();
+  assert.equal(accrueOffline(restored, 64000).earned, 2);
+});
+
+test("换装对照使用实际架势刀伤，说明失去的招式联动和佩饰轮次", () => {
+  const save = newSave(0);
+  save.kit.stance = "attack";
+  save.loadout.weapon = "pineBlade";
+  const upgrade = compareGear(save, "reedBlade");
+  assert.deepEqual([upgrade.before.damage, upgrade.after.damage], [18, 20]);
+  assert.match(upgrade.added, /听潮步.*8/);
+  assert.match(upgrade.lost, /镇山喝.*12/);
+  save.loadout.weapon = "reedBlade";
+  assert.equal(compareGear(save, "pineBlade").after.damage, 18);
+  save.loadout.charm = "tigerFang";
+  const charm = compareGear(save, "tideSeal");
+  assert.deepEqual(charm.before, charm.after);
+  assert.match(charm.added, /2、5、8/);
+  assert.match(charm.lost, /3、6、9/);
+  assert.equal(compareGear(save, "tigerFang").lost, "");
+});
+
+test("三地每项应变的余血预览与实际交锋一致，查看不会消耗机会", () => {
+  const save = newSave(0);
+  earnDao(save, 830);
+  save.kit.shout = "windup";
+  save.ranks[0] = 1;
+  save.loadout.weapon = "pineBlade";
+  for (const region of [0, 1, 2]) {
+    const fight = startFight(save, region, true);
+    while (!fight.waiting) tickFight(fight);
+    const original = structuredClone(fight);
+    for (const choice of ["safe", "risk", "pass"]) {
+      const forecast = previewOpening(fight, choice);
+      const real = structuredClone(fight);
+      answerOpening(real, choice);
+      playRounds(real, original.round + [1, 2, 3][region]);
+      assert.deepEqual(forecast, { life: Math.max(0, real.life), hp: Math.max(0, real.hp), round: real.round, result: real.result });
+    }
+    assert.deepEqual(fight, original);
+  }
+});
+
+test("河伯按缆汲水，可割缆断水，也可用松纹刀和镇山喝翻浪", () => {
+  const save = newSave(0);
+  earnDao(save, 130);
+  const trial = choice => playRounds(startFight(save, 1, true), 3, { 2: choice });
+  assert.match(trial("pass").log[2], /河伯回血 24/);
+  assert.doesNotMatch(trial("safe").log[2], /河伯回血/);
+  assert.match(trial("risk").log[2], /河伯回血/);
+  save.ranks[0] = 1;
+  save.kit.shout = "windup";
+  save.loadout.weapon = "pineBlade";
+  const reversed = trial("risk");
+  assert.doesNotMatch(reversed.log[2], /河伯回血/);
+  assert.equal(reversed.links["回浪撞舟 +18"], 1);
+  assert.equal(reversed.links["松纹刀 +12"], 1);
+});
+
+test("渡口同境界有两条胜路，忽视船缆会耗尽二十回合", () => {
+  const save = newSave(0);
+  earnDao(save, 330);
+  const duel = choice => playRounds(startFight(save, 1, true), 20, { 2: choice, 5: choice });
+  assert.equal(duel("pass").hp, 30);
+  assert.equal(duel("pass").result, "lost");
+  assert.equal(duel("safe").result, "won");
+  assert.equal(duel("safe").round, 19);
+  save.loadout = { weapon: "pineBlade", armor: "hillCoat" };
+  save.kit.shout = "windup";
+  save.ranks[0] = 1;
+  assert.equal(duel("risk").result, "won");
+  assert.equal(duel("risk").round, 7);
 });

@@ -1,5 +1,5 @@
 import { arts, mountainFirstReward, regions } from "./content.ts";
-import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits } from "./equipment.ts";
+import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
 import { decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
@@ -72,6 +72,18 @@ export function combatStats(realm: number, stance: Kit["stance"], loadout: GearL
     damage: stance === "attack" ? Math.round(base * 1.25) : base,
     life: 105 + layer - 1 + realm * 24 + (armor && "life" in armor ? armor.life : 0),
   };
+}
+
+export function compareGear(save: Save, id: GearId) {
+  const { slot } = equipment[id];
+  const current = save.loadout[slot];
+  const layer = cultivation(save.lifetimeDao).layer;
+  const before = combatStats(save.realm, save.kit.stance, save.loadout, layer);
+  const after = combatStats(save.realm, save.kit.stance, { ...save.loadout, [slot]: id }, layer);
+  const effect = (gear: GearId) => equipment[gear].slot === "charm" ? equipment[gear].effect : traitText(gear);
+  const oldEffect = current ? effect(current) : "";
+  const newEffect = effect(id);
+  return { before, after, added: newEffect !== oldEffect ? newEffect : "", lost: oldEffect !== newEffect ? oldEffect : "" };
 }
 
 function newGuide(): GuideProgress {
@@ -158,10 +170,14 @@ export function clueCount(save: Save, region = save.region): number {
   return Math.max(save.clues[region], regions[region].thresholds.filter(threshold => save.kills[region] >= threshold).length);
 }
 
+export function canPatrol(save: Save) {
+  return save.newGear.length === 0 && patrolRemaining(save) > 0;
+}
+
 export function recordPatrolKill(save: Save, random = Math.random) {
   const region = save.region;
+  if (!canPatrol(save)) return { reward: 0, found: undefined };
   const reward = earnPatrolDao(save, regions[region].reward);
-  if (!reward) return { reward: 0, found: undefined };
   const id = minionEquipment[region][save.kills[region] % 2];
   save.kills[region]++;
   save.clues[region] = clueCount(save, region);
@@ -184,7 +200,7 @@ export function canChallenge(save: Save, region: Region): boolean {
 
 export function accrueOffline(save: Save, now: number) {
   const elapsed = Math.max(0, now - save.time);
-  const credited = save.autoPatrol ? Math.min(maxOffline, elapsed, Math.ceil(patrolRemaining(save) * 60000 / rate(save))) : 0;
+  const credited = save.autoPatrol && canPatrol(save) ? Math.min(maxOffline, elapsed, Math.ceil(patrolRemaining(save) * 60000 / rate(save))) : 0;
   const earned = earnPatrolDao(save, Math.floor(credited * rate(save) / 60000));
   save.time = Math.max(save.time, now);
   return { elapsed, credited, earned };
@@ -243,6 +259,8 @@ export type Fight = {
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
   turningPoint?: string;
+  lastExchange?: { round: number; life: number; hp: number; marks: string[] };
+  links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
   result: "fighting" | "won" | "lost";
 };
@@ -254,8 +272,8 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const life = combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer).life;
   return {
     ...actor, region, boss, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
-    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0,
-    consult: boss && save.victories[region] === 0, waiting: false, focus: 2,
+    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, links: {},
+    consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
 }
@@ -284,6 +302,8 @@ export function answerOpening(f: Fight, choice: Response) {
 }
 
 function resolveRound(f: Fight) {
+  const startingLife = f.life, startingHp = f.hp;
+  const marks: string[] = [];
   const round = ++f.round;
   const move = moveFor(f.region, round);
   const actions: string[] = [];
@@ -291,31 +311,48 @@ function resolveRound(f: Fight) {
   const elapsed = order ? round - order.round : -1;
   const choice = order?.choice;
   if (order && elapsed === 0) {
-    actions.push(order.choice === "pass" ? "正常出招，保留应变次数" : encounters[f.region][order.choice].name);
+    actions.push(order.choice === "pass" ? "依原招出手，留下一次应变机会" : encounters[f.region][order.choice].name);
   }
   const stats = combatStats(f.realm, f.kit.stance, f.loadout);
   const reveal = f.kit.reveal && f.ranks[2] > 0 && artDue(round, 2);
   if (reveal) {
+    marks.push("照影显形");
     f.revealedThrough = round + 1;
     actions.push("照影显形两轮");
   }
   const lamp = f.region === 2 && choice === "safe" && elapsed >= 0 && elapsed <= 2;
+  if (lamp && elapsed === 0) marks.push("挑灯照面");
   if (lamp) actions.push("灯下见真身");
   const exposed = lamp || f.region !== 2 || f.revealedThrough >= round || f.realm >= 3 && round % 3 === 0;
   const hurt = (damage: number) => Math.max(1, Math.round(damage * (exposed ? 1 : 0.2)));
   const tide = f.kit.step === "tide" && f.ranks[1] > 0 && artDue(round, 1);
+  if (tide) marks.push("听潮步起势");
   if (tide) actions.push("听潮步避击");
   const shout = f.kit.shout !== "off" && f.ranks[0] > 0 && artDue(round, 0);
   const interrupted = shout && move.interruptible;
+  // 回浪来时，河伯先汲水疗伤。割断船缆，或顺缆引浪并以镇山喝截断，都能阻止汲水。
+  if (f.region === 1 && round % 3 === 0) {
+    const cut = elapsed === 1 && choice === "safe";
+    const reversed = elapsed === 1 && choice === "risk" && interrupted;
+    if (cut) marks.push("割缆断流");
+    if (!cut && !reversed) {
+      const healed = Math.min(24, f.maxHp - f.hp);
+      f.hp += healed;
+      if (healed) { actions.push(`船缆汲水，河伯回血 ${healed}`); marks.push(`船缆汲水 +${healed}`); }
+    }
+  }
   if (shout) {
+    if (interrupted) marks.push("镇山喝截" + move.name);
     const extra = interrupted && f.ranks[0] === 2 ? 12 : 0;
     const echo = interrupted && f.loadout.weapon === "pineBlade" ? traits.pineBlade.amount : 0;
+    if (echo) marks.push("松纹刀 +" + echo);
     if (echo) actions.push(`松纹刀应喝，喝伤 +${echo}`);
     const damage = hurt(5 + extra + echo);
     f.hp -= damage;
     actions.push(`镇山喝${interrupted ? "截断" + move.name : "出手"}，伤 ${damage}`);
     if (interrupted && f.region === 1 && elapsed === 1 && choice === "risk") {
       f.hp -= 18;
+      marks.push("回浪撞舟 +18");
       actions.push("回浪撞舟，反伤 18");
     }
   }
@@ -331,9 +368,12 @@ function resolveRound(f: Fight) {
     let bladeBonus = 0;
     if (tide && f.loadout.weapon === "reedBlade") bladeBonus = traits.reedBlade.amount;
     if (f.revealedThrough >= round && f.loadout.weapon === "templeBlade") bladeBonus = traits.templeBlade.amount;
+    if (bladeBonus && f.loadout.weapon) marks.push(equipment[f.loadout.weapon].name + " +" + bladeBonus);
     if (bladeBonus && f.loadout.weapon) actions.push(`${equipment[f.loadout.weapon].name}，刀伤 +${bladeBonus}`);
+    if (bonus && charm) marks.push(equipment[charm].name + " +" + bonus);
     if (bonus && charm) actions.push(`${equipment[charm].name}，刀伤 +${bonus}`);
     const ambush = f.region === 2 && choice === "risk" && elapsed === 1 && exposed;
+    if (ambush) marks.push("候得真身 +28");
     if (ambush) actions.push("候得真身，刀伤加 28");
     const damage = hurt((stats.damage + bladeBonus + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
     f.hp -= damage;
@@ -345,6 +385,7 @@ function resolveRound(f: Fight) {
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
         const heal = Math.min(f.maxLife - f.life, traits.ferryCoat.amount);
         f.life += heal;
+        if (heal) marks.push("渡水蓑回血 +" + heal);
         actions.push(`渡水蓑回复 ${heal} 气血`);
       }
       f.cue = "guard";
@@ -362,6 +403,7 @@ function resolveRound(f: Fight) {
       const reduce = (id: "hillCoat" | "templeCoat" | "tideSeal", amount: number) => {
         const blocked = Math.min(amount, damage - 1);
         if (blocked > 0) actions.push(`${equipment[id].name}减伤 ${blocked}`);
+        if (blocked) marks.push(equipment[id].name + "护身");
         damage -= blocked;
       };
       if (guard && f.loadout.armor === "hillCoat") reduce("hillCoat", traits.hillCoat.amount);
@@ -376,6 +418,8 @@ function resolveRound(f: Fight) {
       }
     }
   }
+  f.lastExchange = { round, life: Math.max(0, f.life) - startingLife, hp: Math.max(0, f.hp) - startingHp, marks };
+  for (const mark of marks) f.links[mark] = (f.links[mark] ?? 0) + 1;
   f.event = `第 ${round} 回合 · ${actions.join(" → ")}。`;
   f.log.push(f.event);
   if (order && order.choice !== "pass" && (elapsed === 0 || f.region !== 0 && elapsed === 1)) {
@@ -386,6 +430,14 @@ function resolveRound(f: Fight) {
     f.result = "lost";
     f.lastThreat = f.life <= 0 ? f.event : "二十回合已尽，大妖仍未伏诛。";
   }
+}
+
+export function previewOpening(fight: Fight, choice: Response) {
+  const trial = structuredClone(fight);
+  if (!answerOpening(trial, choice)) throw new Error("此刻没有待决的险招");
+  const end = Math.min(maxRounds, trial.round + [1, 2, 3][trial.region]);
+  while (trial.round < end && trial.result === "fighting") resolveRound(trial);
+  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result };
 }
 
 export function tickFight(f: Fight) {

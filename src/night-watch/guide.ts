@@ -64,7 +64,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       target: { tab: "skills", action: "preview", label: "查看山君招谱" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
-      return { id: "first-gear", title: "拾到装备", text: "捡到的装备可以当场穿。先收好，以后点部位也能换。",
+      return { id: "first-gear", title: "拾到装备", text: "阿照停下来查看行装。想用就穿戴，想留着就收入行囊。",
         target: { tab: "patrol", action: "slot:" + (save.ownedGear.includes("pineBlade") ? "weapon" : "armor"), label: "查看装备槽" } };
     }
     return { id: "click-patrol", title: "提灯夜行", text: "提灯上山。斩满十二只小妖，就能找到山君。",
@@ -74,9 +74,9 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     if (!save.ranks[0] && save.drops[0] && !save.guide.dismissed.includes("learn-0")) return learnTip(0);
     if (save.ranks[0] && save.kit.shout === "off" && !save.guide.dismissed.includes("equip-0")) return equipTip(0);
     if (!save.autoPatrol && !save.guide.dismissed.includes("auto-patrol")) return {
-      id: "auto-patrol", title: "自动夜行已解锁",
-      text: "点一次即可持续寻妖、拾取掉落和推进线索。再点一次可切回手动。",
-      target: { tab: "patrol", action: "auto-patrol", label: "开启自动夜行" },
+      id: "auto-patrol", title: "山路已熟",
+      text: "阿照记住了山路。点「沿路巡夜」，她便会一路寻妖；拾得新装备时，会停下来等你查看。",
+      target: { tab: "patrol", action: "auto-patrol", label: "沿路巡夜" },
     };
     if (save.region === 0 && !save.kills[1]) return {
       id: "ferry-road", title: "去芦花渡夜行", text: "渡口每只小妖给 3 道行。收集线索，准备挑战河伯。",
@@ -84,7 +84,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     };
     if (save.region === 1 && canChallenge(save, 1)) return {
       id: "river-preview", title: "看一眼回浪的轮次",
-      text: "河伯每三轮发一次回浪。试着把敌招出现的轮次和你手里的招式对照。",
+      text: "河伯绷缆，下一轮便汲水回血。割缆可断水；若带着镇山喝，引浪能反伤河伯。",
       target: { tab: "skills", action: "preview", label: "对照双方招谱" },
     };
     return;
@@ -119,7 +119,7 @@ function learnTip(art: Region): Tip {
 function equipTip(art: Region): Tip {
   return {
     id: `equip-${art}`, title: `装上${arts[art].name}`,
-    text: `这门${arts[art].kind}首发第 ${arts[art].first} 轮，每隔 ${arts[art].every} 轮自动施放。换招免费，下次交锋生效。`,
+    text: `这门${arts[art].kind}在第 ${arts[art].first} 回合出手，此后每隔 ${arts[art].every} 回合再出一招。换招免费，下次交锋生效。`,
     target: { tab: "skills", action: ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"][art], label: "查看招式" },
   };
 }
@@ -147,7 +147,7 @@ function defeatTip(save: Save, region: Region): Tip {
   ];
   const advice = [
     "用守式应战，虎啸原伤害 36，架住后只扣 7 点气血。",
-    "回浪在第 3、6、9…轮。镇山喝同轮可截断它，也可以用守式承伤。",
+    "河伯靠船缆汲水。挥篙时割缆能断水；若带镇山喝，试试引浪撞舟。",
     "听息每三轮辨出真身。若气血先耗尽，可用守式扛住烛偏回合。",
   ];
   return {

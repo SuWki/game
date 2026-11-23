@@ -356,12 +356,20 @@ body { background: #e7e0cc; color: #36392f; }
 .outfit-slot .empty::after { background: #796d58; }
 .outfit-moves { border-bottom: 1px solid #b9ad91; }
 .outfit-moves button { color: #813a29; }
-#loot-strip { padding: 5px 0; }
-#gear-find { background: #faf3e1; border: 0; border-left: 3px solid #a25e37; color: #532f21; gap: 6px; }
-#gear-find span, #gear-find small { color:#524a3a; }
-#gear-find strong { font: bold 18px "Songti SC",SimSun,serif; }
-#gear-find > div:last-child { margin-left: 0; }
-#gear-find button + button { color: #584e3b; }
+#loot-strip { padding: 0; }
+#gear-find { display:block; padding:0; border:0; background:transparent; }
+.loot-card { background:#faf3e1; color:#473a2b; border-left:3px solid #aa6138; padding:12px 16px; }
+#book .loot-card { margin:12px 0; }
+.loot-card header { display:flex; gap:9px; align-items:center; margin-bottom:4px; }
+.loot-card header small,.loot-card header strong { display:block; }
+.loot-card strong { font: bold 19px "Songti SC",SimSun,serif; }
+.loot-card small,#gear-find small { color:#66583e; }
+.gear-changes p { margin:3px 0; font-size:14px; }
+.gear-changes .gain { color:#225c45; }
+.gear-changes .loss { color:#943e30; }
+.loot-choices { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 4px; }
+.loot-choices button { min-height:44px; padding:7px 16px; }
+.loot-choices button + button,#gear-find .loot-choices button + button { color:#57412e; background:#f4ead6; border:1px solid #a58e6e; }
 #home-guide { padding: 5px 0; }
 .margin-note { padding: 7px 0; font-size: 14px; }
 .margin-note p { font-size: 14px; margin: 0; }
@@ -395,3 +403,32 @@ footer { color:#6c6554; }
   .nav { grid-row:1; }
   #pack-sheet { margin:auto auto 0; width:min(520px,100%); max-width:100%; padding-bottom:max(16px,env(safe-area-inset-bottom)); }
 }
+
+.boss-beats { display:flex; align-items:center; gap:6px; margin:7px 0; color:#b9c8c6; }
+.boss-beats span { border-bottom:2px solid #486263; padding:3px 8px; }
+.boss-beats [aria-current] { color:#ffe3a1; border-color:#e1af61; }
+.choice-caption,.exchange { font-size:14px; margin:6px 0; }
+.duel-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+.duel-options button { margin:0; background:#254047; color:#f6efdc; }
+.duel-options button[data-action="respond:risk"] { border-color:#b77856; }
+.choice-title { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px; }
+.duel-options small { color:#d6cbb4; font-size:12px; }
+.choice-effect { display:block; color:#f0d095; font-size:13px; margin:4px 0; }
+.forecast-row { display:grid; grid-template-columns:auto minmax(12px,1fr) auto; gap:5px; align-items:center; font-size:12px; font-variant-numeric:tabular-nums; }
+.forecast-row > b { white-space:nowrap; }
+.forecast-track { display:block; height:6px; background:#142729; position:relative; }
+.forecast-track i,.forecast-track b { position:absolute; top:0; left:0; height:100%; background:#d48c68; }
+.forecast-track b { background:#b4c9ac; }
+.battle-links { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin:6px 0; }
+.battle-links span { font-size:13px; color:#392e21; background:#e7d3aa; padding:2px 6px; }
+@media(max-width:640px) {
+  .duel { padding:8px; }
+  .duel-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .duel-options [data-action="respond:pass"] { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:2px 10px; align-items:center; }
+  .duel-options [data-action="respond:pass"] .choice-title { grid-row:1; }
+  .duel-options [data-action="respond:pass"] .choice-effect { grid-row:2; margin:0; }
+  .duel-options [data-action="respond:pass"] .forecast-row { grid-column:2; }
+  .duel-options [data-action="respond:pass"] > small { grid-column:2; }
+}
+
+.loot-card .loot-choices button.primary { color:#fff4dd; background:#843e2b; border:1px solid #70321e; }
