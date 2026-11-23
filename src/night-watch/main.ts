@@ -7,7 +7,7 @@ import { encounters } from "./tactics.ts";
 import { nextTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
 import {
-  accrueOffline, answerOpening, artDue, canChallenge, canPatrol, clueCount, combatStats, compareGear, cultivation, decode, equippedArts, frame, masteryCost, maxRounds, newSave,
+  accrueOffline, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, decode, equippedArts, frame, masteryCost, maxRounds, newSave,
   patrolRemaining, previewOpening, rate, recordPatrolKill, roundMoves, saveKey, startFight, study, tickFight, unlocked, win,
 } from "./game.ts";
 import type { Fight, Region, Save } from "./game.ts";
@@ -198,7 +198,7 @@ function patrolPanel(): string {
   const done = save.victories[save.region] > 0;
   let hint = "";
   if (clues < 3) hint = `继续巡夜，再斩 ${location.thresholds[clues] - save.kills[save.region]} 只小妖可找到下一条线索。`;
-  else if (!canChallenge(save, save.region)) hint = `挑战须达${realms[save.region === 1 ? 1 : 3]}境，可在修行页查看破境条件。`;
+  else if (!canChallenge(save, save.region)) hint = `挑战须达${realms[challengeRealms[save.region]]}境，可在修行页查看破境条件。`;
   const known = location.clues.map((clue, i) =>
     `<li class="${i < clues ? "found" : ""}"><span aria-hidden="true">${i < clues ? "◆" : "◇"}</span>${i < clues ? clue : "尚未寻得的线索"}</li>`).join("");
   const kills = save.kills[save.region];
@@ -290,7 +290,9 @@ function skillsPanel(): string {
   const order: Region[] = [0, 1, 2];
   const priority = (id: Region) => !save.drops[id] ? 2 : save.ranks[id] ? 1 : 0;
   order.sort((a, b) => priority(a) - priority(b));
-  return skillRack() +
+  const retry = result && !result.won
+    ? `<div class="rematch"><strong>调整后再战</strong>${button(`fight:${result.region}`, `再战${regions[result.region].boss}`, controlsDisabled || !!fight, true)}</div>` : "";
+  return retry + skillRack() +
     `<div class="section-title technique-list-title"><h2>招谱</h2><span>可用道行 ${integer(save.dao)}${unlearned ? ` · ${unlearned} 门待修习` : ""}</span></div>` +
     order.map(id => artCard(id)).join("") +
     (currentTip && !/^(learn|equip|mastery)/.test(currentTip.id) ? guideCard(currentTip) : "") +
@@ -304,8 +306,7 @@ function skillsPanel(): string {
         const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1);
         return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "短刀"}</span><span>${enemy}${opening ? " · 可应变" : ""}</span></li>`;
       }).join("")}</ol>
-    </details>` +
-    (result && !result.won ? `<div class="actions rematch">${button(`fight:${result.region}`, `再战${regions[result.region].boss}`, !ready || !!fight, true)}</div>` : "");
+    </details>`;
 }
 
 const iconOrder: GearId[] = ["pineBlade", "reedBlade", "templeBlade", "hillCoat", "ferryCoat", "templeCoat", "tigerFang", "tideSeal", "mirrorPearl"];
@@ -468,6 +469,7 @@ function paintPanel() {
     const key = item.dataset.action?.split(":")[1];
     item.hidden = !!fight?.boss || !(save.victories[0] || key === "patrol" || key === "skills" && clueCount(save, 0) === 3);
     if (key === "skills") item.textContent = save.drops.some((known, index) => known && !save.ranks[index]) ? "招式 · 待修习" : "招式";
+    if (key === "patrol") item.textContent = save.newGear.length && inBook ? "巡夜 · 待整装" : "巡夜";
     if (item.dataset.action === "tab:" + tab) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   }
@@ -498,9 +500,10 @@ function paintPatrolControls() {
   autoPatrol.setAttribute("aria-pressed", String(save.autoPatrol));
   const region = regions[save.region];
   const done = save.victories[save.region] > 0;
-  changedText("#case-progress", done ? "已平息 · 查看妖案" : `妖案线索　${clueCount(save)} / 3`);
+  const clues = clueCount(save);
+  changedText("#case-progress", done ? "已平息 · 查看妖案" : `妖案线索　${clues} / 3`);
   changedText("#case-name", region.title);
-  element(".case-link").hidden = !!fight?.boss || clueCount(save) === 0;
+  element(".case-link").hidden = !!fight?.boss || clues === 0;
   element(".retreat").hidden = !fight?.boss;
   element(".gauges").hidden = !fight?.boss;
   element(".patrol-controls").hidden = !!fight?.boss || save.newGear.length > 0;
@@ -516,11 +519,16 @@ function paintPatrolControls() {
   hunt.classList.toggle("secondary", !challenge.hidden);
   changedText("[data-action=hunt]", challenge.hidden ? "提灯夜行" : "继续夜行");
   const objective = element("#objective");
-  objective.hidden = !swept && !save.guide.enabled;
-  if (!objective.hidden) changedText("#objective", swept ? "此地小妖已扫清" : onward ? region.boss + "已退，通往" + regions[save.region + 1].name + "的路开了。" : !challenge.hidden ? region.boss + "现身了。" :
-    !save.kills[0] ? "提灯上山，找出第一只小妖。" :
-    done ? (save.region < 2 ? "此地已平息，前往" + regions[save.region + 1].name + "。" : "首卷已平，可重演大妖补全传承。") :
-    clueCount(save) < 3 ? `再斩 ${region.thresholds[clueCount(save)] - save.kills[save.region]} 只小妖，寻找下一条线索。` : "继续积累道行，提升境界后挑战大妖。");
+  objective.hidden = !save.guide.enabled && !swept && !onward && save.region === 0 && save.kills[0] === 0;
+  if (!objective.hidden) {
+    const remainingKills = clues < 3 ? region.thresholds[clues] - save.kills[save.region] : 0;
+    changedText("#objective", swept ? "此地小妖已扫清"
+      : onward ? region.boss + "已退，通往" + regions[save.region + 1].name + "的路开了。"
+      : done ? "首卷已平，可在斩妖录重演大妖。"
+      : !challenge.hidden ? region.boss + "现身了。"
+      : remainingKills ? (save.region === 0 && save.kills[0] === 0 ? "提灯上山，找出第一只小妖。" : `再斩 ${remainingKills} 只，寻得下一条线索。`)
+      : `线索已齐。踏入${realms[challengeRealms[save.region]]}后可挑战${region.boss}。`);
+  }
   const drop = element("#gear-find");
   const id = save.newGear[0];
   element("#loot-strip").hidden = !id || !!fight?.boss || locked;
@@ -685,8 +693,9 @@ function settleBoss(current: Fight) {
   if (!won) draft.guide.defeats[current.region] = Math.min(2, draft.guide.defeats[current.region] + 1);
   commit(draft, () => {
     panel.scrollTop = 0;
+    const archive = battleOrigin?.tab === "archive" ? battleOrigin : backTrail.find(page => page.tab === "archive");
     backTrail.length = 0;
-    if (battleOrigin?.tab === "archive") backTrail.push(battleOrigin);
+    if (archive) backTrail.push(archive);
     battleOrigin = null;
     window.scrollTo(0, 0);
     result = { region: current.region, won, report: current.log, reason: current.lastThreat,
@@ -731,7 +740,7 @@ function advance() {
   while (lag >= frame && !pending) {
     lag -= frame;
     if (!fight) {
-      if (!save.autoPatrol || !canPatrol(save)) break;
+      if (result || !save.autoPatrol || !canPatrol(save)) break;
       rest = Math.max(0, rest - frame);
       if (!rest) {
         fight = startFight(save, save.region, false, save.kills[save.region]);
@@ -815,7 +824,10 @@ root.addEventListener("click", event => {
       returnTo(backTrail.pop());
       return;
     }
-    if (!fromNav || fromDetail) backTrail.push(pageLocation());
+    if (fromNav && value === "archive") {
+      backTrail.length = 0;
+      result = null;
+    } else if (!fromNav || fromDetail) backTrail.push(pageLocation());
     else backTrail.length = 0;
     panel.scrollTop = 0;
     tab = value as Tab;
@@ -908,11 +920,11 @@ function resume() {
   previousWall = Date.now();
   lag = 0;
   const draft = structuredClone(save);
-  const offline = accrueOffline(draft, previousWall);
+  const offline = fight?.boss || result ? null : accrueOffline(draft, previousWall);
   commit(draft, () => {
     if (!ready || (fight && !fight.boss && !canPatrol(save))) resetPatrol();
     ready = true;
-    if (offline.earned) {
+    if (offline?.earned) {
       const minutes = Math.max(1, Math.floor(offline.credited / 60000));
       const period = offline.credited < 60000 ? "不足 1 分钟" : `${minutes} 分钟`;
       notify(`离线计入${period}，得 ${integer(offline.earned)} 道行。${!patrolRemaining(save) ? "此地小妖已扫清。" : ""}`);

@@ -194,8 +194,10 @@ export function unlocked(save: Save, region: Region): boolean {
   return region === 0 || save.victories[region - 1] > 0;
 }
 
+export const challengeRealms = [0, 1, 3] as const;
+
 export function canChallenge(save: Save, region: Region): boolean {
-  return unlocked(save, region) && clueCount(save, region) === 3 && save.realm >= [0, 1, 3][region];
+  return unlocked(save, region) && clueCount(save, region) === 3 && save.realm >= challengeRealms[region];
 }
 
 export function accrueOffline(save: Save, now: number) {

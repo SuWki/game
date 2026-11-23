@@ -486,3 +486,10 @@ footer { color:#6c6554; }
   .technique,.art-mastery,#round-preview { scroll-margin-top: 52px; }
   .patrol-buttons:has(#challenge:not([hidden])) #challenge { flex: 1 0 100%; }
 }
+
+.rematch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 0; border-bottom: 1px solid #bda984; margin-bottom: 10px; }
+.rematch button { min-height: 44px; }
+@media(max-width:819px) {
+  .rematch { position: sticky; top: 45px; z-index: 4; background: var(--paper); }
+  #panel:has(.rematch) .technique { scroll-margin-top: 116px; }
+}
