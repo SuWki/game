@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
-  artDue, previewOpening, recordPatrolKill, roundMoves, startFight, study, tickFight, win,
+  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
+  artDue, previewOpening, recordPatrolKill, roundMoves, settleMirror, startFight, startMirrorFight, study, tickFight, tuneEngraving, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
@@ -51,7 +51,7 @@ test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
   assert.equal(fightToEnd(save, 1).result, "lost");
   assert.equal(study(save, 0), true);
   save.kit.shout = "windup";
-  const river = fightToEnd(save, 1);
+  const river = playRounds(startFight(save, 1, true), 20, { 5: "risk", 11: "risk" });
   assert.equal(river.result, "won");
   assert.ok(river.log.some(line => line.includes("截断回浪")));
   win(save, 1, () => 0.9);
@@ -453,7 +453,7 @@ test("三地每项应变的余血预览与实际交锋一致，查看不会消�
       const real = structuredClone(fight);
       answerOpening(real, choice);
       playRounds(real, original.round + [1, 2, 3][region]);
-      assert.deepEqual(forecast, { life: Math.max(0, real.life), hp: Math.max(0, real.hp), round: real.round, result: real.result });
+      assert.deepEqual(forecast, { life: Math.max(0, real.life), hp: Math.max(0, real.hp), round: real.round, result: real.result, water: real.water });
     }
     assert.deepEqual(fight, original);
   }
@@ -475,19 +475,65 @@ test("河伯按缆汲水，可割缆断水，也可用松纹刀和镇山喝翻�
   assert.equal(reversed.links["松纹刀 +12"], 1);
 });
 
-test("渡口同境界有两条胜路，忽视船缆会耗尽二十回合", () => {
+test("正常渡口装忽视船缆会覆舟，割缆能过，镇山喝引浪能更快取胜", () => {
   const save = newSave(0);
   earnDao(save, 330);
+  save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tigerFang" };
   const duel = choice => playRounds(startFight(save, 1, true), 20, { 2: choice, 5: choice });
-  assert.equal(duel("pass").hp, 30);
-  assert.equal(duel("pass").result, "lost");
+  const flooded = duel("pass");
+  assert.equal(flooded.result, "lost");
+  assert.equal(flooded.round, 9);
+  assert.match(flooded.lastThreat, /覆舟/);
   assert.equal(duel("safe").result, "won");
-  assert.equal(duel("safe").round, 19);
-  save.loadout = { weapon: "pineBlade", armor: "hillCoat" };
+  assert.equal(duel("safe").round, 14);
+  save.loadout.weapon = "pineBlade";
   save.kit.shout = "windup";
   save.ranks[0] = 1;
   assert.equal(duel("risk").result, "won");
-  assert.equal(duel("risk").round, 7);
+  assert.equal(duel("risk").round, 10);
+});
+
+test("照妖镜首破结算旧速率之后才提升纪录，重演和重复提交不再给首破砂", () => {
+  const hour = 3600000;
+  const save = decode(JSON.stringify({ ...newSave(0), mirror: undefined }), 0);
+  assert.equal(startMirrorFight(save, 1), undefined);
+  save.victories = [1, 1, 1];
+  earnDao(save, 1100);
+  const startChapter = [...save.victories];
+  const battle = startMirrorFight(save, 1);
+  assert.equal(battle.limit, 12);
+  assert.equal(startMirrorFight(save, 2), undefined);
+  const winFirst = playRounds(battle, 12, { 2: "safe", 5: "safe" });
+  assert.equal(winFirst.result, "won");
+  assert.deepEqual(settleMirror(save, winFirst, hour), { idle: 0, reward: 12 });
+  assert.deepEqual(settleMirror(save, winFirst, hour + hour / 4), { idle: 0, reward: 0 });
+  const restored = decode(JSON.stringify(save), hour);
+  assert.equal(accrueSand(restored, hour + hour / 2), 1);
+  assert.equal(accrueSand(restored, hour + hour / 2), 0);
+  assert.equal(accrueSand(restored, hour * 25), 16);
+  assert.deepEqual(restored.victories, startChapter);
+  assert.equal(restored.lifetimeDao, 1100);
+  assert.equal(tuneEngraving(restored, "edge", "train"), true);
+  assert.equal(tuneEngraving(restored, "step", "train"), true);
+  assert.equal(restored.mirror.equipped, "edge");
+  assert.equal(tuneEngraving(restored, "step", "equip"), true);
+  assert.equal(restored.mirror.equipped, "step");
+  assert.equal(restored.mirror.sand, 17);
+});
+
+test("第五重回浪提前，镇山喝赶不上，割缆仍能清空水位", () => {
+  const save = newSave(0);
+  save.victories = [1, 1, 1];
+  save.mirror.best = 4;
+  earnDao(save, 1100);
+  save.kit.shout = "windup";
+  save.ranks[0] = 1;
+  const fight = startMirrorFight(save, 5);
+  while (!fight.waiting) tickFight(fight);
+  assert.equal(fight.round, 0);
+  assert.equal(previewOpening(fight, "risk").water, 1);
+  assert.equal(previewOpening(fight, "safe").water, 0);
+  assert.deepEqual(roundMoves(1, fight.kit, 2, fight.riverWave), { names: [], enemy: "回浪", opening: false });
 });
 
 test("招式卡的亮格与河伯战前对照采用相同轮次，卸招后实时更新", () => {
@@ -498,4 +544,22 @@ test("招式卡的亮格与河伯战前对照采用相同轮次，卸招后实�
   assert.deepEqual(roundMoves(1, save.kit, 5).names, ["听潮步", "照影"]);
   save.kit.shout = "off";
   assert.deepEqual(roundMoves(1, save.kit, 3).names, []);
+});
+
+test("刻纹实际出手，断潮留到下一刀，回息只在成功避击且有伤时回复", () => {
+  const save = newSave(0);
+  save.victories = [1, 1, 1];
+  save.mirror.sand = 12;
+  earnDao(save, 1100);
+  save.kit.shout = "windup";
+  save.ranks[0] = 1;
+  tuneEngraving(save, "edge", "train");
+  tuneEngraving(save, "step", "train");
+  const edge = playRounds(startFight(save, 1, true), 4, { 2: "risk" });
+  assert.doesNotMatch(edge.log[2], /断潮纹/);
+  assert.match(edge.log[3], /断潮纹，刀伤 \+4/);
+  tuneEngraving(save, "step", "equip");
+  const step = playRounds(startFight(save, 1, true), 4, { 2: "safe" });
+  assert.doesNotMatch(step.log[0], /回息纹/);
+  assert.match(step.log[3], /避过第一道浪.*回息纹回气 3/);
 });

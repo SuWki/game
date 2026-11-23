@@ -493,3 +493,24 @@ footer { color:#6c6554; }
   .rematch { position: sticky; top: 45px; z-index: 4; background: var(--paper); }
   #panel:has(.rematch) .technique { scroll-margin-top: 116px; }
 }
+
+#panel[data-tab="mirror"] { max-width: 1000px; margin: auto; }
+.mirror-layout { display: grid; gap: 20px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.mirror-layout h2,.mirror-entry h3,.mirror-outcome h3 { margin:0; }
+.mirror-entry { padding: 14px; background: #ebdfbf; border-left: 3px solid #814a35; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; justify-content:space-between; }
+.mirror-entry p,.engraving p { margin: 4px 0; }
+.mirror-engraving { border-top: 2px solid #9a8264; padding-top: 10px; }
+.engraving,.mirror-outcome { border:1px solid #af9873; padding:12px; margin: 8px 0; background:#f7eed9; }
+.engraving header { display:flex; justify-content:space-between; gap:8px; }
+.engraving button,.mirror-entry button,#mirror-practice button { min-height: 44px; }
+#mirror-practice { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; }
+#mirror-practice input { width:7em; padding:5px; background: #faf0d9; color:#463325; border:1px solid #a98e66; }
+.mirror-outfit { padding: 8px 0; }
+.mirror-outfit header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px; }
+.water-gauge { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:6px 0; color:#e1e6df; font-size:13px; }
+.water-gauge meter { width:80px; height:10px; }
+.water-gauge meter::-webkit-meter-optimum-value { background:#79adab; }
+.water-gauge[data-flood="true"] { color:#ffca94; }
+.water-gauge[data-flood="true"] meter::-webkit-meter-optimum-value { background:#dd9a68; }
+.water-preview { display:block; color:#d7dfd7; font-size:12px; }
+@media(max-width:680px) { .mirror-layout { grid-template-columns:1fr; } }

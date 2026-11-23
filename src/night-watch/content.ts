@@ -28,7 +28,7 @@ export const regions = [
     cleared: "陆婆解开了系了七年的缆绳。村里的灯火，第一次随渡船过了河。",
     clues: ["断裂的篙头", "船板上的湿手印", "水底的铃声"], thresholds: [24, 58, 100],
     foes: [{ name: "芦偶", sprite: "reed" }, { name: "水耗子", sprite: "rat" }],
-    boss: "沉舟河伯", sprite: "ferryman", hp: 186,
+    boss: "沉舟河伯", sprite: "ferryman", hp: 228,
     reward: 3, patrolInterval: 3200, chapter: "水底铃",
   },
   {

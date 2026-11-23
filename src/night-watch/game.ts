@@ -36,12 +36,76 @@ export type Save = {
   kit: Kit;
   time: number;
   report: string;
+  mirror: MirrorProgress;
 };
 
 export const saveKey = "night-watch-v1";
 export const frame = 100;
 export const maxOffline = 8 * 60 * 60 * 1000;
 export const maxRounds = 20;
+export const riverFloodLimit = 3;
+export const mirrorRounds = 12;
+export const engravings = {
+  edge: { name: "断潮纹", trigger: "成功截招后的下一刀", effect: "刀伤" },
+  step: { name: "回息纹", trigger: "成功避击时", effect: "回气" },
+} as const;
+export type Engraving = keyof typeof engravings;
+type MirrorProgress = {
+  best: number;
+  sand: number;
+  time: number;
+  remainder: number;
+  ranks: Record<Engraving, number>;
+  equipped?: Engraving;
+};
+export const maxEngravingRank = 8;
+const sandHour = 3600000;
+
+function newMirror(time: number): MirrorProgress {
+  return { best: 0, sand: 0, time, remainder: 0, ranks: { edge: 0, step: 0 } };
+}
+
+export function mirrorUnlocked(save: Save) {
+  return save.victories[2] > 0;
+}
+
+export function sandRate(best: number) {
+  return best > 0 ? Math.min(12, 2 + Math.floor((best - 1) / 3)) : 0;
+}
+
+export function accrueSand(save: Save, now: number) {
+  const mirror = save.mirror;
+  const elapsed = Math.min(maxOffline, Math.max(0, now - mirror.time));
+  const total = elapsed * (mirrorUnlocked(save) ? sandRate(mirror.best) : 0) + mirror.remainder;
+  const earned = Math.floor(total / sandHour);
+  mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, mirror.sand + earned);
+  mirror.remainder = total % sandHour;
+  mirror.time = Math.max(now, mirror.time);
+  return earned;
+}
+
+export function engravingCost(rank: number) { return 6 + 4 * rank; }
+
+export function engravingPower(id: Engraving, rank: number) {
+  return rank === 0 ? 0 : id === "edge" ? 2 + 2 * rank : 2 + rank;
+}
+
+export function tuneEngraving(save: Save, id: Engraving, action: "train" | "equip") {
+  if (!mirrorUnlocked(save)) return false;
+  const { ranks } = save.mirror;
+  if (action === "equip") {
+    if (!ranks[id]) return false;
+    save.mirror.equipped = save.mirror.equipped === id ? undefined : id;
+    return true;
+  }
+  const cost = engravingCost(ranks[id]);
+  if (ranks[id] >= maxEngravingRank || save.mirror.sand < cost) return false;
+  save.mirror.sand -= cost;
+  ranks[id]++;
+  save.mirror.equipped ??= id;
+  return true;
+}
+
 const realmStarts = [0, 130, 430, 830];
 const layerCosts = [0, 30, 40, 60];
 
@@ -94,7 +158,7 @@ export function newSave(now: number): Save {
   return {
     version: 2, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0], clues: [0, 0, 0], victories: [0, 0, 0],
     drops: [false, false, false], ranks: [0, 0, 0], time: now,
-    guide: newGuide(),
+    guide: newGuide(), mirror: newMirror(now),
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
@@ -143,6 +207,13 @@ export function decode(raw: string | null, now: number): Save {
     data.lifetimeDao = Math.min(Number.MAX_SAFE_INTEGER, Math.max(realmStarts[data.realm], data.dao + previousCosts[data.realm] + spent));
   }
   if (!count(data.lifetimeDao)) throw new Error("累计道行无法读取");
+  const mirror = data.mirror;
+  if (!count(mirror?.best) || !count(mirror?.sand) || !count(mirror?.time) || !count(mirror?.remainder, sandHour - 1)
+    || !count(mirror?.ranks?.edge, maxEngravingRank) || !count(mirror?.ranks?.step, maxEngravingRank)) {
+    data.mirror = newMirror(data.time);
+  } else if ((mirror.equipped !== "edge" && mirror.equipped !== "step") || !mirror.ranks[mirror.equipped]) {
+    delete mirror.equipped;
+  }
   data.realm = cultivation(data.lifetimeDao).realm;
   if (!patrolRemaining(data)) data.autoPatrol = false;
   if (data.version === 1) {
@@ -246,15 +317,17 @@ export function study(save: Save, art: Region): boolean {
   return true;
 }
 
-type Move = { name: string; damage: number; heavy?: boolean; interruptible?: boolean; wave?: boolean };
+type Move = { name: string; damage: number; heavy?: boolean; interruptible?: boolean; wave?: boolean; backwash?: boolean };
 const patterns: Move[][] = [
   [{ name: "扑咬", damage: 9 }, { name: "扫尾", damage: 9 }, { name: "虎啸", damage: 36, heavy: true, interruptible: true }],
-  [{ name: "第一道浪", damage: 15, wave: true }, { name: "挥篙", damage: 10 }, { name: "回浪", damage: 34, heavy: true, interruptible: true }],
+  [{ name: "第一道浪", damage: 15, wave: true }, { name: "挥篙", damage: 10 }, { name: "回浪", damage: 34, heavy: true, interruptible: true, backwash: true }],
   [{ name: "纸面", damage: 7 }, { name: "借面", damage: 15 }, { name: "烛偏", damage: 16, heavy: true }],
 ];
 
 export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
+  limit: number; mirrorLevel?: number; water: number; riverWave: 2 | 3;
+  engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
   kit: Kit; realm: number; ranks: Save["ranks"];
@@ -274,16 +347,51 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const actor = boss ? { name: data.boss, sprite: data.sprite } : data.foes[foeIndex % data.foes.length];
   const hp = boss ? data.hp : 1;
   const life = combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer).life;
+  const id = save.mirror.equipped;
+  const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
-    ...actor, region, boss, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
+    ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
     kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, links: {},
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
 }
 
-function moveFor(region: Region, round: number) {
-  return patterns[region][(round - 1) % patterns[region].length];
+export function mirrorWave(level: number): 2 | 3 {
+  return Math.floor(level / 5) % 2 ? 2 : 3;
+}
+
+export function startMirrorFight(save: Save, level: number) {
+  if (!mirrorUnlocked(save) || !Number.isSafeInteger(level) || level < 1 || level - 1 > save.mirror.best) return;
+  const fight = startFight(save, 1, true);
+  fight.name = "河伯妖影";
+  fight.limit = mirrorRounds;
+  fight.mirrorLevel = level;
+  fight.riverWave = mirrorWave(level);
+  fight.maxHp = fight.hp = Math.min(Number.MAX_SAFE_INTEGER, 188 + (level - 1) * 10);
+  return fight;
+}
+
+export function settleMirror(save: Save, fight: Fight, now: number) {
+  const idle = accrueSand(save, now);
+  const level = fight.mirrorLevel;
+  if (!mirrorUnlocked(save) || fight.result !== "won" || level === undefined || level - 1 !== save.mirror.best) {
+    return { idle, reward: 0 };
+  }
+  save.mirror.best = level;
+  const reward = 12 + Math.min(24, (level - 1) * 2);
+  save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + reward);
+  return { idle, reward };
+}
+
+function moveFor(region: Region, round: number, riverWave: 2 | 3 = 3) {
+  const index = (round - 1) % 3;
+  const position = region === 1 && riverWave === 2 && index > 0 ? 3 - index : index;
+  return patterns[region][position];
+}
+
+function openingDue(region: Region, round: number, riverWave: 2 | 3) {
+  return region === 1 ? (round - 1) % 3 === riverWave - 2 : decisionDue(region, round);
 }
 
 export function artDue(round: number, art: Region) {
@@ -295,12 +403,12 @@ export function equippedArts(kit: Kit) {
   return [kit.shout !== "off", kit.step === "tide", kit.reveal] as const;
 }
 
-export function roundMoves(region: Region, kit: Kit, round: number) {
+export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2 | 3 = 3) {
   const equipped = equippedArts(kit);
   return {
     names: arts.filter((_, i) => equipped[i] && artDue(round, i as Region)).map(art => art.name),
-    enemy: moveFor(region, round).name,
-    opening: decisionDue(region, round),
+    enemy: moveFor(region, round, riverWave).name,
+    opening: openingDue(region, round, riverWave),
   };
 }
 
@@ -316,7 +424,7 @@ function resolveRound(f: Fight) {
   const startingLife = f.life, startingHp = f.hp;
   const marks: string[] = [];
   const round = ++f.round;
-  const move = moveFor(f.region, round);
+  const move = moveFor(f.region, round, f.riverWave);
   const actions: string[] = [];
   const order = f.order;
   const elapsed = order ? round - order.round : -1;
@@ -341,15 +449,18 @@ function resolveRound(f: Fight) {
   if (tide) actions.push("听潮步避击");
   const shout = f.kit.shout !== "off" && f.ranks[0] > 0 && artDue(round, 0);
   const interrupted = shout && move.interruptible;
-  // 回浪来时，河伯先汲水疗伤。割断船缆，或顺缆引浪并以镇山喝截断，都能阻止汲水。
-  if (f.region === 1 && round % 3 === 0) {
-    const cut = elapsed === 1 && choice === "safe";
-    const reversed = elapsed === 1 && choice === "risk" && interrupted;
-    if (cut) marks.push("割缆断流");
-    if (!cut && !reversed) {
+  const cut = move.backwash && elapsed === 1 && choice === "safe";
+  const reversed = move.backwash && elapsed === 1 && choice === "risk" && interrupted;
+  if (move.backwash) {
+    if (cut || reversed) {
+      f.water = 0;
+      marks.push(cut ? "割缆断流" : "倒浪断流");
+    } else {
       const healed = Math.min(24, f.maxHp - f.hp);
       f.hp += healed;
-      if (healed) { actions.push(`船缆汲水，河伯回血 ${healed}`); marks.push(`船缆汲水 +${healed}`); }
+      f.water++;
+      if (healed) actions.push(`船缆汲水，河伯回血 ${healed}`);
+      marks.push(`汲水 · 水位 ${f.water}/${riverFloodLimit}`);
     }
   }
   if (shout) {
@@ -361,12 +472,13 @@ function resolveRound(f: Fight) {
     const damage = hurt(5 + extra + echo);
     f.hp -= damage;
     actions.push(`镇山喝${interrupted ? "截断" + move.name : "出手"}，伤 ${damage}`);
-    if (interrupted && f.region === 1 && elapsed === 1 && choice === "risk") {
+    if (reversed) {
       f.hp -= 18;
       marks.push("回浪撞舟 +18");
       actions.push("回浪撞舟，反伤 18");
     }
   }
+  const flood = f.water >= riverFloodLimit;
   f.cue = interrupted ? "stagger" : "slash";
   const holding = f.region === 2 && choice === "risk" && elapsed === 0;
   const charge = f.region === 0 && choice === "risk" && elapsed === 0;
@@ -386,11 +498,23 @@ function resolveRound(f: Fight) {
     const ambush = f.region === 2 && choice === "risk" && elapsed === 1 && exposed;
     if (ambush) marks.push("候得真身 +28");
     if (ambush) actions.push("候得真身，刀伤加 28");
-    const damage = hurt((stats.damage + bladeBonus + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
+    const engraved = f.engraving?.id === "edge" && f.cutRound !== undefined && f.cutRound < round ? f.engraving.power : 0;
+    if (engraved) {
+      f.cutRound = undefined;
+      actions.push(`断潮纹，刀伤 +${engraved}`);
+      marks.push(`断潮纹 +${engraved}`);
+    }
+    const damage = hurt((stats.damage + engraved + bladeBonus + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
     f.hp -= damage;
     actions.push(`短刀伤 ${damage}`);
   }
-  if (f.hp > 0 && !interrupted) {
+  if (interrupted && f.engraving?.id === "edge") f.cutRound = round;
+  if (f.hp > 0 && flood) {
+    f.life = 0;
+    f.cue = "strike";
+    actions.push("水满覆舟，阿照落水败阵");
+    marks.push("覆舟");
+  } else if (f.hp > 0 && !interrupted) {
     if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       actions.push(`避过${move.name}`);
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
@@ -399,15 +523,22 @@ function resolveRound(f: Fight) {
         if (heal) marks.push("渡水蓑回血 +" + heal);
         actions.push(`渡水蓑回复 ${heal} 气血`);
       }
+      if (f.engraving?.id === "step" && f.life < f.maxLife) {
+        const heal = Math.min(f.maxLife - f.life, f.engraving.power);
+        f.life += heal;
+        actions.push(`回息纹回气 ${heal}`);
+        marks.push(`回息纹 +${heal}`);
+      }
       f.cue = "guard";
     } else {
       const guard = move.heavy && f.kit.stance === "guard" && !charge;
       let power = move.damage;
-      if (f.region === 1 && elapsed === 1 && choice && choice !== "pass") {
+      if (move.backwash && elapsed === 1 && choice && choice !== "pass") {
         power = choice === "safe" ? 12 : 46;
         actions.push(choice === "safe" ? "缆断浪浅" : "浪涌船高");
       }
       const braced = f.region === 0 && elapsed === 0 && choice === "safe";
+      if (f.mirrorLevel) power = Math.min(Number.MAX_SAFE_INTEGER, power + Math.floor((f.mirrorLevel - 1) * 1.5));
       const received = guard ? Math.ceil(power * 0.18) : power;
       const rawDamage = braced ? Math.min(received, 4) : received;
       let damage = rawDamage;
@@ -437,18 +568,18 @@ function resolveRound(f: Fight) {
     f.turningPoint = elapsed === 0 ? f.event : `第 ${order.round} 回合${encounters[f.region][order.choice].name}。 ${f.event}`;
   }
   if (f.hp <= 0) f.result = "won";
-  else if (f.life <= 0 || round === maxRounds) {
+  else if (f.life <= 0 || round === f.limit) {
     f.result = "lost";
-    f.lastThreat = f.life <= 0 ? f.event : "二十回合已尽，大妖仍未伏诛。";
+    f.lastThreat = f.life <= 0 ? f.event : `已满 ${f.limit} 回合，妖影仍未伏诛。`;
   }
 }
 
 export function previewOpening(fight: Fight, choice: Response) {
   const trial = structuredClone(fight);
   if (!answerOpening(trial, choice)) throw new Error("此刻没有待决的险招");
-  const end = Math.min(maxRounds, trial.round + [1, 2, 3][trial.region]);
+  const end = Math.min(trial.limit, trial.round + [1, 2, 3][trial.region]);
   while (trial.round < end && trial.result === "fighting") resolveRound(trial);
-  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result };
+  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water };
 }
 
 export function tickFight(f: Fight) {
@@ -467,8 +598,8 @@ export function tickFight(f: Fight) {
   const phase = f.time % 1800;
   if (phase === 100) {
     f.cue = "idle";
-    f.windup = `第 ${f.round + 1} 回合 · ${moveFor(f.region, f.round + 1).name}`;
-    if (f.consult && f.focus > 0 && decisionDue(f.region, f.round + 1)) f.waiting = true;
+    f.windup = `第 ${f.round + 1} 回合 · ${moveFor(f.region, f.round + 1, f.riverWave).name}`;
+    if (f.consult && f.focus > 0 && openingDue(f.region, f.round + 1, f.riverWave)) f.waiting = true;
   }
   if (phase === 1000) {
     f.windup = "";

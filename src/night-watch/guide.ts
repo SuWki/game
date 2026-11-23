@@ -2,7 +2,7 @@ import { arts, regions } from "./content.ts";
 import { canChallenge, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
-export type Tab = "patrol" | "practice" | "skills" | "archive";
+export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror";
 type Result = { region: Region; won: boolean; drop?: boolean };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
@@ -84,7 +84,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     };
     if (save.region === 1 && canChallenge(save, 1)) return {
       id: "river-preview", title: "看一眼回浪的轮次",
-      text: "河伯绷缆，下一轮便汲水回血。割缆可断水；若带着镇山喝，引浪能反伤河伯。",
+      text: "河伯每次汲水会涨一格，涨满三格就会覆舟。绷缆时割缆可以清空水位，带镇山喝还可引浪撞舟。",
       target: { tab: "skills", action: "preview", label: "对照双方招谱" },
     };
     return;
@@ -147,7 +147,7 @@ function defeatTip(save: Save, region: Region): Tip {
   ];
   const advice = [
     "用守式应战，虎啸原伤害 36，架住后只扣 7 点气血。",
-    "河伯靠船缆汲水。挥篙时割缆能断水；若带镇山喝，试试引浪撞舟。",
+    "留心水位。到了两格，下一道回浪就可能覆舟。绷缆时割缆可以清空水位。",
     "听息每三轮辨出真身。若气血先耗尽，可用守式扛住烛偏回合。",
   ];
   return {
