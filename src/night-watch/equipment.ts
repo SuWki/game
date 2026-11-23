@@ -16,6 +16,22 @@ export const equipment = {
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
+// 佩饰按轮次直接生效；兵刃和护具另有可与招式组合的特性。
+export const traits = {
+  pineBlade: { trigger: "镇山喝截断敌招", effect: "喝伤", amount: 12 },
+  reedBlade: { trigger: "听潮步发动时", effect: "刀伤", amount: 8 },
+  templeBlade: { trigger: "照影持续时", effect: "刀伤", amount: 6 },
+  hillCoat: { trigger: "守式挡下重击", effect: "减伤", amount: 3 },
+  ferryCoat: { trigger: "身法成功避击", effect: "回血", amount: 5 },
+  templeCoat: { trigger: "照影期间受击", effect: "减伤", amount: 4 },
+} as const;
+
+export function traitText(id: GearId) {
+  if (!(id in traits)) return "";
+  const trait = traits[id as keyof typeof traits];
+  return `${trait.trigger} · ${trait.effect} +${trait.amount}`;
+}
+
 export type GearLoadout = Partial<Record<GearSlot, GearId>>;
 export const bossEquipment = ["tigerFang", "tideSeal", "mirrorPearl"] as const;
 export const minionEquipment = [

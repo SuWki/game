@@ -164,12 +164,6 @@ summary { cursor: pointer; padding: 7px 0; }
 .nav button { min-height: 52px; border: 1px solid transparent; background: transparent; }
 .nav button:hover { background: #294652; }
 .nav button[aria-current] { font-weight: 700; color: var(--gold); background: #294652; border-color: #43626c; }
-.gear-list { list-style: none; padding: 0; margin: 8px 0 0; }
-.gear-item { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 9px 0; }
-.gear-item + .gear-item { border-top: 1px solid #d4c29d; }
-.gear-item span { font-size: 12px; color: #6b5538; }
-.gear-item p { font-size: 13px; }
-.gear-item button { flex-shrink: 0; }
 footer { grid-column: 1 / -1; color: var(--muted); display: flex; justify-content: space-between; gap: 14px; padding-bottom: 18px; font-size: 12px; }
 .flash { position: fixed; z-index: 5; bottom: 25px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 26px); background: #283d45; color: #fff1d2; border: 1px solid #c69560; padding: 12px 18px; box-shadow: 0 6px 22px #081218aa; }
 .quiet *, .quiet *::before, .quiet *::after { animation: none !important; }
@@ -224,9 +218,6 @@ footer { grid-column: 1 / -1; color: var(--muted); display: flex; justify-conten
 #gear-find span { color: #f4ead7; }
 #gear-find small { color: #cbbfa8; }
 #gear-find button + button { background: transparent; border-color: #827763; }
-.slots { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; }
-.slot { display: grid; justify-items: center; align-content: start; gap: 4px; background: #e7d6b5; border: 1px solid #b09b75; padding: 9px 3px; text-align: center; font-size: 13px; }
-.slot small { color: #645746; }
 .icon { display: inline-grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; background: #253640; border: 2px solid #a99064; }
 .icon::after { content: ""; width: 24px; height: 24px; background: #ebc389; }
 .weapon::after { clip-path: polygon(75% 0,100% 0,90% 29%,46% 72%,58% 82%,48% 92%,32% 78%,11% 100%,0 89%,22% 66%,10% 55%,20% 45%,34% 58%); }
@@ -307,3 +298,33 @@ footer { justify-content: flex-end; font-size: 11px; }
   .nav { grid-row: auto; }
   #gear-find > div:last-child { margin-left: 0; }
 }
+
+#outfit { background: #1b3031; padding: 12px 20px; border-top: 1px solid #53615a; }
+#outfit header, .outfit-moves { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#outfit header strong { color: #edc687; font: 600 17px "Songti SC", SimSun, serif; }
+#outfit header span, .outfit-moves span { color: #c4cec3; font-size: 12px; }
+.outfit-slots { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin-top: 8px; }
+.outfit-slot { display: flex; align-items: center; gap: 8px; text-align: left; min-height: 53px; padding: 4px 8px; background: #213a38; border: 1px solid #54665b; }
+.outfit-slot:hover, .outfit-slot[aria-expanded=true] { border-color: #e0b679; background: #36453b; }
+.outfit-slot b, .outfit-slot small, .outfit-picker small { display: block; }
+.outfit-slot small { color: #c8bb9d; font-size: 11px; }
+.outfit-slot b { font-size: 14px; }
+.item-art { display:inline-block; width:40px; height:40px; flex:0 0 40px; background-repeat:no-repeat; background-size:900% 100%; image-rendering:pixelated; }
+.icon.empty { opacity:.5; border:0; background:transparent; }
+.outfit-picker { padding:12px; margin-top:8px; background:#ece0c6; color:#273737; font-size:14px; }
+.outfit-picker ul { margin:6px 0 0; padding:0; list-style:none; }
+.outfit-picker li { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px; padding:7px 0; }
+.outfit-picker li + li { border-top:1px solid #cdbb98; }
+.outfit-picker small { font-size:12px; color:#63553d; }
+.outfit-picker p { margin:4px 0; }
+.outfit-picker button, .outfit-moves button { min-height:44px; border:1px solid #998566; background:#e0ceaa; color:#342f27; }
+.outfit-moves { margin-top:5px; }
+.outfit-moves button { border:0; background:transparent; color:#dfc29b; }
+@media(max-width:600px) {
+  #outfit { padding:9px 10px; }
+  .outfit-slot { padding:4px; gap:3px; }
+  .outfit-slot .item-art, .outfit-slot .empty { width:29px; height:29px; flex-basis:29px; }
+  .outfit-slot b {font-size:12px;}
+}
+
+#loot-strip { background: #1b3031; padding-top: 0; border: 0; }

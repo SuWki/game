@@ -1,5 +1,5 @@
 import { arts, mountainFirstReward, regions } from "./content.ts";
-import { bossEquipment, equipment, knownGear, minionEquipment, slots } from "./equipment.ts";
+import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
 import { decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
@@ -290,7 +290,9 @@ function resolveRound(f: Fight) {
   const interrupted = shout && move.interruptible;
   if (shout) {
     const extra = interrupted && f.ranks[0] === 2 ? 12 : 0;
-    const damage = hurt(5 + extra);
+    const echo = interrupted && f.loadout.weapon === "pineBlade" ? traits.pineBlade.amount : 0;
+    if (echo) actions.push(`松纹刀应喝，喝伤 +${echo}`);
+    const damage = hurt(5 + extra + echo);
     f.hp -= damage;
     actions.push(`镇山喝${interrupted ? "截断" + move.name : "出手"}，伤 ${damage}`);
     if (interrupted && f.region === 1 && elapsed === 1 && choice === "risk") {
@@ -307,15 +309,25 @@ function resolveRound(f: Fight) {
     const charm = f.loadout.charm;
     const bonus = charm === "tigerFang" && round % 3 === 0 ? 3
       : charm === "mirrorPearl" && (round - 1) % 4 === 0 ? 5 : 0;
+    let bladeBonus = 0;
+    if (tide && f.loadout.weapon === "reedBlade") bladeBonus = traits.reedBlade.amount;
+    if (f.revealedThrough >= round && f.loadout.weapon === "templeBlade") bladeBonus = traits.templeBlade.amount;
+    if (bladeBonus && f.loadout.weapon) actions.push(`${equipment[f.loadout.weapon].name}，刀伤 +${bladeBonus}`);
+    if (bonus && charm) actions.push(`${equipment[charm].name}，刀伤 +${bonus}`);
     const ambush = f.region === 2 && choice === "risk" && elapsed === 1 && exposed;
     if (ambush) actions.push("候得真身，刀伤加 28");
-    const damage = hurt((stats.damage + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
+    const damage = hurt((stats.damage + bladeBonus + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
     f.hp -= damage;
     actions.push(`短刀伤 ${damage}`);
   }
   if (f.hp > 0 && !interrupted) {
     if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       actions.push(`避过${move.name}`);
+      if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
+        const heal = Math.min(f.maxLife - f.life, traits.ferryCoat.amount);
+        f.life += heal;
+        actions.push(`渡水蓑回复 ${heal} 气血`);
+      }
       f.cue = "guard";
     } else {
       const guard = move.heavy && f.kit.stance === "guard" && !charge;
@@ -327,7 +339,15 @@ function resolveRound(f: Fight) {
       const braced = f.region === 0 && elapsed === 0 && choice === "safe";
       const received = guard ? Math.ceil(power * 0.18) : power;
       const rawDamage = braced ? Math.min(received, 4) : received;
-      const damage = f.loadout.charm === "tideSeal" && round % 3 === 2 ? Math.max(1, rawDamage - 4) : rawDamage;
+      let damage = rawDamage;
+      const reduce = (id: "hillCoat" | "templeCoat" | "tideSeal", amount: number) => {
+        const blocked = Math.min(amount, damage - 1);
+        if (blocked > 0) actions.push(`${equipment[id].name}减伤 ${blocked}`);
+        damage -= blocked;
+      };
+      if (guard && f.loadout.armor === "hillCoat") reduce("hillCoat", traits.hillCoat.amount);
+      if (f.revealedThrough >= round && f.loadout.armor === "templeCoat") reduce("templeCoat", traits.templeCoat.amount);
+      if (round % 3 === 2 && f.loadout.charm === "tideSeal") reduce("tideSeal", 4);
       f.life -= damage;
       actions.push(`${guard ? "架住" : ""}${move.name}，失血 ${damage}`);
       f.cue = guard || braced ? "guard" : "strike";

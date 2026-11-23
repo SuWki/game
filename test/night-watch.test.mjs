@@ -298,3 +298,49 @@ test("旧档补计学费和突破支出，已穿装备保留，掉落提醒刷�
   assert.deepEqual(restored.newGear, ["hillCoat"]);
   assert.equal(restored.lifetimeDao, 206);
 });
+
+test("松纹刀须成功截招，山行衣须守式实际架住重击", () => {
+  const save = newSave(0);
+  save.loadout = { weapon: "pineBlade", armor: "hillCoat", charm: "tigerFang" };
+  const duel = () => playRounds(startFight(save, 0, true), 3);
+  assert.match(duel().log[2], /山行衣减伤 3.*虎啸，失血 4/);
+  save.ranks[0] = 1;
+  save.kit.shout = "windup";
+  const fight = duel();
+  assert.match(fight.log[2], /松纹刀应喝，喝伤 \+12.*截断虎啸，伤 17.*山君牙坠.*短刀伤 17/);
+  assert.doesNotMatch(fight.log[2], /山行衣减伤/);
+  assert.doesNotMatch(playRounds(startFight(save, 2, true), 3).log[2], /松纹刀应喝/);
+});
+
+test("听潮步回合斩芦刀借势，渡水蓑在真实避击后回血且不超过上限", () => {
+  const save = newSave(0);
+  earnDao(save, 130);
+  save.kit.step = "tide";
+  save.ranks[1] = 1;
+  save.loadout = { weapon: "reedBlade", armor: "ferryCoat" };
+  const fight = playRounds(startFight(save, 1, true), 1);
+  const afterHit = fight.life;
+  playRounds(fight, 2);
+  assert.equal(fight.life, afterHit + 5);
+  assert.match(fight.log[1], /斩芦刀，刀伤 \+8.*短刀伤 27.*避过挥篙.*渡水蓑回复 5/);
+  const fresh = playRounds(startFight(save, 1, true), 1);
+  fresh.life = fresh.maxLife - 1;
+  playRounds(fresh, 2);
+  assert.equal(fresh.life, fresh.maxLife);
+  assert.match(fresh.log[1], /回复 1 气血/);
+});
+
+test("照影持续轮触发烛影刀和护灯袍，单靠听息辨真与挑灯不触发", () => {
+  const save = newSave(0);
+  earnDao(save, 830);
+  save.loadout = { weapon: "templeBlade", armor: "templeCoat", charm: "mirrorPearl" };
+  save.ranks[2] = 1;
+  save.kit.reveal = true;
+  const fight = playRounds(startFight(save, 2, true), 3);
+  assert.match(fight.log[0], /烛影刀.*借面珠.*短刀伤 38.*护灯袍减伤 4.*失血 3/);
+  assert.match(fight.log[1], /烛影刀.*短刀伤 33.*护灯袍减伤 4/);
+  assert.doesNotMatch(fight.log[2], /烛影刀|护灯袍/);
+  save.kit.reveal = false;
+  const lamp = playRounds(startFight(save, 2, true), 3, { 2: "safe" });
+  assert.doesNotMatch(lamp.log.join(" "), /烛影刀|护灯袍/);
+});

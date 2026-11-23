@@ -1,7 +1,7 @@
 import "./style.css";
 import { arts, breakthrough, mountainFirstReward, realms, regions } from "./content.ts";
-import { bossEquipment, equipment, knownGear, slots } from "./equipment.ts";
-import type { GearSlot } from "./equipment.ts";
+import { bossEquipment, equipment, knownGear, slots, traitText } from "./equipment.ts";
+import type { GearId, GearSlot } from "./equipment.ts";
 import { encounters } from "./tactics.ts";
 import { nextTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
@@ -14,11 +14,12 @@ import type { Fight, Kit, Region, Save } from "./game.ts";
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
 const zoneArt = ["mountain", "ferry", "temple"];
-const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", gear: "行囊", archive: "斩妖录" } as const;
+const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录" } as const;
 let tab: Tab = "patrol";
 let save = newSave(Date.now());
 let fight: Fight | null = null;
 let journal = false;
+let openSlot: GearSlot | undefined;
 let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
@@ -68,8 +69,10 @@ root.innerHTML = `
       <div class="patrol-controls">
         <div class="task-note"><p id="objective"></p><small id="rate"></small></div><div class="patrol-buttons"><button type="button" data-action="hunt">夜行</button>
         <button type="button" data-action="auto-patrol" aria-pressed="false" hidden>自动夜行</button>
-        <button type="button" data-action="fight:0" id="challenge" hidden>挑战吊睛山君</button></div><div id="gear-find" role="status" hidden></div>
+        <button type="button" data-action="fight:0" id="challenge" hidden>挑战吊睛山君</button></div>
       </div>
+      <section id="outfit" aria-label="随身装备"></section>
+      <div id="loot-strip" class="patrol-controls" hidden><div id="gear-find" role="status" hidden></div></div>
       <div class="field-note"><span>战报</span><div id="report"></div></div>
       <div id="home-guide" class="paper" hidden></div>
     </div>
@@ -85,7 +88,7 @@ root.innerHTML = `
     <button type="button" data-action="guide-toggle"></button>
     <div class="help-topics">
       <details><summary>夜行与线索</summary><p>点「夜行」找一只小妖，一刀斩落。收齐三条线索并满足境界要求后，可挑战当地大妖。首次击败吊睛山君后可自行开启「自动夜行」。</p></details>
-      <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。掉落卡可以直接穿戴或先收好。行囊有兵刃、护具、佩饰三个槽，每槽可装一件，属性和回合效果会带入下一场大妖战。</p></details>
+      <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。掉落卡可以直接穿戴或先收好。巡夜下方点兵刃、护具或佩饰可比较、更换装备，每槽可装一件，属性和回合效果会带入下一场大妖战。</p></details>
       <details><summary>挑战与战报</summary><p>在「招式」可查看前六轮招谱。山君第 3 回合放虎啸时会暂停。低头防守最多扣 4 点气血，抢先砍一刀能多打 12 点，正常出招会保留应变次数。每战能用两次特殊应对，也可以正常出招并保留次数。武学、身法与神通始终按谱释放。重演默认自动战斗，可在战场切换。败阵后可看逐轮战报，免费再战。</p></details>
       <details><summary>观化、学习与装备</summary><p>首次战胜山君会觉醒观化。此后击败大妖有机会悟得招谱。先花道行学到入门，再装备才会出招。精通增强效果，首发轮和间隔照旧。</p></details>
       <details><summary>道行与破境</summary><p>每境十层，累计获得道行就会自动升级。学招只花可用道行。舒筋开身法位，贯劲可在架住重击后反击，听息开神通位。</p></details>
@@ -147,7 +150,7 @@ function patrolPanel(): string {
       `<p class="meta">第 ${result.round} 回合结束 · 阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
       <details data-remember="report"><summary>交锋详情</summary><ul class="log">${result.report.map(line => `<li>${escape(line)}</li>`).join("")}</ul></details><div class="actions">` +
       (result.drop ? button("tab:skills", "查看传承", false, awakening || !result.first || nextRegion === 3) : "") +
-      (result.first ? button("tab:gear", "查看首胜装备") : "") +
+      (result.first ? button("reward-gear", "查看首胜佩饰") : "") +
       (result.first && nextRegion < 3 ? button(`region:${nextRegion}`, `去${regions[nextRegion].name}`, !!fight, !awakening) : "") +
       (!result.won ? button(`fight:${result.region}`, "再战", !ready || !!fight, true) + button("tab:skills", "调整招式") : "") +
       button("dismiss", "回到巡夜") + "</div>";
@@ -217,27 +220,48 @@ function skillsPanel(): string {
     (result && !result.won ? `<div class="actions rematch">${button(`fight:${result.region}`, `再战${regions[result.region].boss}`, !ready || !!fight, true)}${button("review", "返回交锋详情")}</div>` : "");
 }
 
-function gearPanel(): string {
-  const locked = !ready || !!fight?.boss;
-  return title("随身行囊", "装备", "兵刃、护具、佩饰各可穿戴一件。换装在下次大妖战生效。") +
-    `<div class="slots">${(Object.keys(slots) as GearSlot[]).map(slot => {
-      const id = save.loadout[slot];
-      return `<div class="slot"><i class="icon ${slot}"></i><b>${slots[slot]}</b><span>${id ? equipment[id].name : "空槽"}</span><small>${slotNotes[slot]}</small></div>`;
-    }).join("")}</div>` + Object.entries(slots).map(([slot, label]) => {
-      const active = save.loadout[slot as keyof typeof slots];
-      const owned = save.ownedGear.filter(id => equipment[id].slot === slot)
-        .sort((a, b) => equipment[b].level - equipment[a].level);
-      const items = owned.map(id => {
-        const item = equipment[id];
-        return `<li class="gear-item">
-          <div><strong>${item.name}</strong> <span>${item.level} 阶${item.slot === "charm" ? " · 大妖首胜" : ""}</span>
-          <p>${item.effect}</p></div>
-          ${id === active ? button(`unequip:${id}`, "卸下", locked) : button(`equip:${id}`, "装备", locked)}
-        </li>`;
-      }).join("");
-      return `<section class="art"><div class="section-title"><strong>${label}</strong><span>${active ? equipment[active].name : "未装备"}</span></div>
-        ${owned.length ? `<ul class="gear-list">${items}</ul>` : `<p class="meta">${slot === "charm" ? "击败大妖可得首胜佩饰。" : "继续夜行，寻找本地掉落。"}</p>`}</section>`;
-    }).join("");
+const iconOrder: GearId[] = ["pineBlade", "reedBlade", "templeBlade", "hillCoat", "ferryCoat", "templeCoat", "tigerFang", "tideSeal", "mirrorPearl"];
+
+function itemIcon(slot: GearSlot, id?: GearId) {
+  return id ? `<i aria-hidden="true" class="item-art" style="background-image:url('${assets}equipment.png');background-position:${iconOrder.indexOf(id) * 12.5}% center"></i>`
+    : `<i aria-hidden="true" class="icon empty ${slot}"></i>`;
+}
+
+function synergy(id: GearId) {
+  const trait = traitText(id);
+  if (!trait) return "";
+  const enabled = id === "pineBlade" ? save.kit.shout !== "off" && save.ranks[0] > 0
+    : id === "reedBlade" ? save.kit.step === "tide" && save.ranks[1] > 0
+    : id === "hillCoat" ? save.kit.stance === "guard"
+    : id === "ferryCoat" ? save.realm >= 1 : save.kit.reveal && save.ranks[2] > 0;
+  return `<small class="affinity">${enabled ? "当前配招可触发" : "当前配招未启用"} · ${trait}</small>`;
+}
+
+function outfitPanel() {
+  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer);
+  const rack = (Object.keys(slots) as GearSlot[]).map(slot => {
+    const id = save.loadout[slot];
+    const item = id && equipment[id];
+    return `<button class="outfit-slot" type="button" data-action="slot:${slot}" aria-expanded="${openSlot === slot}">
+      ${itemIcon(slot, id)}<span><small>${slots[slot]}${item ? " · " + item.level + " 阶" : ""}</small><b>${item ? item.name : "空槽"}</b></span></button>`;
+  }).join("");
+  const moves = [save.kit.stance === "guard" ? "守式" : "攻式", save.kit.shout !== "off" ? arts[0].name : "", save.kit.step === "tide" ? arts[1].name : "", save.kit.reveal ? arts[2].name : ""].filter(Boolean);
+  const header = `<header><strong>随身装备</strong><span>刀伤 ${stats.damage}　气血 ${stats.life}</span></header>
+    <div class="outfit-slots">${rack}</div>`;
+  const skills = clueCount(save, 0) === 3 ? `<div class="outfit-moves"><span>${moves.join(" · ")}</span>${button("tab:skills", "调整配招 ›")}</div>` : "";
+  if (!openSlot) return header + skills;
+  const slot = openSlot;
+  const active = save.loadout[slot];
+  const items = save.ownedGear.filter(id => equipment[id].slot === slot).sort((a,b) => equipment[b].level - equipment[a].level);
+  const list = items.map(id => {
+    const item = equipment[id];
+    const candidate = combatStats(save.realm, save.kit.stance, { ...save.loadout, [slot]: id }, cultivation(save.lifetimeDao).layer);
+    const delta = slot === "weapon" ? candidate.damage - stats.damage : candidate.life - stats.life;
+    const diff = delta ? ` · 换上后${slot === "weapon" ? "刀伤" : "气血"} ${delta > 0 ? "+" : ""}${delta}` : "";
+    return `<li>${itemIcon(slot, id)}<div><b>${item.name}</b><small>${item.level} 阶${active === id ? " · 已穿戴" : ""}</small><p>${item.effect}${diff}</p>${synergy(id)}</div>
+      ${active === id ? button("unequip:" + id, "卸下") : button("equip:" + id, "穿戴")}</li>`;
+  }).join("");
+  return header + `<div class="outfit-picker"><strong>${slots[slot]} · ${slotNotes[slot]}</strong>${list ? `<ul>${list}</ul>` : `<p>${slot === "charm" ? "击败吊睛山君，取得第一枚佩饰。" : "夜行时，小妖有机会掉落这个部位的装备。"}</p>`}</div>` + skills;
 }
 
 function archivePanel(): string {
@@ -275,9 +299,20 @@ function paintPanel() {
   currentTip = ready && !pending && !fight?.boss && (save.victories[0] || tab !== "patrol") ? nextTip(save, tab, result) : undefined;
   const body = pending ? title("存档待写入", "巡簿暂存", "刚才的结果已暂存。恢复写入后可继续巡夜。") + button("retry", "重试写入", false, true)
     : !ready && waiting !== "另一页正在巡夜，此页可查阅巡簿" ? title("青芦夜话", "巡簿", waiting)
-      : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, gear: gearPanel, archive: archivePanel }[tab]();
+      : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel }[tab]();
   const inBook = !!pending || !ready || tab !== "patrol" || journal || !!result;
   const homeTip = !inBook && currentTip;
+  const outfit = element("#outfit");
+  outfit.hidden = inBook || !!fight?.boss;
+  if (!outfit.hidden) {
+    const markup = outfitPanel();
+    if (outfit.dataset.markup !== markup) {
+      const action = outfit.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.action : undefined;
+      outfit.innerHTML = markup;
+      outfit.dataset.markup = markup;
+      if (action) (outfit.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? outfit.querySelector<HTMLElement>(`[data-action="slot:${openSlot}"]`))?.focus({ preventScroll: true });
+    }
+  }
   const guide = element("#home-guide");
   guide.hidden = !homeTip;
   const tipHtml = homeTip ? guideCard(homeTip) : "";
@@ -300,7 +335,7 @@ function paintPanel() {
   if (help.open) paintHelp();
   for (const item of root.querySelectorAll<HTMLButtonElement>(".nav button")) {
     const key = item.dataset.action?.split(":")[1];
-    item.hidden = !!fight?.boss || !(save.victories[0] || key === "patrol" || key === "gear" && save.ownedGear.length || key === "skills" && clueCount(save, 0) === 3);
+    item.hidden = !!fight?.boss || !(save.victories[0] || key === "patrol" || key === "skills" && clueCount(save, 0) === 3);
     if (item.dataset.action === "tab:" + tab) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   }
@@ -352,10 +387,11 @@ function paintPatrolControls() {
   const drop = element("#gear-find");
   const id = save.newGear[0];
   drop.hidden = !id || !!fight?.boss;
+  element("#loot-strip").hidden = drop.hidden;
   if (!drop.hidden) {
     const item = equipment[id];
     const equipped = save.loadout[item.slot];
-    const markup = `<i class="icon ${item.slot}"></i><div><small>新装备 · ${slots[item.slot]} · ${item.level} 阶</small><strong>${item.name}</strong><span>${item.effect}</span>
+    const markup = `${itemIcon(item.slot, id)}<div><small>新装备 · ${slots[item.slot]} · ${item.level} 阶</small><strong>${item.name}</strong><span>${item.effect}</span>${synergy(id)}
       <small>当前 · ${equipped ? equipment[equipped].name : "空槽"}</small></div>
       <div>${button("equip:" + id, "立即穿戴", locked)} ${button("collect:" + id, "先收好", locked)}</div>`;
     if (drop.dataset.markup !== markup) { drop.innerHTML = markup; drop.dataset.markup = markup; }
@@ -543,7 +579,17 @@ root.addEventListener("click", event => {
   if (!action) return;
   const [name, value, option] = action.split(":");
   const id = Number(value) as Region;
-  if (name === "home" || name === "tab" && value === "patrol") {
+  if (name === "slot" && Object.hasOwn(slots, value) && ready && !pending && !fight?.boss) {
+    openSlot = openSlot === value ? undefined : value as GearSlot;
+    paintPanel();
+  } else if (name === "reward-gear" && result?.first) {
+    openSlot = "charm";
+    tab = "patrol";
+    journal = false;
+    result = null;
+    paintPanel();
+    element("#outfit").scrollIntoView({ block: "center" });
+  } else if (name === "home" || name === "tab" && value === "patrol") {
     journal = false;
     result = null;
     tab = "patrol";
@@ -624,7 +670,7 @@ root.addEventListener("click", event => {
         if (name === "equip") draft.loadout[slot] = value;
         else if (name === "unequip" && draft.loadout[slot] === value) delete draft.loadout[slot];
         draft.newGear = draft.newGear.filter(id => id !== value);
-        commit(draft, () => notify(name === "equip" ? `已穿戴 · ${equipment[value].name}` : name === "collect" ? "已收进行囊" : "已卸下装备"));
+        commit(draft, () => notify(name === "equip" ? `已穿戴 · ${equipment[value].name}` : name === "collect" ? "已收好，可点对应装备槽查看" : "已卸下装备"));
       } else if (name === "region" && unlocked(save, id) && !fight) {
         draft.region = id;
         commit(draft, () => { result = null; journal = false; tab = "patrol"; resetPatrol(); });

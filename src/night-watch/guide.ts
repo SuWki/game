@@ -2,7 +2,7 @@ import { arts, regions } from "./content.ts";
 import { canChallenge, clueCount } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
-export type Tab = "patrol" | "practice" | "skills" | "gear" | "archive";
+export type Tab = "patrol" | "practice" | "skills" | "archive";
 type Result = { region: Region; won: boolean; drop?: boolean };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
@@ -15,10 +15,6 @@ export function nextTip(save: Save, tab: Tab, result: Result | null): Tip | unde
 
 function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined {
   if (tab === "patrol" && result && !result.won) return defeatTip(save, result.region);
-  if (tab === "gear" && save.ownedGear.length) return {
-    id: "gear", title: "穿上第一件装备",
-    text: "掉落会收进行囊。点装备才会获得属性，同一部位换下的物品还能重新穿回去。",
-  };
   if (tab === "archive") {
     return save.victories[0] ? {
       id: "archive", title: "换路与重演",
@@ -61,8 +57,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       target: { tab: "skills", action: "preview", label: "查看山君招谱" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
-      return { id: "first-gear", title: "拾到装备", text: "打开行囊穿戴。兵刃加刀伤，护具加气血。",
-        target: { tab: "gear", label: "打开行囊" } };
+      return { id: "first-gear", title: "拾到装备", text: "点掉落卡穿戴，或点主画面的对应装备槽。兵刃加刀伤，护具加气血。",
+        target: { tab: "patrol", action: "slot:" + (save.ownedGear.includes("pineBlade") ? "weapon" : "armor"), label: "查看装备槽" } };
     }
     return { id: "click-patrol", title: "提灯夜行", text: "点「夜行」找一只小妖。阿照会一刀斩落，攒下道行和线索。找齐三条即可挑战山君。",
       target: { tab: "patrol", action: "hunt", label: "找到夜行按钮" } };
