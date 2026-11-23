@@ -79,6 +79,7 @@ export type Action =
   | { type: 'sellCargo'; day: number; itemId: string }
   | { type: 'deliverFloatFarmSeal'; day: number; itemId: string }
   | { type: 'offer'; visitId: string; attempt: number; amount: number }
+  | { type: 'tradeSelection'; visitId: string; itemIds: string[] }
   | { type: 'dismiss' | 'sell' | 'redeem' | 'sellBoard'; visitId: string }
   | { type: 'appraiseTimer' | 'buyImitation' | 'sellTimerHonestly' | 'sellTimerAsGenuine' | 'reserveWater'; visitId: string }
   | { type: 'recycle' | 'install'; day: number; itemId: string }
@@ -303,6 +304,45 @@ export function ownedImitation(state: Counter, item: Item) {
   return state.inventory.find((entry) => entry.id === item.id && entry.authenticity === 'imitation');
 }
 
+export const counterBuyerLimit = 2;
+
+export function counterSelection(state: Counter, visit: Visit) {
+  if (!state.ship) return;
+  if (visit.kind === 'purchase' && (visit.id === 'day-6-board' || /^round-\d+-lead$/.test(visit.id))) {
+    const extras = harborGoods.map(({ item }, index) => ({
+      item: { ...item, id: `bundle-${visit.id}-${item.id}` }, price: [17, 22][index],
+    }));
+    return { buying: true, offers: [{ item: visit.item, price: visit.minimumPrice }, ...extras] };
+  }
+  if (visit.kind !== 'sale' || (visit.id !== 'day-7-board' && !/^round-\d+-lead-buyer$/.test(visit.id))) return;
+  const primary = saleOffer(state, visit);
+  const sparePrices = new Map([['船具', 24], ['电料', 28]]);
+  const offers = state.inventory.flatMap((item) => {
+    if (item.id === primary.item?.id) return [{ item, price: primary.price }];
+    const price = sparePrices.get(item.model);
+    return price !== undefined && harborGoods.some((good) => good.item.model === item.model && good.item.condition === item.condition)
+      ? [{ item, price }] : [];
+  });
+  return { buying: false, offers };
+}
+
+function settleSelection(state: Counter, visit: Visit, itemIds: string[]) {
+  const trade = counterSelection(state, visit);
+  if (!trade || !itemIds.length || new Set(itemIds).size !== itemIds.length) return notice(state, '请选择要成交的货物。', 'warning');
+  if (!trade.buying && itemIds.length > counterBuyerLimit) return notice(state, `这位买家最多收 ${counterBuyerLimit} 件。`, 'warning');
+  const selected = trade.offers.filter(({ item }) => itemIds.includes(item.id));
+  if (selected.length !== itemIds.length || trade.buying && selected.some(({ item }) => state.inventory.some((owned) => owned.id === item.id))) {
+    return notice(state, '所选货物已变化，请重新核对。', 'warning');
+  }
+  const amount = selected.reduce((total, offer) => total + offer.price, 0);
+  if (trade.buying && amount > state.cash) return notice(state, `现金还差 ${amount - state.cash} 元。`, 'warning');
+  const inventory = trade.buying ? [...state.inventory, ...selected.map(({ item, price }) => ({ ...item, cost: price }))]
+    : state.inventory.filter((item) => !itemIds.includes(item.id));
+  let next = { ...advance(state), inventory };
+  for (const { item, price } of selected) next = record(next, item, trade.buying ? `收购${item.name}` : `售出${item.name}`, trade.buying ? -price : price);
+  return notice(next, `${trade.buying ? '已挑收' : '已交货'} ${selected.length} 件，${trade.buying ? '支付' : '收到'} ${amount} 元。`, 'success');
+}
+
 export function cashWaterPrice(day: number): number {
   if (day < waterStartDay) return 0;
   return day === emergencyWaterDay ? emergencyWaterPrice : waterPrice;
@@ -392,6 +432,11 @@ function salvageDelivery(state: Counter, start: number) {
     (sealedCrateId.test(entry.itemId) || cratePartId.test(entry.itemId)));
 }
 
+export function nextRopeContact(state: Counter) {
+  const start = roundStart(state.day);
+  if (state.day > lastDay && salvageDelivery(state, start)) return start + roundLength;
+}
+
 export function ropeVisit(state: Counter) {
   if (state.ship?.closed || !workshopOpen(state) || state.day <= lastDay) return;
   const start = roundStart(state.day);
@@ -410,7 +455,7 @@ export function ropeVisit(state: Counter) {
     : done ? '搬运班已离开。'
     : dueDay !== undefined ? `约在第 ${dueDay} 天验货。${state.day > dueDay ? '已错过约见。' : ''}`
     : canBook ? '' : '已过联系日期。';
-  return { start, item, canBook, dueDay, today, terms, status };
+  return { start, item, canBook, dueDay, today, pending: dueDay !== undefined && state.day < dueDay && !done, terms, status };
 }
 
 function handleRopeVisit(state: Counter, action: Extract<Action, { type: 'bookRopeVisit' | 'deliverRope' | 'dismissRopeVisit' }>): Result {
@@ -1068,6 +1113,7 @@ export function settleVisit(state: Counter, action: Action): Result {
   if (state.awaitingOpen) return notice(state, '请先开门。', 'warning');
   const visit = currentVisit(state.day, state.visitIndex, state.economy, state.harborSchedule);
   if (!visit || !('visitId' in action) || visit.id !== action.visitId) return notice(state, '这位客人已经离开。');
+  if (action.type === 'tradeSelection') return settleSelection(state, visit, action.itemIds);
 
   if (action.type === 'sellBoard' && visit.id === 'day-9-winch') {
     const item = state.inventory.find((entry) => entry.id === board.id);

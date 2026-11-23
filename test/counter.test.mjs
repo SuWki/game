@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { counterNotes, openCounter, outingPlan, ropeVisit, settleVisit } from '../src/counter.ts';
+import { counterNotes, counterSelection, openCounter, outingPlan, ropeVisit, settleVisit } from '../src/counter.ts';
 import { voyageOdds, voyageResult, voyageRoll } from '../src/outing.ts';
 import { cutQuote, pickStone, stoneOdds, stoneResult, trialCut } from '../src/jade.ts';
 import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
 import { readSave, saveVersion } from '../src/save.ts';
+import { tradeOutlook } from '../src/trade-outlook.ts';
 
 function offer(state, amount) {
   const visit = currentVisit(state.day, state.visitIndex);
@@ -523,6 +524,71 @@ test('搬运班按真实交付邀约，同日先赎当，短绳撤牌并只结�
   assert.equal(delivered.cash, ready.cash + 15);
   assert.equal(delivered.consignment, undefined);
   assert.equal(settleVisit(delivered, action).state, delivered);
+});
+
+test('库存并列货棚现价和搬运班回访，回访只从真实交付产生', () => {
+  let state = { ...dockAt(140), day: 16, ship: { water: 5 }, visitIndex: 0 };
+  state = settleVisit(state, { type: 'buyCrate', day: 16 }).state;
+  state = settleVisit(state, { type: 'openCrate', day: 16, itemId: state.inventory[0].id }).state;
+  const [rope, fuse] = state.inventory;
+  state = { ...state, day: 19 };
+  assert.equal(tradeOutlook(state, rope).buyer, undefined);
+  const sold = settleVisit(state, { type: 'sellCrateGoods', day: 19, itemId: fuse.id }).state;
+  const choice = tradeOutlook(sold, rope);
+  assert.deepEqual([choice.cash.buyer, choice.cash.price, choice.buyer.price, choice.buyer.when], ['货棚', 10, 15, '第 21 天起可联系']);
+  assert.equal(settleVisit(sold, choice.cash.action).state.cash - sold.cash, 10);
+  const next = reloadState({ ...sold, day: 21, activeRoundStart: 21 });
+  const booked = reloadState(settleVisit(next, tradeOutlook(next, rope).buyer.action).state);
+  assert.equal(tradeOutlook(booked, rope).buyer.when, '第 22 天验货');
+  assert.equal(tradeOutlook({ ...booked, day: 23 }, rope).buyer, undefined);
+});
+
+test('待买家、岸价和滤芯验收次数来自当前库存与船期', () => {
+  const seal = { ...board, id: 'ship-0-cargo-0', cost: 14 };
+  const coil = { ...board, id: 'ship-2-cargo-2', recyclePrice: undefined, cost: 18 };
+  const ship = { water: 3 };
+  const opening = { ...dockAt(100), ship, day: 4, inventory: [seal] };
+  const pre = tradeOutlook(opening, seal);
+  assert.deepEqual([pre.cash.price, pre.buyer.price, pre.buyer.when, pre.buyer.action], [12, 34, '第 6 天起', undefined]);
+  const atStop = { ...opening, day: 6 };
+  const onTime = tradeOutlook(atStop, seal);
+  assert.deepEqual([onTime.cash.price, onTime.buyer.price], [27, 34]);
+  const sold = settleVisit(atStop, onTime.buyer.action).state;
+  assert.equal(sold.cash - opening.cash, 34);
+  assert.equal(tradeOutlook({ ...sold, inventory: [seal] }, seal).buyer, undefined);
+  assert.deepEqual([tradeOutlook({ ...opening, day: 15 }, coil).cash.price, tradeOutlook({ ...opening, day: 15 }, coil).buyer.price],
+    [16, 35]);
+  const state = reviewState(51, [reviewFilter]);
+  const filter = tradeOutlook(state, reviewFilter);
+  assert.deepEqual([filter.cash.price, filter.buyer.price], [14, 22]);
+  assert.equal(settleVisit(state, filter.buyer.action).state.cash, 122);
+  const used = { ...reviewFilter, filter: { ...reviewFilter.filter, remaining: 1 } };
+  assert.equal(tradeOutlook(state, used).buyer.blocked, true);
+  assert.equal(tradeOutlook(state, used).buyer.action, undefined);
+});
+
+test('一位卖家可挑货，类别买家只收合格自有货且每次最多两件', () => {
+  const ship = { water: 3 };
+  const initial = { ...dockAt(25), day: 6, activeRoundStart: undefined, visitIndex: 0, ship };
+  const seller = currentVisit(6, 0, 'port');
+  const [boardOffer, rope, fuse] = counterSelection(initial, seller).offers;
+  const trade = (visitId, ...itemIds) => ({ type: 'tradeSelection', visitId, itemIds });
+  assert.equal(settleVisit(initial, trade(seller.id, rope.item.id, fuse.item.id)).state, initial);
+  assert.equal(settleVisit(initial, trade(seller.id, rope.item.id, rope.item.id)).state, initial);
+  const bought = reloadState(settleVisit(initial, trade(seller.id, rope.item.id)).state);
+  assert.deepEqual([bought.cash, bought.inventory[0].id, bought.inventory.length], [8, rope.item.id, 1]);
+  assert.equal(settleVisit(bought, trade(seller.id, rope.item.id)).state, bought);
+  const buyer = currentVisit(7, 0, 'port');
+  const wet = { ...fuse.item, id: 'wet-fuse', condition: '外盒进潮，封签松脱', cost: 0 };
+  const forSale = { ...bought, day: 7, visitIndex: 0, inventory: [...bought.inventory, wet,
+    { ...boardOffer.item, cost: 30 }, { ...fuse.item, cost: 22 }] };
+  assert.deepEqual(counterSelection(forSale, buyer).offers.map(({ item }) => item.id), [rope.item.id, boardOffer.item.id, fuse.item.id]);
+  assert.equal(settleVisit(forSale, trade(buyer.id, wet.id)).state, forSale);
+  assert.equal(settleVisit(forSale, trade(buyer.id, rope.item.id, boardOffer.item.id, fuse.item.id)).state, forSale);
+  const sold = reloadState(settleVisit({ ...forSale, consignment: { itemId: rope.item.id, price: 18, listedDay: 7 } },
+    trade(buyer.id, rope.item.id, fuse.item.id)).state);
+  assert.deepEqual([sold.cash, sold.consignment, sold.inventory.map((item) => item.id)], [60, undefined, [wet.id, boardOffer.item.id]]);
+  assert.equal(settleVisit(sold, trade(buyer.id, rope.item.id)).state, sold);
 });
 
 function reloadState(state) {

@@ -151,7 +151,8 @@ main {
   box-shadow: 0 8px 26px #0008;
 }
 #tutorial-tip p { font-size: 14px; line-height: 1.6; }
-#skip-tutorial { margin-top: 8px; min-height: 32px; padding: 4px 9px; color: #443123; background: #f5dfb7; }
+#skip-tutorial, #ack-tutorial { margin-top: 8px; min-height: 32px; padding: 4px 9px; }
+#skip-tutorial { color: #443123; background: #f5dfb7; }
 .counter {
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   border: 1px solid var(--line);
@@ -253,14 +254,18 @@ dialog::backdrop { background: #110f16bd; }
   color: #f7e5ca;
 }
 .outing-slip h3, .outing-slip p { margin: 0 0 4px; }
-.ship-status:not([hidden]) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-.ship-status { margin: 0 0 10px; color: #fbedd8; background: #171d1b; border: 1px solid #ad8a5e; padding: 4px; }
-.ship-status > div { padding: 7px 10px; background: #28362f; border-left: 2px solid #6c917b; }
-.ship-status dt { font-size: 12px; color: #e6cfac; }
-.ship-status dd { margin: 0; font-size: clamp(14px, 2vw, 22px); font-weight: 700; font-variant-numeric: tabular-nums; }
-.ship-status dd span, .ship-status small { font-size: 12px; }
-.ship-status > [data-alert="true"] { background: #553125; border-left-color: #ffb277; }
+.ship-status:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; }
+.ship-status { margin: 0 0 6px; color: #fbedd8; background: #1c2421ed; border: 1px solid #967b57; padding: 4px 8px; }
+.ship-status > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; padding: 2px 5px; }
+.ship-status dt, .ship-status small { font-size: 12px; color: #e6cfac; }
+.ship-status dd { margin: 0; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ship-status > [data-alert="true"] { background: #553125; border-left: 2px solid #ffb277; }
 .ship-status > [data-alert="true"] small { color: #ffd1a1; font-weight: 700; }
+.ship-help { color: #59402a; margin: 4px 0 8px; }
+.ship-jumps { display: flex; flex-wrap: wrap; gap: 8px; }
+.selection-line { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 9px 4px; border-bottom: 1px solid #b8976d; }
+.selection-line input { width: 17px; height: 17px; accent-color: #765135; }
+.selection-total { margin: 8px 0; font-weight: 700; }
 .boat-project { margin: 12px 0; padding: 12px; border: 1px solid #9f744c; background: #f5e5ca; }
 .boat-overview.harbor-good { margin: 0; padding-top: 0; border: 0; }
 .boat-overview h3 { font-size: 20px; }
@@ -277,7 +282,6 @@ dialog::backdrop { background: #110f16bd; }
 .boat-payment span { display: block; font-size: 12px; }
 .boat-payment[data-alert="true"] { background: #f4dac4; color: #7b3021; border-left: 3px solid #a95233; }
 @media (max-width: 580px) {
-  .ship-status:not([hidden]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 #ship-offers button { margin-right: 6px; }
 .outing-slip summary { cursor: pointer; }
@@ -324,6 +328,11 @@ dialog::backdrop { background: #110f16bd; }
 #desk-held:empty { display: none; }
 .stock-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .stock-chip { min-height: 28px; padding: 3px 8px; font-size: 13px; }
+.stock-with-buyer { border-color: #d8af70; text-align: left; }
+.stock-with-buyer small { color: #ffdb9e; }
+.trade-choice { margin: 10px 0; padding: 8px 10px; border-left: 3px solid #9a5e30; background: #e8cfaa; color: #3a291c; }
+.trade-choice p { margin: 0 0 4px; }
+.trade-choice small { display: block; color: #58402b; }
 .stock-chip img { width: 22px; height: 18px; object-fit: contain; vertical-align: middle; margin-right: 5px; image-rendering: pixelated; }
 .note-slip {
   display: grid;

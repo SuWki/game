@@ -1,6 +1,7 @@
 import './style.css';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
-import { shipGap, shipProvisions } from './counter';
+import { counterBuyerLimit, counterSelection, shipGap, shipProvisions } from './counter';
+import { tradeOutlook } from './trade-outlook';
 import { boatBuildMaterials, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
   materialKind, playerBoat, saltPen, shipNight, ticketExtension } from './career';
 import { drawBoat } from './boat-view';
@@ -21,6 +22,7 @@ const saveKey = sandboxCash === null ? 'tideline-counter' : `tideline-counter-ca
 const tutorialKey = 'tideline-counter-tutorial';
 const contextTutorialKey = 'tideline-counter-context-tutorials';
 const contextGuides = {
+  ship: { title: '认识船务与岸市', copy: '先看船务栏：饮水是还能喝几天，夜费是打烊扣的钱。打开「船务与岸市」可以补水、看下站报价。点开和看价都免费。' },
   water: { title: '第一次缺水', copy: '在「船务与岸市」的水柜补水。现金也不足时，在同一个面板找「今晚筹钱」或泵房应急值班。' },
   appointment: { title: '第一次可约见', copy: '打开「字条与委托」，查看买家要什么、哪天验货，再决定是否约见。按 J 可回看已收到的字条。' },
   outing: { title: '第一次打烊外出', copy: '打烊后可以预约次日打捞或挑石。费用现在付，两种外出共用船位。直接开门也可以继续营业。' },
@@ -47,6 +49,7 @@ let saveBlocked = false;
 let busy = false;
 let atTitle = true;
 let tutorialStep: 'inspect' | 'trade' | null = null;
+let tutorialAcknowledged = false;
 const artwork = (file: string) => `${import.meta.env.BASE_URL}pixel-shop/${file}.png`;
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
@@ -136,6 +139,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   </dialog>
   <aside id="tutorial-tip" aria-label="新手引导" hidden>
     <p id="tutorial-copy"></p>
+    <button id="ack-tutorial" class="quiet">知道了</button>
     <button id="skip-tutorial" class="quiet">跳过引导</button>
   </aside>
   <dialog id="ration-dialog" aria-labelledby="ration-title">
@@ -154,6 +158,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <details class="port-story"><summary>旧港的来历</summary><p id="guide-story">${openingStory}</p></details>
     <dl class="guide-list">
       <div><dt>看货与出价</dt><dd>点击「近看」读成色和细节。收购价付给客人，成交的货会进自有库存。报价被拒还可以改报一次，或直接谢客。</dd></div>
+      <div><dt>一次来几件货</dt><dd>点「挑货」逐件勾选，再确认总金额。类别买家只收符合条件的自有货，可挑想卖的几件。</dd></div>
       <div><dt>典当与赎回</dt><dd>放款是借给客人的钱。物品先留在代管栏，到期当天仍可赎回。打烊时才处理逾期的货。</dd></div>
       <div><dt>真假与买断</dt><dd>把实物批次与手册对照。能指出疑点时，可以试着把典当谈成低价买断。向买家隐瞒真伪可能影响下一位熟客的报价。</dd></div>
       <div><dt>查账、找线索</dt><dd>按 J 翻线索记录，查看熟客求购和已经看过的证据。「账本」里可以看库存、当票、流水和用水。按 Esc 回到柜台。</dd></div>
@@ -195,7 +200,24 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   </dialog>
   <dialog id="ship-store" aria-labelledby="ship-store-title">
     <div class="dialog-head"><h2 id="ship-store-title">船务与岸市</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <p class="ship-help">打烊才扣夜费和饮水。水柜补水，岸市买卖货物。每五天换泊，同一件货的岸价可能变化。</p>
+    <nav class="ship-jumps" aria-label="船务区块">
+      <button class="paper-button" type="button" data-ship-jump="ship-water">看补水</button>
+      <button class="paper-button" type="button" data-ship-jump="ship-market">看岸价</button>
+    </nav>
     <div id="ship-offers"></div><p id="ship-result" role="status"></p>
+  </dialog>
+  <dialog id="payment-dialog" aria-labelledby="payment-title">
+    <div class="dialog-head"><h2 id="payment-title">确认付款</h2></div>
+    <p id="payment-detail"></p>
+    <form method="dialog" class="actions">
+      <button value="cancel" class="quiet" autofocus>先不买</button>
+      <button value="pay" id="payment-confirm">确认付款</button>
+    </form>
+  </dialog>
+  <dialog id="selection-dialog" aria-labelledby="selection-title">
+    <div class="dialog-head"><h2 id="selection-title"></h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
+    <div id="selection-content"></div>
   </dialog>
   <dialog id="menu-dialog" aria-labelledby="menu-title">
     <div class="dialog-head"><h2 id="menu-title">菜单</h2><form method="dialog"><button class="quiet">返回柜台</button></form></div>
@@ -215,9 +237,24 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 const day = document.querySelector<HTMLElement>('#day')!;
 const cash = document.querySelector<HTMLOutputElement>('#cash')!;
 const shipDialog = document.querySelector<HTMLDialogElement>('#ship-store')!;
+const paymentDialog = document.querySelector<HTMLDialogElement>('#payment-dialog')!;
+const selectionDialog = document.querySelector<HTMLDialogElement>('#selection-dialog')!;
+let pendingPayment: Action | undefined;
+paymentDialog.addEventListener('close', () => {
+  const command = pendingPayment;
+  pendingPayment = undefined;
+  if (command && paymentDialog.returnValue === 'pay') void handle(command);
+});
+shipDialog.querySelectorAll<HTMLButtonElement>('[data-ship-jump]').forEach((button) => {
+  button.onclick = () => document.getElementById(button.dataset.shipJump!)?.scrollIntoView({ block: 'start' });
+});
 const shipEntry = document.querySelector<HTMLButtonElement>('#ship-store-button')!;
 const boardEntry = document.querySelector<HTMLButtonElement>('#board-ship')!;
-shipEntry.onclick = () => { document.querySelector('#ship-result')!.textContent = ''; shipDialog.showModal(); };
+shipEntry.onclick = () => {
+  document.querySelector('#ship-result')!.textContent = '';
+  shipDialog.showModal();
+  shipDialog.scrollTop = 0;
+};
 boardEntry.onclick = () => {
   if (window.confirm('带现有现金和库存登船？领三日饮水，今晚起每天付 6 元船籍费并喝一日水。')) {
     menuDialog.close();
@@ -409,6 +446,13 @@ function renderVisit(visit: Visit) {
     ${item?.reference ? appraisalView(item) : ''}`;
 
   const visitId = visit.id;
+  const selection = counterSelection(state, visit);
+  if (selection) {
+    const open = document.createElement('button');
+    open.textContent = selection.buying ? '挑货 · 可单件收购' : '挑选可交的货';
+    open.onclick = () => showCounterSelection(visit, selection);
+    actions.append(open);
+  }
   if (visit.kind === 'purchase' || visit.kind === 'pawn') {
     for (const amount of visit.offers) {
       const afterTonight = state.cash - amount - waterCost(state);
@@ -456,6 +500,56 @@ function renderVisit(visit: Visit) {
     keepBoard ? `第 9 天可卖 ${lateBoardPrice} 元，今天无进账`
       : keepWinch ? `等第 ${winchOrderDay(state.economy, state.harborSchedule)} 天船厂采购，可卖 ${item?.condition === wornWinch.condition ? wornWinchLatePrice : 155} 元`
       : dismissLabel === '留货，谢客' && state.economy !== 'port' ? `${waterLine()} · 次日起常价 ${waterPrice} 元` : undefined);
+}
+
+function showCounterSelection(visit: Visit, selection: NonNullable<ReturnType<typeof counterSelection>>) {
+  document.querySelector('#selection-title')!.textContent = selection.buying ? '逐件挑货' : '挑货交给买家';
+  const content = document.querySelector('#selection-content')!;
+  content.replaceChildren();
+  const intro = document.createElement('p');
+  intro.textContent = selection.buying ? '货物可以分开买。选好后一起结账，客人带走其余货物。'
+    : `收来客提到的主货，也收合格船具或封签完好的电料。本次最多收 ${counterBuyerLimit} 件。`;
+  content.append(intro);
+  const selected = new Set<string>();
+  const total = document.createElement('p');
+  total.className = 'selection-total';
+  total.setAttribute('aria-live', 'polite');
+  const confirm = document.createElement('button');
+  const updateTotal = () => {
+    const amount = selection.offers.filter(({ item }) => selected.has(item.id)).reduce((sum, offer) => sum + offer.price, 0);
+    const gap = selection.buying ? shipProvisions(state, amount).gap : 0;
+    total.textContent = selection.buying
+      ? `合计 ${amount} 元 · ${state.cash >= amount ? `付款后余 ${state.cash - amount} 元${gap ? ` · 今晚还差 ${gap} 元` : ''}` : `现金还差 ${amount - state.cash} 元`}`
+      : selected.size > counterBuyerLimit ? `最多收 ${counterBuyerLimit} 件，请取消多选的货。` : `现在可收 ${amount} 元`;
+    confirm.textContent = selection.buying ? `确认支付 ${amount} 元` : `确认出售 · 收 ${amount} 元`;
+    confirm.disabled = !selected.size || (selection.buying ? amount > state.cash : selected.size > counterBuyerLimit);
+  };
+  for (const { item, price } of selection.offers) {
+    const row = document.createElement('label');
+    row.className = 'selection-line';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.onchange = () => {
+      if (input.checked) selected.add(item.id);
+      else selected.delete(item.id);
+      updateTotal();
+    };
+    const facts = document.createElement('span');
+    facts.textContent = `${item.name} · ${item.condition} · ${price} 元`;
+    row.append(input, facts);
+    content.append(row);
+  }
+  if (!selection.offers.length) total.textContent = '自有库存里没有合用的货。';
+  else {
+    updateTotal();
+    confirm.onclick = () => {
+      selectionDialog.close();
+      void handle({ type: 'tradeSelection', visitId: visit.id, itemIds: [...selected] });
+    };
+  }
+  content.append(total);
+  if (selection.offers.length) content.append(confirm);
+  selectionDialog.showModal();
 }
 
 function renderInventory() {
@@ -882,8 +976,19 @@ function renderStockDetail() {
   const sprite = itemSprite(item);
   const condition = item.authenticity === 'imitation' ? ' · 仿品' : '';
   const outlook = stockOutlook(item);
+  const choice = tradeOutlook(state, item);
+  const buyer = choice?.buyer;
+  const cashOffer = choice?.cash;
+  const premium = buyer && cashOffer && !buyer.blocked ? buyer.price - cashOffer.price : 0;
+  const gap = state.ship ? shipProvisions(state).gap : 0;
   stockDetail.innerHTML = `${sprite ? `<img class="inspect-art" src="${artwork(sprite)}" alt="">` : ''}
     <p>${escapeText(item.condition)}${condition} · 成本 ${item.cost} 元</p>
+    ${buyer ? `<div class="trade-choice">
+      ${cashOffer ? `<p><strong>今天卖 ${cashOffer.price} 元</strong> · ${cashOffer.buyer}${gap ? cashOffer.price >= gap
+        ? ' · 可补齐今晚缺口' : ` · 卖后今晚仍差 ${gap - cashOffer.price} 元` : ''}</p>` : ''}
+      <p><strong>${buyer.name} ${buyer.price} 元</strong> · ${buyer.when}${premium > 0 ? ` · 多收 ${premium} 元` : ''}</p>
+      <small>${buyer.reason}${item.filter ? ' 装机后用一次可存三日水，洗衣班按剩余次数验货。' : ''}</small>
+    </div>` : ''}
     ${records(outlook.map((line) => `<li>${escapeText(line)}</li>`), item.jade && !item.jade.opened ? '开窗后可询价。' : '暂无线索显示有约定买家。')}`;
   if ((state.day < waterStartDay && !state.ship) || pastLastDay(state) || state.awaitingOpen || state.ship?.closed) return;
   const actions = document.createElement('div');
@@ -901,6 +1006,8 @@ function renderStockDetail() {
   if (cargo === floatFarmOrder.kind && floatFarmRequest(state)?.active) {
     add(`交浮田维修班 ${floatFarmOrder.price} 元`, { ...target, type: 'deliverFloatFarmSeal' });
   }
+  if (buyer?.action?.type === 'bookRopeVisit') add('联系搬运班 · 约次日验货', buyer.action);
+  if (buyer?.action?.type === 'career') add(`交浮田洗衣班 ${buyer.price} 元`, buyer.action);
   const shore = state.ship && cargo === undefined && shipSaleQuote(state.day, item);
   if (shore) add(`卖给岸商 ${shore.bid} 元`, { ...target, type: 'sellCargo' });
   if (item.jade && workshopOpen(state)) {
@@ -987,6 +1094,13 @@ function renderDesk() {
       chip.append(img);
     }
     chip.append(item.name, state.consignment?.itemId === item.id ? ' · 寄售中' : '');
+    const buyer = tradeOutlook(state, item)?.buyer;
+    if (buyer && !buyer.blocked) {
+      chip.classList.add('stock-with-buyer');
+      const hint = document.createElement('small');
+      hint.textContent = `${buyer.name} ${buyer.price} 元 · ${buyer.when}`;
+      chip.append(hint);
+    }
     chip.addEventListener('click', () => {
       selectedStockId = item.id;
       showCutLayout = false;
@@ -1056,14 +1170,13 @@ function renderShip() {
   const { stop, next, nextDay } = shipStop(state.day);
   const dueToday = state.tickets.filter((ticket) => ticket.status === 'held' && ticket.dueDay === state.day).length;
   const provision = shipProvisions(state);
-  const evening = state.awaitingOpen ? '下次营业夜' : '今晚';
-  status.innerHTML = `<div><dt>当前泊位</dt><dd>${escapeText(stop.name)}</dd><small>第 ${nextDay} 天 → ${escapeText(next.name)}</small></div>
-    <div data-alert="${provision.missingWater > 0}"><dt>饮水</dt><dd>${ship.water} <span>日存量</span></dd>
-      <small>${provision.missingWater ? `${evening}缺 ${provision.missingWater} 日水 · 买水最低 ${provision.waterSpend} 元${provision.canDistill ? ' · 船务可制水' : ''}` : `${evening}用 ${provision.requiredWater} 日水`}</small></div>
-    <div data-alert="${state.cash < provision.fixedCash}"><dt>${evening}固定支出</dt><dd>${provision.fixedCash} <span>元</span></dd>
-      <small>${state.cash < provision.fixedCash ? `固定支出差 ${provision.fixedCash - state.cash} 元` : boat.own ? '住自有船' : '住旧港号'}</small></div>
-    <div data-alert="${dueToday > 0}"><dt>${state.awaitingOpen ? '下次开门到期' : '今日到期'}</dt><dd>${dueToday} <span>张当票</span></dd>
-      <small>${dueToday ? '打烊后处理逾期物品' : '查阅账本可看当票'}</small></div>`;
+  const evening = state.awaitingOpen ? '下次夜费' : '今晚夜费';
+  status.innerHTML = `<div><dt>泊位</dt><dd>${escapeText(stop.name)} <small>· 第 ${nextDay} 天到${escapeText(next.name)}</small></dd></div>
+    <div data-alert="${provision.missingWater > 0}"><dt>饮水</dt><dd>余 ${ship.water} 日
+      ${provision.missingWater ? `<small>· 缺 ${provision.missingWater} 日，${provision.canDistill ? '船务可制水' : `买水需 ${provision.waterSpend} 元`}</small>` : ''}</dd></div>
+    <div data-alert="${state.cash < provision.fixedCash}"><dt>${evening}</dt><dd>${provision.fixedCash} 元
+      ${state.cash < provision.fixedCash ? `<small>· 差 ${provision.fixedCash - state.cash} 元</small>` : ''}</dd></div>
+    ${dueToday ? `<div data-alert="true"><dt>${state.awaitingOpen ? '下次开门到期' : '今日到期'}</dt><dd>${dueToday} 张当票</dd></div>` : ''}`;
   const offers = document.querySelector<HTMLElement>('#ship-offers')!;
   offers.replaceChildren();
   const row = (heading: string, detail: string, parent = offers) => {
@@ -1078,20 +1191,32 @@ function renderShip() {
     parent.append(section);
     return section;
   };
-  const action = (section: HTMLElement, label: string, command: Action, disabled = false) => {
+  const action = (section: HTMLElement, label: string, command: Action, disabled = false, payment = 0) => {
     const button = document.createElement('button');
     button.textContent = label;
     button.className = 'quiet';
     button.disabled = disabled;
-    bindAction(button, command);
+    if (payment) {
+      button.onclick = () => {
+        const after = command.type === 'buyWater'
+          ? shipProvisions({ ...state, ship: { ...ship, water: ship.water + waterPacks[command.choice].days } }, payment)
+          : shipProvisions(state, payment);
+        document.querySelector('#payment-detail')!.textContent =
+          `${label}。现有 ${state.cash} 元，付款后余 ${after.balance} 元。${after.gap ? `按当前补给估算，当晚还差 ${after.gap} 元。` : ''}`;
+        pendingPayment = command;
+        paymentDialog.returnValue = '';
+        paymentDialog.showModal();
+      };
+    } else bindAction(button, command);
     section.append(button);
   };
   const water = row('生活甲板 · 水柜', `今晚固定付 ${provision.fixedCash} 元，需 ${provision.requiredWater} 日水。手上 ${state.cash} 元，水柜现存 ${ship.water} 日。`);
+  water.id = 'ship-water';
   if (provision.missingWater && provision.canDistill) {
     action(water, '制水自用 · 加三日水，耗 1 次滤芯', { type: 'fillShipWater', day: state.day });
   }
   waterPacks.forEach((pack, choice) => action(water, `${pack.name} · ${pack.days} 天 / ${pack.price} 元`,
-    { type: 'buyWater', day: state.day, choice }, state.cash < pack.price));
+    { type: 'buyWater', day: state.day, choice }, state.cash < pack.price, pack.price));
   if (shipGap(state)) {
     const used = ship.reliefLeg === roundStart(state.day);
     action(water, used ? '本航段已值班' : '泵房应急值班 · 领 6 元和一日水', { type: 'shipRelief', day: state.day }, used);
@@ -1106,9 +1231,9 @@ function renderShip() {
   row('撑到下一站 · 按水柜买水估算', `第 ${nextDay} 天靠泊前，还要付 ${budget.nights} 晚生活开销（${budget.total - budget.waterSpend} 元）。${missing}。按手头现钱算，${budget.gap ? `至少还差 ${budget.gap} 元` : `备齐后余 ${state.cash - budget.total} 元`}。`);
   if (provision.gap) {
     const sales = state.inventory.flatMap((item) => {
-      const quote = shipSaleQuote(state.day, item);
-      return quote ? [{ item, quote }] : [];
-    }).sort((a, b) => a.quote.bid - b.quote.bid);
+      const choice = tradeOutlook(state, item);
+      return choice?.cash ? [{ item, offer: choice.cash, buyer: choice.buyer }] : [];
+    }).sort((a, b) => a.offer.price - b.offer.price);
     const help = row('今晚筹钱', `${provision.canDistill && provision.missingWater ? '制水补齐后，固定支出' : '固定支出和最低补水合计'}还差 ${provision.gap} 元。`);
     const addHint = (text: string) => {
       const hint = document.createElement('p');
@@ -1131,15 +1256,19 @@ function renderShip() {
     const tomorrowPayout = state.jadeOrders?.filter((order) => order.dueDay === state.day + 1)
       .reduce((sum, order) => sum + order.payout, 0) ?? 0;
     if (tomorrowPayout) addHint(`工坊明天开门结款 ${tomorrowPayout} 元，今晚仍需凑齐船费和饮水。`);
-    if (!sales.length) addHint('手上没有岸商收的自有货。');
-    for (const { item, quote } of sales) {
-      action(help, `卖${item.name} ${quote.bid} 元 · 下站 ${quote.nextBid} 元`, { type: 'sellCargo', day: state.day, itemId: item.id });
-      if (farm?.active && cargoKind(item.id) === floatFarmOrder.kind) {
-        action(help, `交浮田维修班 ${floatFarmOrder.price} 元`, { type: 'deliverFloatFarmSeal', day: state.day, itemId: item.id });
+    if (!sales.length) addHint('手上没有可立刻变现的自有货。');
+    for (const { item, offer, buyer } of sales) {
+      const quote = shipSaleQuote(state.day, item);
+      const label = offer.action.type === 'sellCargo' && quote ? `卖${item.name} ${offer.price} 元 · 下站 ${quote.nextBid} 元`
+        : `卖${item.name} ${offer.price} 元 · ${offer.buyer}`;
+      if (buyer && !buyer.blocked) addHint(`${item.name} · ${buyer.name}出 ${buyer.price} 元 · ${buyer.when}。`);
+      action(help, label, offer.action);
+      if (buyer?.action && buyer.action.type !== 'bookRopeVisit') {
+        action(help, `交${buyer.name} ${buyer.price} 元`, buyer.action);
       }
     }
   }
-  row(stop.name, stop.reason + `第 ${nextDay} 天起换泊${next.name}。`);
+  row(`岸市 · ${stop.name}`, stop.reason + `第 ${nextDay} 天起换泊${next.name}。`).id = 'ship-market';
   if (state.day >= firstOutingDay) {
     const yard = stop.name === '避风修船坞';
     const target = (task: Extract<Action, { type: 'career' }>['task'], choice?: number): Action =>
@@ -1169,7 +1298,7 @@ function renderShip() {
       pier.append(milestones);
       if (yard) boatMaterials.forEach((part, choice) => {
         const bought = state.ledger.some((entry) => entry.description === `船坞采购 · ${part.name}` && entry.day === state.day);
-        action(pier, `买${part.name} ${part.price} 元`, target('buy', choice), bought || state.cash < part.price);
+        action(pier, `买${part.name} ${part.price} 元`, target('buy', choice), bought || state.cash < part.price, part.price);
       });
       const workList = document.createElement('div');
       workList.className = 'boat-work-list';
@@ -1196,7 +1325,7 @@ function renderShip() {
         summary.innerHTML = `<strong>${work.fee ? `工钱 ${work.fee} 元` : '免工钱'} · ${projected.balance >= 0 ? `施工后余 ${projected.balance} 元` : `工钱差 ${-projected.balance} 元`}</strong>
           <span>${projected.missingWater && projected.canDistill ? '制水后' : '施工后'}${projected.gap ? `今晚差 ${projected.gap} 元` : '够付今晚开销'}${projected.missingWater ? ` · 缺 ${projected.missingWater} 日水，买水最低 ${projected.waterSpend} 元${projected.canDistill ? '，或耗 1 次滤芯' : ''}` : ' · 饮水够用'}</span>`;
         step.append(summary);
-        action(step, `确认${work.name}`, target('build', choice), materials.some(({ item }) => !item) || !unlocked || state.cash < work.fee);
+        action(step, `确认${work.name}`, target('build', choice), materials.some(({ item }) => !item) || !unlocked || state.cash < work.fee, work.fee);
       });
       if (boat.complete[2]) action(pier, boat.own ? '今晚回旧港号住' : '今晚搬进自己的船', target(boat.own ? 'mother' : 'home'), boat.hosting);
       if (boat.complete[4]) {
@@ -1212,7 +1341,7 @@ function renderShip() {
           action(berth, '送别补帆工', target('farewell'));
           action(berth, '邀请他留下', target('stay'), !boat.own);
         }
-        if (boat.crew && !boat.mended) action(berth, '付 6 元请他修遮篷', target('mend'), state.cash < 6);
+        if (boat.crew && !boat.mended) action(berth, '付 6 元请他修遮篷', target('mend'), state.cash < 6, 6);
       }
     }
   }
@@ -1231,7 +1360,7 @@ function renderShip() {
     const quote = cargoQuote(state.day, choice);
     const section = row(good.name, `${good.clue}　本站收 ${quote.bid} 元，下站收 ${quote.nextBid} 元。`);
     const bought = state.ledger.some((entry) => entry.itemId === cargoId(state.day, choice));
-    action(section, bought ? '本批已收' : `收${good.name} ${quote.ask} 元`, { type: 'buyCargo', day: state.day, choice }, bought || state.cash < quote.ask);
+    action(section, bought ? '本批已收' : `收${good.name} ${quote.ask} 元`, { type: 'buyCargo', day: state.day, choice }, bought || state.cash < quote.ask, quote.ask);
     for (const item of state.inventory.filter((entry) => cargoKind(entry.id) === choice)) {
       action(section, `卖出 · 成本 ${item.cost} / 收 ${quote.bid} 元`, { type: 'sellCargo', day: state.day, itemId: item.id });
     }
@@ -1618,12 +1747,14 @@ function renderTutorial() {
   tutorialTarget?.classList.remove('tutorial-target');
   tutorialTarget?.removeAttribute('aria-describedby');
   if (contextStep && !visibleGuideTarget(contextStep.target)) contextStep = undefined;
-  tutorialTarget = tutorialStep === 'inspect' ? inspectCounter : tutorialStep === 'trade' ? actions : contextStep?.target ?? null;
+  tutorialTarget = tutorialAcknowledged && tutorialStep ? null
+    : tutorialStep === 'inspect' ? inspectCounter : tutorialStep === 'trade' ? actions : contextStep?.target ?? null;
   tutorialTip.hidden = !tutorialTarget;
   if (!tutorialTarget) return;
   tutorialCopy.textContent = contextStep && !tutorialStep ? contextGuides[contextStep.guide].copy : tutorialStep === 'inspect'
     ? '先点「近看旧航灯」，检查成色和细节。'
     : '看完货，可以报价，也可以谢客。按 H 随时查看玩法。';
+  tutorialCopy.textContent += '点「知道了」收起提示，再操作。';
   tutorialTarget.classList.add('tutorial-target');
   tutorialTarget.setAttribute('aria-describedby', 'tutorial-copy');
   positionTutorial();
@@ -1647,6 +1778,7 @@ function scheduleContextTutorial() {
       ['appointment', jobsContent.querySelector('[data-guide-action="appointment"]:enabled') ? jobsEntry : null],
       ['outing', actions.querySelector('[data-guide-action="outing"]:enabled')],
       ['berth', shipDialog.querySelector('[data-guide-action="berth"]:enabled') ? shipEntry : null],
+      ['ship', state.ship && state.day <= 5 ? shipEntry : null],
     ];
     for (const [guide, target] of candidates) {
       // The planner belongs to the evening just closed. The save already points at the next opening.
@@ -1670,6 +1802,7 @@ function dismissContextTutorial() {
 
 function showTutorialStep(step: 'inspect' | 'trade') {
   tutorialStep = step;
+  tutorialAcknowledged = false;
   renderTutorial();
   const target = step === 'inspect' ? inspectCounter : actions.querySelector('button');
   target?.focus();
@@ -1678,6 +1811,7 @@ function showTutorialStep(step: 'inspect' | 'trade') {
 
 function finishTutorial() {
   tutorialStep = null;
+  tutorialAcknowledged = false;
   renderTutorial();
   try { localStorage.setItem(tutorialKey, 'done'); } catch { /* 仍可关闭本次引导 */ }
 }
@@ -1779,11 +1913,19 @@ inspectDialog.addEventListener('close', () => {
   if (tutorialStep === 'inspect') showTutorialStep('trade');
 });
 rationDialog.addEventListener('close', startTutorial);
+function acknowledgeTutorial() {
+  const target = contextStep?.target ?? (tutorialStep === 'inspect' ? inspectCounter : actions.querySelector('button'));
+  if (contextStep) dismissContextTutorial();
+  else {
+    tutorialAcknowledged = true;
+    renderTutorial();
+  }
+  target?.focus();
+}
+document.querySelector('#ack-tutorial')!.addEventListener('click', acknowledgeTutorial);
 document.querySelector('#skip-tutorial')!.addEventListener('click', () => {
   if (contextStep && !tutorialStep) {
-    const { target } = contextStep;
-    dismissContextTutorial();
-    target.focus();
+    acknowledgeTutorial();
     return;
   }
   const focus = tutorialStep === 'inspect' ? inspectCounter : actions.querySelector('button');
@@ -1798,9 +1940,12 @@ function refreshTutorialPosition() {
 window.addEventListener('resize', refreshTutorialPosition);
 window.addEventListener('scroll', refreshTutorialPosition, { passive: true });
 document.addEventListener('close', scheduleContextTutorial, true);
-// Clear the spotlight before an action rerenders the counter or opens a dialog.
 document.addEventListener('click', (event) => {
-  if (contextStep && !tutorialTip.contains(event.target as Node)) dismissContextTutorial();
+  if (tutorialTip.hidden || tutorialTip.contains(event.target as Node) || document.querySelector('dialog[open]')) return;
+  // Clicking the spotlight acknowledges the guide. A separate click is required to act.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  acknowledgeTutorial();
 }, true);
 document.addEventListener('keydown', (event) => {
   if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
