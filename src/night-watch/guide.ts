@@ -1,5 +1,5 @@
 import { arts, regions } from "./content.ts";
-import { canChallenge, clueCount, patrolRemaining } from "./game.ts";
+import { canChallenge, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive";
@@ -26,14 +26,14 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     const unlearned = arts.findIndex((art, i) => save.drops[i] && !save.ranks[i] && save.realm >= art.realm &&
       !save.guide.dismissed.includes(`learn-${i}`));
     if (unlearned >= 0) return learnTip(unlearned as Region);
-    const brought = [save.kit.shout !== "off", save.kit.step === "tide", save.kit.reveal];
+    const brought = equippedArts(save.kit);
     const learned = save.ranks.findIndex((rank, i) => rank > 0 && !brought[i] && !save.guide.dismissed.includes(`equip-${i}`));
     if (learned >= 0) return equipTip(learned as Region);
-    if (save.dao >= 400 && save.ranks.includes(1) && !save.guide.dismissed.includes("mastery")) {
+    if (save.dao >= masteryCost && save.ranks.includes(1) && !save.guide.dismissed.includes("mastery")) {
       return {
         id: "mastery", title: "精通招式",
         text: "精通会增加招式效果，出招轮次照旧。学习消耗可用道行，累计道行照常保留。",
-        target: { tab: "skills", action: `study:${save.ranks.indexOf(1)}`, label: "查看精通" },
+        target: { tab: "skills", action: `mastery:${save.ranks.indexOf(1)}`, label: "查看精通" },
       };
     }
     if (save.realm >= 3) return insightTip();
@@ -111,8 +111,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
 function learnTip(art: Region): Tip {
   return {
     id: `learn-${art}`, title: `新传承 · ${arts[art].name}`,
-    text: `入门要 ${arts[art].cost} 道行。战果页可直接学会并装备，也可稍后到招式页学。`,
-    target: { tab: "skills", action: `study:${art}`, label: "查看学费" },
+    text: `花 ${arts[art].cost} 道行可修习${arts[art].name}。选「修习并装备」，阿照便会把它带进交锋。`,
+    target: { tab: "skills", action: `art:${art}`, label: "查看招谱" },
   };
 }
 
@@ -120,14 +120,14 @@ function equipTip(art: Region): Tip {
   return {
     id: `equip-${art}`, title: `装上${arts[art].name}`,
     text: `这门${arts[art].kind}在第 ${arts[art].first} 回合出手，此后每隔 ${arts[art].every} 回合再出一招。换招免费，下次交锋生效。`,
-    target: { tab: "skills", action: ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"][art], label: "查看招式" },
+    target: { tab: "skills", action: `art:${art}`, label: "查看招式" },
   };
 }
 
 function stepTip(): Tip {
   return {
     id: "first-step", title: "身法位已开启",
-    text: "舒筋自带退步。学到其他身法后，可以在「招式」里替换它。芦花渡已开放巡夜。",
+    text: "舒筋可带一门身法，阿照先用退步。修习听潮步后，可以在「招式」里换上。",
   };
 }
 

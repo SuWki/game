@@ -432,3 +432,35 @@ footer { color:#6c6554; }
 }
 
 .loot-card .loot-choices button.primary { color:#fff4dd; background:#843e2b; border:1px solid #70321e; }
+
+#panel[data-tab="skills"] { max-width: 830px; margin-inline: auto; }
+.skill-rack { border-bottom: 1px solid #ad9e7c; padding-bottom: 14px; margin-bottom: 14px; }
+.skill-rack h2,.technique-list-title h2,.stance-panel h2 { font-size: 21px; margin: 0; }
+.skill-rack .meta { margin: 6px 0; }
+.skill-slots { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+.skill-slot { display: grid; align-content: center; gap: 3px; min-height: 62px; padding: 5px; text-align: center; color: #503b26; background: #ede1c4; border: 1px solid #a78f69; }
+.skill-slot span { font-size: 12px; }
+.skill-slot strong { font-size: 15px; }
+.skill-slot[data-locked=true] { background: #e2d9c3; border-style: dashed; color: #665d50; }
+.skill-slot:hover,.skill-slot:focus-visible { border-color: #8e442e; background: #f3e5c2; }
+.technique-list-title,.stance-panel { margin-top: 16px; }
+.technique-list-title { margin-bottom: 4px; }
+.technique { border: 1px solid #bca782; padding: 12px; margin: 8px 0; background: #f7eed9; scroll-margin: 12px; }
+.technique[data-worn=true] { border-left: 3px solid #53755e; }
+.technique-head { display: flex; align-items: center; gap: 10px; }
+.technique-head h3 { margin: 0; font: bold 21px "Songti SC",SimSun,serif; }
+.technique-head small { color: #695a44; font-size: 12px; }
+.art-stamp { display: grid; place-items: center; width: 36px; height: 39px; flex: none; font: bold 21px "Songti SC",SimSun,serif; background: #7a4831; color: #fff2d5; border: 2px double #e3c698; }
+.art-status { margin-left: auto; text-align: right; font-size: 13px; color: #6c482d; }
+[data-worn=true] .art-status { color: #315d48; }
+.technique-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; margin: 9px 0; }
+.technique-strip span { display: grid; place-items: center; width: clamp(19px,5vw,26px); height: 24px; border-radius: 2px; font: 600 13px system-ui; color: #615644; background: #e8dec7; }
+.technique-strip .is-due { background: #823f2b; color: #fff6df; }
+.technique-strip small { margin-left: 4px; color: #615644; }
+.technique-actions { margin: 6px 0 0; }
+.technique-actions button { min-height: 44px; }
+.art-mastery { margin-top: 8px; }
+.match-rounds { margin: 6px 0 0; padding: 0; list-style: none; }
+.match-rounds li { display: grid; grid-template-columns: 5em minmax(0,1fr) minmax(0,1fr); gap: 6px; padding: 6px 2px; font-size: 13px; border-top: 1px solid #cabb9d; }
+.match-rounds strong { color: #8a4028; }
+.duel p.duel-moves { color: #ffe3a1; }

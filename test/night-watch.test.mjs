@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
-  previewOpening, recordPatrolKill, startFight, study, tickFight, win,
+  artDue, previewOpening, recordPatrolKill, roundMoves, startFight, study, tickFight, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
@@ -488,4 +488,14 @@ test("渡口同境界有两条胜路，忽视船缆会耗尽二十回合", () =>
   save.ranks[0] = 1;
   assert.equal(duel("risk").result, "won");
   assert.equal(duel("risk").round, 7);
+});
+
+test("招式卡的亮格与河伯战前对照采用相同轮次，卸招后实时更新", () => {
+  const save = newSave(0);
+  save.kit = { stance: "guard", shout: "windup", step: "tide", reveal: true };
+  assert.deepEqual(Array.from({ length: 9 }, (_, i) => i + 1).filter(round => artDue(round, 0)), [3, 6, 9]);
+  assert.deepEqual(roundMoves(1, save.kit, 3), { names: ["镇山喝"], enemy: "回浪", opening: false });
+  assert.deepEqual(roundMoves(1, save.kit, 5).names, ["听潮步", "照影"]);
+  save.kit.shout = "off";
+  assert.deepEqual(roundMoves(1, save.kit, 3).names, []);
 });

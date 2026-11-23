@@ -233,9 +233,11 @@ export function win(save: Save, region: Region, random = Math.random) {
   return { first, drop };
 }
 
+export const masteryCost = 400;
+
 export function study(save: Save, art: Region): boolean {
   const rank = save.ranks[art];
-  const cost = rank === 0 ? arts[art].cost : 400;
+  const cost = rank === 0 ? arts[art].cost : masteryCost;
   if (!save.drops[art] || rank >= 2 || save.dao < cost || save.realm < arts[art].realm) return false;
   save.ranks[art]++;
   save.dao -= cost;
@@ -282,15 +284,22 @@ function moveFor(region: Region, round: number) {
   return patterns[region][(round - 1) % patterns[region].length];
 }
 
-function artDue(round: number, art: Region) {
+export function artDue(round: number, art: Region) {
   const { first, every } = arts[art];
   return round >= first && (round - first) % every === 0;
 }
 
-export function roundPreview(region: Region, kit: Kit, round: number) {
-  const slots = [kit.shout !== "off", kit.step === "tide", kit.reveal];
-  const names = arts.filter((_, i) => slots[i] && artDue(round, i as Region)).map(art => art.name);
-  return `第 ${round} 轮 · ${[...names, "短刀"].join("、")} / ${moveFor(region, round).name}${decisionDue(region, round) ? " · 可应变" : ""}`;
+export function equippedArts(kit: Kit) {
+  return [kit.shout !== "off", kit.step === "tide", kit.reveal] as const;
+}
+
+export function roundMoves(region: Region, kit: Kit, round: number) {
+  const equipped = equippedArts(kit);
+  return {
+    names: arts.filter((_, i) => equipped[i] && artDue(round, i as Region)).map(art => art.name),
+    enemy: moveFor(region, round).name,
+    opening: decisionDue(region, round),
+  };
 }
 
 export function answerOpening(f: Fight, choice: Response) {
@@ -342,7 +351,7 @@ function resolveRound(f: Fight) {
     }
   }
   if (shout) {
-    if (interrupted) marks.push("镇山喝截" + move.name);
+    marks.push(interrupted ? "镇山喝截" + move.name : "镇山喝出手");
     const extra = interrupted && f.ranks[0] === 2 ? 12 : 0;
     const echo = interrupted && f.loadout.weapon === "pineBlade" ? traits.pineBlade.amount : 0;
     if (echo) marks.push("松纹刀 +" + echo);
