@@ -328,3 +328,70 @@ footer { justify-content: flex-end; font-size: 11px; }
 }
 
 #loot-strip { background: #1b3031; padding-top: 0; border: 0; }
+
+/* 山道与随身行装。出刀的位置不随拾取和换装移动。 */
+:root { --paper: #f2ead6; --ink: #37362d; --red: #913c31; }
+body { background: #e7e0cc; color: #36392f; }
+#night-watch { max-width: 1260px; }
+.masthead { border-bottom: 1px solid #998e73; margin-bottom: 12px; min-height: 83px; }
+.identity h1 { letter-spacing: .045em; }
+.subtitle { color: #6c6452; }
+.ledger .cultivation strong,.ledger strong { color: #793e2c; }
+.cultivation small { color: #635b4d; }
+.motion { background: transparent; color: #574a39; border-color: #a89d81; }
+.theatre { border: 0; box-shadow: none; background: transparent; min-width: 0; }
+.road { color: #f3e9d2; border: 1px solid #524e40; background: #192c2d; min-width: 0; }
+.stage { height: clamp(290px,47dvh,490px); }
+.stage .chapter { letter-spacing: .20em; }
+.case-link { border: 0; border-left: 2px solid #dfb270; padding: 6px 11px; }
+.satchel { min-width: 0; border-top: 3px solid #705944; }
+#outfit, #loot-strip, #home-guide { background: transparent; color: var(--ink); border: 0; box-shadow: none; }
+#outfit { padding: 12px 0 6px; }
+#outfit header strong { color: #423c30; font-size: 20px; }
+#outfit header span,.outfit-moves span { color: #625c4f; }
+.outfit-slot { background: #f4ecd9; border: 0; border-bottom: 2px solid #ab9875; color: #443e31; }
+.outfit-slot:hover,.outfit-slot[aria-expanded=true] { background: #e9d8b5; border-color: #8b5138; }
+.outfit-slot small { color: #716550; }
+.outfit-slot .empty { opacity: .75; background: #d7cbb2; }
+.outfit-slot .empty::after { background: #796d58; }
+.outfit-moves { border-bottom: 1px solid #b9ad91; }
+.outfit-moves button { color: #813a29; }
+#loot-strip { padding: 5px 0; }
+#gear-find { background: #faf3e1; border: 0; border-left: 3px solid #a25e37; color: #532f21; gap: 6px; }
+#gear-find span, #gear-find small { color:#524a3a; }
+#gear-find strong { font: bold 18px "Songti SC",SimSun,serif; }
+#gear-find > div:last-child { margin-left: 0; }
+#gear-find button + button { color: #584e3b; }
+#home-guide { padding: 5px 0; }
+.margin-note { padding: 7px 0; font-size: 14px; }
+.margin-note p { font-size: 14px; margin: 0; }
+.margin-note button { background: transparent; border: 0; text-decoration: underline; color: #753a29; padding: 6px; }
+#pack-sheet { width: min(490px,calc(100% - 24px)); max-height: 80dvh; padding: 16px; color: var(--ink); }
+#pack-sheet::backdrop { background: #0e1d22a8; }
+#pack-sheet h2 { margin: 0; }
+#pack-sheet .outfit-picker { padding: 0; background: transparent; }
+.stage[data-boss=true] { height: clamp(200px,34dvh,340px); }
+.theatre:has(.stage[data-boss=true]) .satchel { display:none; }
+.nav { position:static; background:transparent; border:0; border-bottom:1px solid #a39579; gap:0; padding:0; grid-row:1; color:#514832; }
+.nav button[aria-current] { color:#893d2b; background:transparent; border:0; border-bottom:2px solid #893d2b; }
+.nav button:hover { background:#dcd1b6; }
+footer { color:#6c6554; }
+.flash { bottom:18px; max-width:90vw; }
+@media(min-width:820px) {
+  .theatre:not(:has(.stage[data-boss=true])) { display:grid; grid-template-columns:minmax(0,2.45fr) minmax(240px,1fr); align-items:start; gap:22px; }
+  .outfit-slots { display:flex; flex-direction:column; gap:0; }
+  .outfit-slot { background: transparent; padding: 5px 2px; border-bottom:1px solid #b5a98f; }
+  .outfit-slot span { display:flex; flex:1; align-items:center; justify-content:space-between; padding-right:5px; }
+}
+@media(max-width:819px) {
+  .masthead { margin-bottom: 5px; min-height:66px; }
+  .stage { height:clamp(174px,32dvh,300px); }
+  .satchel { border:0; }
+  .patrol-controls { padding:8px 10px; gap:4px; }
+  .task-note { min-height:39px; }
+  #outfit { padding:8px 0 2px; }
+  .outfit-slot { min-height:46px; }
+  .outfit-moves button { min-height:36px; }
+  .nav { grid-row:1; }
+  #pack-sheet { margin:auto auto 0; width:min(520px,100%); max-width:100%; padding-bottom:max(16px,env(safe-area-inset-bottom)); }
+}

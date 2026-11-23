@@ -144,7 +144,7 @@ test("离线最多八小时，仅入账道行，同一时间点不会重复到�
   assert.equal(accrueOffline(structuredClone(save), now).earned, 0);
   save.victories[0] = 1;
   save.autoPatrol = true;
-  assert.equal(accrueOffline(save, now).earned, 27000);
+  assert.equal(accrueOffline(save, now).earned, 400);
   const loaded = decode(JSON.stringify(save), now);
   assert.equal(accrueOffline(loaded, now).earned, 0);
   assert.equal(accrueOffline(loaded, 800).elapsed, 0);
@@ -282,6 +282,8 @@ test("累计道行逐层自动升级，支出学费不回退，离线可跨境�
   save.drops[0] = true;
   study(save, 0);
   assert.equal(save.lifetimeDao, 130);
+  save.region = 2;
+  save.victories = [1, 1, 0];
   save.autoPatrol = true;
   accrueOffline(save, 8 * 3600000);
   assert.deepEqual(cultivation(save.lifetimeDao), { realm: 3, layer: 10, full: true, progress: 60, needed: 60 });
@@ -293,10 +295,11 @@ test("旧档补计学费和突破支出，已穿装备保留，掉落提醒刷�
   const save = decode(JSON.stringify(old), 0);
   assert.equal(save.lifetimeDao, 204);
   assert.equal(save.loadout.weapon, "pineBlade");
+  save.region = 1;
   recordPatrolKill(save, () => 0);
   const restored = decode(JSON.stringify(save), 0);
-  assert.deepEqual(restored.newGear, ["hillCoat"]);
-  assert.equal(restored.lifetimeDao, 206);
+  assert.deepEqual(restored.newGear, ["ferryCoat"]);
+  assert.equal(restored.lifetimeDao, 207);
 });
 
 test("松纹刀须成功截招，山行衣须守式实际架住重击", () => {
@@ -343,4 +346,53 @@ test("照影持续轮触发烛影刀和护灯袍，单靠听息辨真与挑灯�
   save.kit.reveal = false;
   const lamp = playRounds(startFight(save, 2, true), 3, { 2: "safe" });
   assert.doesNotMatch(lamp.log.join(" "), /烛影刀|护灯袍/);
+});
+
+test("巡夜最后一刀只给剩余额度，学招、换回旧地图及刷新均不会重开收益", () => {
+  for (const [region, cap] of [[0,108], [1,400], [2,1370]]) {
+    const save = newSave(0);
+    save.region = region;
+    save.victories = [1, 1, 0];
+    earnDao(save, cap - 1);
+    save.autoPatrol = true;
+    assert.equal(recordPatrolKill(save, () => 1).reward, 1);
+    assert.equal(save.autoPatrol, false);
+    assert.equal(clueCount(save), 3);
+    assert.equal(canChallenge(save, region), true);
+    save.drops[0] = true;
+    study(save, 0);
+    const restored = decode(JSON.stringify(save), 0);
+    assert.equal(recordPatrolKill(restored, () => 0).reward, 0);
+    assert.equal(restored.kills[region], 1);
+    restored.region = 0;
+    assert.equal(recordPatrolKill(restored).reward, 0);
+    assert.equal(restored.lifetimeDao, cap);
+  }
+});
+test("离线扫清可寻到首领，打赢后补获遗漏的本地装备", () => {
+  const save = newSave(0);
+  save.victories[0] = 1;
+  save.region = 1;
+  save.autoPatrol = true;
+  earnDao(save, 395);
+  assert.equal(accrueOffline(save, 3600000).earned, 5);
+  assert.equal(save.autoPatrol, false);
+  assert.equal(canChallenge(save, 1), true);
+  assert.equal(win(save, 1).recovered, "ferryCoat");
+  assert.equal(win(save, 1).recovered, "reedBlade");
+  assert.equal(win(save, 1).recovered, undefined);
+});
+
+test("超出黑风岭上限的老存档保留境界和余额，载入后停止夜行", () => {
+  const save = newSave(0);
+  earnDao(save, 670);
+  save.victories[0] = 1;
+  save.autoPatrol = true;
+  const restored = decode(JSON.stringify(save), 3600000);
+  assert.equal(restored.autoPatrol, false);
+  assert.equal(restored.realm, 2);
+  assert.equal(accrueOffline(restored, 3600000).earned, 0);
+  assert.equal(restored.dao, 670);
+  assert.equal(restored.lifetimeDao, 670);
+  assert.equal(restored.kills[0], 0);
 });

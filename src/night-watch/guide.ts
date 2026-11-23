@@ -1,5 +1,5 @@
 import { arts, regions } from "./content.ts";
-import { canChallenge, clueCount } from "./game.ts";
+import { canChallenge, clueCount, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive";
@@ -44,12 +44,19 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     if (save.realm === 3) return insightTip();
     if (save.realm === 1 && !save.kills[1]) return {
       ...stepTip(),
-      target: { tab: "patrol", action: "region:1", label: "返回巡夜手札" },
+      target: { tab: "patrol", action: "region:1", label: "前往芦花渡" },
     };
     return;
   }
   if (tab !== "patrol") return;
 
+  if (!patrolRemaining(save)) {
+    const next = save.region + 1;
+    const won = save.victories[save.region] > 0;
+    return { id: `swept-${save.region}-${won}`, title: "小妖已扫清",
+      text: won && next < regions.length ? `该往${regions[next].name}走了。` : won ? "旧案可重演，还能寻回漏下的装备。" : `${regions[save.region].boss}的踪迹已经找齐。`,
+      target: { tab: "patrol", action: won && next < regions.length ? `region:${next}` : `fight:${save.region}`, label: won && next < regions.length ? "前往" + regions[next].name : (won ? "重演" : "挑战") + regions[save.region].boss } };
+  }
   if (!save.victories[0]) {
     if (canChallenge(save, 0)) return {
       id: "first-boss", title: "初次问妖",
@@ -57,11 +64,11 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       target: { tab: "skills", action: "preview", label: "查看山君招谱" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
-      return { id: "first-gear", title: "拾到装备", text: "点掉落卡穿戴，或点主画面的对应装备槽。兵刃加刀伤，护具加气血。",
+      return { id: "first-gear", title: "拾到装备", text: "捡到的装备可以当场穿。先收好，以后点部位也能换。",
         target: { tab: "patrol", action: "slot:" + (save.ownedGear.includes("pineBlade") ? "weapon" : "armor"), label: "查看装备槽" } };
     }
-    return { id: "click-patrol", title: "提灯夜行", text: "点「夜行」找一只小妖。阿照会一刀斩落，攒下道行和线索。找齐三条即可挑战山君。",
-      target: { tab: "patrol", action: "hunt", label: "找到夜行按钮" } };
+    return { id: "click-patrol", title: "提灯夜行", text: "提灯上山。斩满十二只小妖，就能找到山君。",
+      target: { tab: "patrol", action: "hunt", label: "提灯夜行" } };
   }
   if (!save.victories[1]) {
     if (!save.ranks[0] && save.drops[0] && !save.guide.dismissed.includes("learn-0")) return learnTip(0);
@@ -69,11 +76,11 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     if (!save.autoPatrol && !save.guide.dismissed.includes("auto-patrol")) return {
       id: "auto-patrol", title: "自动夜行已解锁",
       text: "点一次即可持续寻妖、拾取掉落和推进线索。再点一次可切回手动。",
-      target: { tab: "patrol", action: "auto-patrol", label: "找到自动夜行" },
+      target: { tab: "patrol", action: "auto-patrol", label: "开启自动夜行" },
     };
     if (save.region === 0 && !save.kills[1]) return {
       id: "ferry-road", title: "去芦花渡夜行", text: "渡口每只小妖给 3 道行。收集线索，准备挑战河伯。",
-      target: { tab: "patrol", action: "region:1", label: "找到渡口入口" },
+      target: { tab: "patrol", action: "region:1", label: "前往芦花渡" },
     };
     if (save.region === 1 && canChallenge(save, 1)) return {
       id: "river-preview", title: "看一眼回浪的轮次",
@@ -89,7 +96,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     if (save.region === 1 && !save.kills[2]) return {
       id: "temple-road", title: "去白烛庙查案",
       text: "河伯首胜已开庙街。到庙街斩妖可攒下入听息所需的道行，查齐线索后再挑战娘娘。",
-      target: { tab: "patrol", action: "region:2", label: "找到庙街入口" },
+      target: { tab: "patrol", action: "region:2", label: "前往白烛庙" },
     };
     if (save.realm === 3 && save.region === 2 && clueCount(save) < 3) return insightTip();
   }
@@ -104,8 +111,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
 function learnTip(art: Region): Tip {
   return {
     id: `learn-${art}`, title: `新传承 · ${arts[art].name}`,
-    text: `花 ${arts[art].cost} 可用道行学习，再装备就能在战斗中自动释放。`,
-    target: { tab: "skills", action: `study:${art}`, label: "找到学习入口" },
+    text: `入门要 ${arts[art].cost} 道行。战果页可直接学会并装备，也可稍后到招式页学。`,
+    target: { tab: "skills", action: `study:${art}`, label: "查看学费" },
   };
 }
 
@@ -113,7 +120,7 @@ function equipTip(art: Region): Tip {
   return {
     id: `equip-${art}`, title: `装上${arts[art].name}`,
     text: `这门${arts[art].kind}首发第 ${arts[art].first} 轮，每隔 ${arts[art].every} 轮自动施放。换招免费，下次交锋生效。`,
-    target: { tab: "skills", action: ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"][art], label: "找到装配入口" },
+    target: { tab: "skills", action: ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"][art], label: "查看招式" },
   };
 }
 

@@ -14,7 +14,7 @@ export const arts = [
 
 export const regions = [
   {
-    name: "黑风岭", place: "山路", tag: "青芦村北",
+    name: "黑风岭", patrolCap: 108, place: "山路", tag: "青芦村北",
     title: "沾着灯油的虎毛", intro: "取灯油的挑夫三天没回村。师父把灯交给阿照时，只说了句：山道上，先听再走。",
     cleared: "挑油人提着两只木桶下了山。岭上那盏守路灯，今晚又亮了。",
     clues: ["石阶上的断爪印", "带血的夹齿", "虎毛上的灯油"], thresholds: [3, 7, 12],
@@ -23,7 +23,7 @@ export const regions = [
     reward: 2, patrolInterval: 4000, chapter: "山门灯",
   },
   {
-    name: "芦花渡", place: "渡口", tag: "青芦村东",
+    name: "芦花渡", patrolCap: 400, place: "渡口", tag: "青芦村东",
     title: "渡口的第三声铃", intro: "陆婆把断篙递来。她昨夜听见沉船底下，有人应了第三声。",
     cleared: "陆婆解开了系了七年的缆绳。村里的灯火，第一次随渡船过了河。",
     clues: ["断裂的篙头", "船板上的湿手印", "水底的铃声"], thresholds: [24, 58, 100],
@@ -32,7 +32,7 @@ export const regions = [
     reward: 3, patrolInterval: 3200, chapter: "水底铃",
   },
   {
-    name: "白烛庙", place: "庙街", tag: "青芦村南",
+    name: "白烛庙", patrolCap: 1370, place: "庙街", tag: "青芦村南",
     title: "没有名字的木牌", intro: "石生说，庙里供了七年的无字牌，近来学会了开口。它每晚换一副声音。",
     cleared: "陆婆提笔写下「阿满」。石生把借来的灯一盏一盏送回各家。",
     clues: ["借名帖", "倒流的蜡", "缺一角的无字牌"], thresholds: [36, 84, 140],

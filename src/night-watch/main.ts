@@ -7,7 +7,7 @@ import { nextTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
 import {
   accrueOffline, answerOpening, canChallenge, clueCount, combatStats, cultivation, decode, frame, maxRounds, newSave,
-  rate, recordPatrolKill, roundPreview, saveKey, startFight, study, tickFight, unlocked, win,
+  patrolRemaining, rate, recordPatrolKill, roundPreview, saveKey, startFight, study, tickFight, unlocked, win,
 } from "./game.ts";
 import type { Fight, Kit, Region, Save } from "./game.ts";
 
@@ -24,7 +24,7 @@ let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
 let result: { region: Region; won: boolean; report: string[]; reason?: string; first?: boolean; drop?: boolean;
-  round: number; life: number; hp: number; turningPoint?: string } | null = null;
+  recovered?: GearId; round: number; life: number; hp: number; turningPoint?: string } | null = null;
 let notice = "";
 let rest = regions[0].patrolInterval - 500;
 let previousFrame = performance.now();
@@ -50,9 +50,9 @@ root.innerHTML = `
   </header>
   <main class="layout">
     <div class="theatre">
-      <section class="stage" aria-label="巡夜战场">
+      <div class="road"><section class="stage" aria-label="巡夜战场">
         <div class="scenery"></div><div class="shade"></div>
-        <div class="stage-top"><div><small class="chapter">青芦村 · 巡夜地</small><div id="place" class="place"></div></div><span class="mode" id="mode"></span></div>
+        <div class="stage-top"><div><small class="chapter">青芦夜话</small><div id="place" class="place"></div></div><span class="mode" id="mode"></span></div>
         <button class="case-link" data-action="journal"><small id="case-progress"></small><strong id="case-name"></strong><span aria-hidden="true"> ›</span></button>
         <button class="retreat" data-action="retreat" hidden>撤退</button>
         <img class="world-prop" alt="" hidden>
@@ -71,29 +71,31 @@ root.innerHTML = `
         <button type="button" data-action="auto-patrol" aria-pressed="false" hidden>自动夜行</button>
         <button type="button" data-action="fight:0" id="challenge" hidden>挑战吊睛山君</button></div>
       </div>
-      <section id="outfit" aria-label="随身装备"></section>
+      <div class="field-note"><span>巡簿</span><div id="report"></div></div></div>
+      <div class="satchel"><section id="outfit" aria-label="随身装备"></section>
       <div id="loot-strip" class="patrol-controls" hidden><div id="gear-find" role="status" hidden></div></div>
-      <div class="field-note"><span>战报</span><div id="report"></div></div>
-      <div id="home-guide" class="paper" hidden></div>
+
+      <div id="home-guide" class="paper" hidden></div></div>
     </div>
-    <section id="book" hidden><button class="back" type="button" data-action="home">‹　返回巡夜</button>
+    <section id="book" hidden><button class="back" type="button" data-action="home">‹　回山道</button>
     <aside id="panel" class="paper" aria-label="巡夜手札"></aside></section>
     <nav aria-label="巡夜手札目录" class="nav">${Object.entries(tabs).filter(([key]) => key !== "practice").map(([key, label]) => `<button data-action="tab:${key}">${label}</button>`).join("")}</nav>
     <footer><span id="status">正在载入</span></footer>
   </main>
+  <dialog id="pack-sheet" class="paper" aria-labelledby="pack-title"><div class="guide-head"><h2 id="pack-title"></h2><form method="dialog"><button>收起</button></form></div><div id="pack-list"></div></dialog>
   <div id="flash" class="flash" role="status" hidden></div>
   <dialog id="help" class="paper help" aria-labelledby="help-title">
     <div class="guide-head"><h2 id="help-title">巡夜指引</h2><form method="dialog"><button type="submit">关闭</button></form></div>
     <button data-action="motion" class="motion" type="button">动效</button><p id="guide-current"></p>
     <button type="button" data-action="guide-toggle"></button>
     <div class="help-topics">
-      <details><summary>夜行与线索</summary><p>点「夜行」找一只小妖，一刀斩落。收齐三条线索并满足境界要求后，可挑战当地大妖。首次击败吊睛山君后可自行开启「自动夜行」。</p></details>
-      <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。掉落卡可以直接穿戴或先收好。巡夜下方点兵刃、护具或佩饰可比较、更换装备，每槽可装一件，属性和回合效果会带入下一场大妖战。</p></details>
+      <details><summary>夜行与线索</summary><p>点「提灯夜行」出刀。收齐三条线索并满足境界要求后，可挑战当地大妖。首次击败吊睛山君后可自行开启「自动夜行」。</p></details>
+      <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。掉落卡可以直接穿戴或先收好。点随身装备中的一个部位，打开比较单。选「穿戴」即换装并收起，点「收起」返回。每槽可装一件，属性和回合效果会带入下一场大妖战。</p></details>
       <details><summary>挑战与战报</summary><p>在「招式」可查看前六轮招谱。山君第 3 回合放虎啸时会暂停。低头防守最多扣 4 点气血，抢先砍一刀能多打 12 点，正常出招会保留应变次数。每战能用两次特殊应对，也可以正常出招并保留次数。武学、身法与神通始终按谱释放。重演默认自动战斗，可在战场切换。败阵后可看逐轮战报，免费再战。</p></details>
       <details><summary>观化、学习与装备</summary><p>首次战胜山君会觉醒观化。此后击败大妖有机会悟得招谱。先花道行学到入门，再装备才会出招。精通增强效果，首发轮和间隔照旧。</p></details>
       <details><summary>道行与破境</summary><p>每境十层，累计获得道行就会自动升级。学招只花可用道行。舒筋开身法位，贯劲可在架住重击后反击，听息开神通位。</p></details>
       <details><summary>换路、重演与保底</summary><p>在「斩妖录」切换巡夜地，或重演已击败的大妖。河伯和娘娘各自最多第五胜悟得传承，败阵不计入。</p></details>
-      <details><summary>离线结算</summary><p>开启自动夜行后，离开期间可按当前地点的速率积攒道行，最多八小时。装备、击杀与线索在在线夜行时结算。</p></details>
+      <details><summary>离线结算</summary><p>开启自动夜行后，离线最多计八小时，到本地修行上限就收灯。扫清时显出大妖踪迹，可直接挑战。重演已扫清的大妖能找回漏掉的本地装备。</p></details>
     </div>
   </dialog>`;
 
@@ -122,6 +124,11 @@ function title(kicker: string, heading: string, intro: string): string {
 }
 
 function costText(cost: number): string {
+  const missing = cost - save.dao;
+  if (missing > patrolRemaining(save)) {
+    const next = regions[save.region + 1];
+    return next ? `还差 ${integer(missing)} 道行，需到${next.name}继续修行。` : `还差 ${integer(missing)} 道行，首卷剩余的巡夜道行不足。`;
+  }
   if (save.dao < cost && !save.autoPatrol) {
     return `还差 ${integer(cost - save.dao)} 道行，至少再斩 ${Math.ceil((cost - save.dao) / regions[save.region].reward)} 只小妖`;
   }
@@ -144,20 +151,24 @@ function patrolPanel(): string {
       result.won ? (result.first ? cleared.cleared : "阿照在灯下重演了那一夜。") : escape(result.reason ?? "")) +
       (awakening ? '<p class="intro"><strong>天赋初醒 · 观化</strong><br>虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。</p>' : "") +
       (result.won ? `<p class="prize">${prize}</p>` : "") +
+      (result.recovered ? `<p>寻回 · ${equipment[result.recovered].name}</p>` : "") +
       (result.first ? `<p class="prize">首胜佩饰 · ${equipment[bossEquipment[result.region]].name}</p>` : "") +
-      (awakening ? '<p class="meta">已解锁自动夜行。点击战场下方「自动夜行」即可开启。</p>' : "") +
+      (awakening ? '<p class="meta">回山道后可开启自动夜行，达到本地上限就会收灯。</p>' : "") +
       (result.turningPoint ? `<p><strong>最后一次应变</strong><br>${escape(result.turningPoint)}</p>` : "") +
       `<p class="meta">第 ${result.round} 回合结束 · 阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
       <details data-remember="report"><summary>交锋详情</summary><ul class="log">${result.report.map(line => `<li>${escape(line)}</li>`).join("")}</ul></details><div class="actions">` +
-      (result.drop ? button("tab:skills", "查看传承", false, awakening || !result.first || nextRegion === 3) : "") +
-      (result.first ? button("reward-gear", "查看首胜佩饰") : "") +
+      (result.drop && save.ranks[result.region] === 0 && save.realm >= arts[result.region].realm && save.dao >= arts[result.region].cost ?
+        button("learn-equip:" + result.region, `学会并装备${arts[result.region].name} · ${arts[result.region].cost} 道行`, false, true) :
+        result.drop ? button("tab:skills", "查看" + arts[result.region].name) : "") +
+      (result.first && save.loadout.charm !== bossEquipment[result.region] ? button("equip:" + bossEquipment[result.region], "戴上" + equipment[bossEquipment[result.region]].name) : "") +
       (result.first && nextRegion < 3 ? button(`region:${nextRegion}`, `去${regions[nextRegion].name}`, !!fight, !awakening) : "") +
       (!result.won ? button(`fight:${result.region}`, "再战", !ready || !!fight, true) + button("tab:skills", "调整招式") : "") +
       button("dismiss", "回到巡夜") + "</div>";
   }
   if (!save.victories[0]) {
     return title(location.tag, location.title, location.intro) +
-      `<p class="meta">山君踪迹 · ${Math.min(save.kills[0], 12)} / 12 只小妖</p>` +
+      (patrolRemaining(save) ? `<p class="meta">山君踪迹 · ${Math.min(save.kills[0], 12)} / 12 只小妖</p>` : '<p>此地小妖已扫清，山君现身了。</p>') +
+      (canChallenge(save, 0) ? button("fight:0", "挑战" + location.boss, !ready || !!fight, true) : "") +
       (clues ? `<p>最近线索 · ${location.clues[clues - 1]}</p>` : "");
   }
   const done = save.victories[save.region] > 0;
@@ -174,7 +185,7 @@ function patrolPanel(): string {
     : `<p class="kill-progress">本地已斩妖 ${integer(kills)} 只</p>`;
   return title(location.tag, location.title, done ? location.cleared : location.intro) +
     `<div class="clues-label"><strong>线索</strong><span>${clues} / 3</span></div><ul class="clues">${known}</ul>${killProgress}
-    ${hint ? `<p class="meta">${hint}</p>` : ""}<p class="meta">本地掉落 · ${save.region + 1} 阶装备</p><div class="actions">` +
+    ${hint ? `<p class="meta">${hint}</p>` : ""}<p class="meta">${patrolRemaining(save) ? "此地修行止于" + realmLabel(location.patrolCap) : "此地小妖已扫清"} · ${save.region + 1} 阶装备</p><div class="actions">` +
     (done && save.region < 2 ? button(`region:${save.region + 1}`, `去${regions[save.region + 1].name}`, !ready || !!fight, true) : "") +
     button(`fight:${save.region}`, `${done ? "重演" : "挑战"}${location.boss}`, !ready || !!fight || !canChallenge(save, save.region), !done || save.region === 2) +
     "</div>";
@@ -234,7 +245,7 @@ function synergy(id: GearId) {
     : id === "reedBlade" ? save.kit.step === "tide" && save.ranks[1] > 0
     : id === "hillCoat" ? save.kit.stance === "guard"
     : id === "ferryCoat" ? save.realm >= 1 : save.kit.reveal && save.ranks[2] > 0;
-  return `<small class="affinity">${enabled ? "当前配招可触发" : "当前配招未启用"} · ${trait}</small>`;
+  return `<small class="affinity">${enabled ? "已配" : "待配"} · ${trait}</small>`;
 }
 
 function outfitPanel() {
@@ -246,11 +257,13 @@ function outfitPanel() {
       ${itemIcon(slot, id)}<span><small>${slots[slot]}${item ? " · " + item.level + " 阶" : ""}</small><b>${item ? item.name : "空槽"}</b></span></button>`;
   }).join("");
   const moves = [save.kit.stance === "guard" ? "守式" : "攻式", save.kit.shout !== "off" ? arts[0].name : "", save.kit.step === "tide" ? arts[1].name : "", save.kit.reveal ? arts[2].name : ""].filter(Boolean);
-  const header = `<header><strong>随身装备</strong><span>刀伤 ${stats.damage}　气血 ${stats.life}</span></header>
+  const header = `<header><strong>阿照的行装</strong><span>刀伤 ${stats.damage}　气血 ${stats.life}</span></header>
     <div class="outfit-slots">${rack}</div>`;
-  const skills = clueCount(save, 0) === 3 ? `<div class="outfit-moves"><span>${moves.join(" · ")}</span>${button("tab:skills", "调整配招 ›")}</div>` : "";
-  if (!openSlot) return header + skills;
-  const slot = openSlot;
+  return header + (clueCount(save, 0) === 3 ? `<div class="outfit-moves"><span>${moves.join(" · ")}</span>${button("tab:skills", "换招 ›")}</div>` : "");
+}
+
+function slotContents(slot: GearSlot) {
+  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer);
   const active = save.loadout[slot];
   const items = save.ownedGear.filter(id => equipment[id].slot === slot).sort((a,b) => equipment[b].level - equipment[a].level);
   const list = items.map(id => {
@@ -261,7 +274,7 @@ function outfitPanel() {
     return `<li>${itemIcon(slot, id)}<div><b>${item.name}</b><small>${item.level} 阶${active === id ? " · 已穿戴" : ""}</small><p>${item.effect}${diff}</p>${synergy(id)}</div>
       ${active === id ? button("unequip:" + id, "卸下") : button("equip:" + id, "穿戴")}</li>`;
   }).join("");
-  return header + `<div class="outfit-picker"><strong>${slots[slot]} · ${slotNotes[slot]}</strong>${list ? `<ul>${list}</ul>` : `<p>${slot === "charm" ? "击败吊睛山君，取得第一枚佩饰。" : "夜行时，小妖有机会掉落这个部位的装备。"}</p>`}</div>` + skills;
+  return `<div class="outfit-picker"><small>${slotNotes[slot]}</small>${list ? `<ul>${list}</ul>` : `<p>${slot === "charm" ? "击败吊睛山君，取得第一枚佩饰。" : "夜行时，小妖有机会掉落这个部位的装备。"}</p>`}</div>`;
 }
 
 function archivePanel(): string {
@@ -270,7 +283,7 @@ function archivePanel(): string {
       const id = i as Region;
       const access = unlocked(save, id);
       const wins = save.victories[id];
-      const progress = wins ? save.drops[id] ? "传承已悟得" : `距必得至多 ${5 - wins} 胜`
+      const progress = access && !patrolRemaining(save, id) ? "小妖已扫清" : wins ? save.drops[id] ? "传承已悟得" : `距必得至多 ${5 - wins} 胜`
         : access ? `线索 ${clueCount(save, id)} / 3` : `先击败${regions[id - 1]?.boss}`;
       return `<section class="art"><div class="section-title"><strong>${region.name}</strong><span>${region.chapter}</span></div>
         <p class="meta">${progress}</p><div class="choices">${button(`region:${id}`, "去巡夜", !ready || !access || !!fight)}
@@ -282,7 +295,8 @@ function paintHelp() {
   const toggle = help.querySelector<HTMLButtonElement>("[data-action=guide-toggle]")!;
   toggle.textContent = save.guide.enabled ? "关闭自动提示" : "开启自动提示";
   toggle.disabled = !ready || !!pending;
-  changedText("#guide-current", save.guide.enabled ? "首次遇到新玩法时，手札会显示当前指引。" : "自动提示已关闭。这里的指引可以随时查看。");
+  const tip = nextTip({ ...save, guide: { ...save.guide, enabled: true, dismissed: [] } }, tab, result);
+  changedText("#guide-current", fight?.boss ? "敌招起手时看战场下方。可花一次应变，也可保留次数。" : tip?.text ?? "点境界看道行，点装备部位换装。");
 }
 
 function guideCard(tip: Tip) {
@@ -301,7 +315,7 @@ function paintPanel() {
     : !ready && waiting !== "另一页正在巡夜，此页可查阅巡簿" ? title("青芦夜话", "巡簿", waiting)
       : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel }[tab]();
   const inBook = !!pending || !ready || tab !== "patrol" || journal || !!result;
-  const homeTip = !inBook && currentTip;
+  const homeTip = !inBook && patrolRemaining(save) > 0 && !save.newGear.length && currentTip;
   const outfit = element("#outfit");
   outfit.hidden = inBook || !!fight?.boss;
   if (!outfit.hidden) {
@@ -313,15 +327,22 @@ function paintPanel() {
       if (action) (outfit.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? outfit.querySelector<HTMLElement>(`[data-action="slot:${openSlot}"]`))?.focus({ preventScroll: true });
     }
   }
+  if (openSlot && !outfit.hidden && !pending) {
+    changedText("#pack-title", slots[openSlot]);
+    const list = element("#pack-list");
+    const markup = slotContents(openSlot);
+    if (list.dataset.html !== markup) { list.innerHTML = markup; list.dataset.html = markup; }
+  } else if (packSheet.open) packSheet.close();
   const guide = element("#home-guide");
   guide.hidden = !homeTip;
-  const tipHtml = homeTip ? guideCard(homeTip) : "";
+  const tipHtml = homeTip ? `<div class="margin-note"><p>${homeTip.text}</p>
+    ${homeTip.target ? button("guide-jump", homeTip.target.label) : ""}${button("guide-dismiss", "知道了")}</div>` : "";
   if (guide.dataset.tip !== tipHtml) { guide.innerHTML = tipHtml; guide.dataset.tip = tipHtml; }
   element(".theatre").hidden = inBook;
   element("#book").hidden = !inBook;
   element(".back").hidden = !!pending || !ready;
   element<HTMLButtonElement>(".cultivation").disabled = !!fight?.boss || !ready || !!pending;
-  const html = (inBook && currentTip ? guideCard(currentTip) : "") + body;
+  const html = (inBook && currentTip && !(result?.won && tab === "patrol") ? guideCard(currentTip) : "") + body;
   if (html !== renderedPanel) {
     const scroll = panel.scrollTop;
     const openDetails = [...panel.querySelectorAll<HTMLDetailsElement>("details[open][data-remember]")].map(item => item.dataset.remember);
@@ -358,7 +379,7 @@ function paintPanel() {
 function paintPatrolControls() {
   const locked = !ready || !!pending || document.hidden;
   hunt.disabled = locked || !!fight || save.autoPatrol;
-  autoPatrol.hidden = !save.victories[0];
+  autoPatrol.hidden = !save.victories[0] || !patrolRemaining(save);
   autoPatrol.disabled = locked || !!fight?.boss;
   autoPatrol.setAttribute("aria-pressed", String(save.autoPatrol));
   const region = regions[save.region];
@@ -371,17 +392,19 @@ function paintPatrolControls() {
   element(".patrol-controls").hidden = !!fight?.boss;
   changedText("[data-action=auto-patrol]", save.autoPatrol ? "停止自动" : "自动夜行");
   const challenge = element<HTMLButtonElement>("#challenge");
-  challenge.hidden = done || !canChallenge(save, save.region) || !!fight?.boss;
-  challenge.dataset.action = "fight:" + save.region;
-  changedText("#challenge", "挑战" + region.boss);
+  const swept = patrolRemaining(save) === 0;
+  challenge.hidden = (!swept && done) || !canChallenge(save, save.region) || !!fight?.boss;
+  const onward = done && swept && save.region < 2;
+  challenge.dataset.action = onward ? "region:" + (save.region + 1) : "fight:" + save.region;
+  changedText("#challenge", onward ? "前往" + regions[save.region + 1].name : (done ? "重演" : "挑战") + region.boss);
   challenge.disabled = locked || !!fight;
-  hunt.hidden = !!fight?.boss || save.autoPatrol;
+  hunt.hidden = !!fight?.boss || save.autoPatrol || swept;
   hunt.classList.toggle("secondary", !challenge.hidden);
   changedText("[data-action=hunt]", challenge.hidden ? "提灯夜行" : "继续夜行");
   const objective = element("#objective");
-  objective.hidden = !save.guide.enabled;
-  if (!objective.hidden) changedText("#objective", !challenge.hidden ? "踪迹已齐，可以挑战" + region.boss + "。" :
-    !save.kills[0] ? "点「提灯夜行」，寻找第一只小妖。" :
+  objective.hidden = !swept && !save.guide.enabled;
+  if (!objective.hidden) changedText("#objective", swept ? "此地小妖已扫清" : !challenge.hidden ? region.boss + "现身了。" :
+    !save.kills[0] ? "提灯上山，找出第一只小妖。" :
     done ? (save.region < 2 ? "此地已平息，可在斩妖录前往" + regions[save.region + 1].name + "。" : "首卷已平，可重演大妖补全传承。") :
     clueCount(save) < 3 ? `再斩 ${region.thresholds[clueCount(save)] - save.kills[save.region]} 只小妖，寻找下一条线索。` : "继续积累道行，提升境界后挑战大妖。");
   const drop = element("#gear-find");
@@ -396,6 +419,14 @@ function paintPatrolControls() {
       <div>${button("equip:" + id, "立即穿戴", locked)} ${button("collect:" + id, "先收好", locked)}</div>`;
     if (drop.dataset.markup !== markup) { drop.innerHTML = markup; drop.dataset.markup = markup; }
   }
+}
+
+const packSheet = element<HTMLDialogElement>("#pack-sheet");
+packSheet.addEventListener("close", () => { openSlot = undefined; paintPanel(); });
+function showSlot(slot: GearSlot) {
+  openSlot = slot;
+  paintPanel();
+  if (!packSheet.open) packSheet.showModal();
 }
 
 function changedText(selector: string, value: string) {
@@ -418,8 +449,8 @@ function paintDuel() {
     ((f.region === 1 && round === order.round + 1) ||
     (f.region === 2 && round <= order.round + (order.choice === "safe" ? 2 : 1)));
   const body = `<div class="duel-head"><strong>${f.waiting ? encounter.sign : "大妖交锋"}</strong><span>应变剩 ${f.focus} 次</span></div>` +
-    (f.waiting ? `${tutorial ? "<p><b>师父提醒</b>　山君要吼了。第一次试试低头防守，只会掉 4 点气血。</p>" : `<p>${roundPreview(f.region, f.kit, round)}<br>${roundPreview(f.region, f.kit, round + 1)}</p>`}
-      <p>${tutorial ? "选下面任一招会用掉一次应变。" : encounter.read + " 特殊应对各用一次。"}</p>
+    (f.waiting ? `${tutorial ? "<p><b>师父</b>　“看它伏肩，低头！” 这一啸最多掉 4 点血。</p>" : `<p>${roundPreview(f.region, f.kit, round)}<br>${roundPreview(f.region, f.kit, round + 1)}</p>`}
+      <p>${tutorial ? "防守和抢攻各花一次机会。" : encounter.read + " 特殊应对各用一次。"}</p>
       <div class="duel-options">${(["safe", "risk"] as const).map(key =>
         button("respond:" + key, `<strong>${f.region === 0 ? (key === "safe" ? "低头防守" : "抢先砍一刀") : encounter[key].name}</strong><small>${encounter[key].effect}</small>`)).join("")}</div>
       ${button("respond:pass", "正常出招（保留次数）")} ${toggle}`
@@ -454,7 +485,7 @@ function paintStage() {
   element("#windup").hidden = !fight?.windup;
   changedText("#windup", fight?.windup ?? "");
   changedText("#place", regions[region].name);
-  changedText("#mode", pending || !ready || document.hidden ? "暂停" : fight?.boss ? "问妖" : save.autoPatrol ? "自动夜行中" : fight ? "寻妖中" : "待命");
+  changedText("#mode", pending || !ready || document.hidden ? "暂停" : fight?.boss ? "问妖" : save.autoPatrol ? "自动夜行中" : fight ? "寻妖中" : !patrolRemaining(save) ? "已扫清" : "待命");
   const human = element<HTMLProgressElement>("#life");
   human.max = fight?.maxLife ?? combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer).life;
   human.value = Math.max(0, fight?.life ?? human.max);
@@ -468,8 +499,8 @@ function paintStage() {
     changedText("#enemy-name", fight.name);
   }
   changedText("#report", fight?.event || save.report);
-  changedText("#rate", fight?.boss ? `最多 ${maxRounds} 回合 · 已结算 ${fight.round} 回合`
-    : save.autoPatrol ? `每分钟约 ${integer(rate(save))} 道行` : `每次夜行得 ${regions[region].reward} 道行`);
+  changedText("#rate", !patrolRemaining(save) ? "本地修行止于" + realmLabel(regions[save.region].patrolCap) : fight?.boss ? `最多 ${maxRounds} 回合 · 已结算 ${fight.round} 回合`
+    : save.autoPatrol ? `每分钟约 ${integer(rate(save))} 道行 · 止于${realmLabel(regions[region].patrolCap)}` : `每只 +${regions[region].reward} 道行　·　止于${realmLabel(regions[region].patrolCap)}`);
   paintPatrolControls();
   paintDuel();
 }
@@ -483,7 +514,7 @@ function notify(message: string) {
       flash.hidden = true;
       notice = "";
     }
-  }, 8500);
+  }, 3000);
 }
 
 function commit(draft: Save, next?: () => void): boolean {
@@ -557,7 +588,7 @@ function advance() {
   while (lag >= frame && !pending) {
     lag -= frame;
     if (!fight) {
-      if (!save.autoPatrol) break;
+      if (!save.autoPatrol || !patrolRemaining(save)) break;
       rest = Math.max(0, rest - frame);
       if (!rest) {
         fight = startFight(save, save.region, false, save.kills[save.region]);
@@ -580,15 +611,7 @@ root.addEventListener("click", event => {
   const [name, value, option] = action.split(":");
   const id = Number(value) as Region;
   if (name === "slot" && Object.hasOwn(slots, value) && ready && !pending && !fight?.boss) {
-    openSlot = openSlot === value ? undefined : value as GearSlot;
-    paintPanel();
-  } else if (name === "reward-gear" && result?.first) {
-    openSlot = "charm";
-    tab = "patrol";
-    journal = false;
-    result = null;
-    paintPanel();
-    element("#outfit").scrollIntoView({ block: "center" });
+    showSlot(value as GearSlot);
   } else if (name === "home" || name === "tab" && value === "patrol") {
     journal = false;
     result = null;
@@ -613,13 +636,18 @@ root.addEventListener("click", event => {
     const target = currentTip.target;
     if (tab !== target.tab) panel.scrollTop = 0;
     tab = target.tab;
-    journal = tab === "patrol" && target.action?.startsWith("region:") === true;
+    journal = tab === "patrol" && target.action?.startsWith("region:") === true && patrolRemaining(save) > 0;
     if (tab === "patrol" && !journal) result = null;
     paintPanel();
     const preview = panel.querySelector<HTMLDetailsElement>("#round-preview");
     if (target.action === "preview" && preview) preview.open = true;
     const anchor = target.action === "preview" ? preview?.querySelector("summary")
       : [...root.querySelectorAll<HTMLButtonElement>("[data-action]")].find(item => item.dataset.action === target.action && item.getClientRects().length);
+    if (anchor instanceof HTMLButtonElement && !anchor.disabled &&
+      (target.action === "auto-patrol" || target.action?.startsWith("region:") || target.action?.startsWith("slot:"))) {
+      anchor.click();
+      return;
+    }
     const destination = anchor ?? panel;
     destination.scrollIntoView({ block: "nearest" });
     destination.focus({ preventScroll: true });
@@ -657,11 +685,11 @@ root.addEventListener("click", event => {
       resetPatrol();
       paintPanel();
     } else if (!fight?.boss) {
-      if (name === "hunt" && !fight && !save.autoPatrol && !document.hidden) {
+      if (name === "hunt" && patrolRemaining(save) > 0 && !fight && !save.autoPatrol && !document.hidden) {
         if (result?.won) result = null;
         fight = startFight(save, save.region, false, save.kills[save.region]);
         paintPanel();
-      } else if (name === "auto-patrol" && save.victories[0] > 0) {
+      } else if (name === "auto-patrol" && patrolRemaining(save) > 0 && save.victories[0] > 0) {
         draft.autoPatrol = !save.autoPatrol;
         if (draft.autoPatrol && !draft.guide.dismissed.includes("auto-patrol")) draft.guide.dismissed.push("auto-patrol");
         commit(draft, () => { if (!fight) rest = draft.autoPatrol ? frame : regions[save.region].patrolInterval - 500; });
@@ -670,9 +698,10 @@ root.addEventListener("click", event => {
         if (name === "equip") draft.loadout[slot] = value;
         else if (name === "unequip" && draft.loadout[slot] === value) delete draft.loadout[slot];
         draft.newGear = draft.newGear.filter(id => id !== value);
-        commit(draft, () => notify(name === "equip" ? `已穿戴 · ${equipment[value].name}` : name === "collect" ? "已收好，可点对应装备槽查看" : "已卸下装备"));
+        commit(draft, () => { if (packSheet.open) packSheet.close(); notify(name === "equip" ? `已穿戴 · ${equipment[value].name}` : name === "collect" ? "已收好，可点对应装备槽查看" : "已卸下装备"); });
       } else if (name === "region" && unlocked(save, id) && !fight) {
         draft.region = id;
+        if (!patrolRemaining(draft)) draft.autoPatrol = false;
         commit(draft, () => { result = null; journal = false; tab = "patrol"; resetPatrol(); });
       } else if (name === "fight" && canChallenge(save, id) && !fight) {
         result = null;
@@ -681,6 +710,11 @@ root.addEventListener("click", event => {
         resetPatrol();
         fight = startFight(save, id, true);
         paintPanel();
+      } else if (name === "learn-equip" && result?.drop && result.region === id && draft.ranks[id] === 0 && study(draft, id)) {
+        if (id === 0) draft.kit.shout = "windup";
+        if (id === 1) draft.kit.step = "tide";
+        if (id === 2) draft.kit.reveal = true;
+        commit(draft, () => notify(`已学会并装备${arts[id].name}`));
       } else if (name === "study" && study(draft, id)) {
         commit(draft, () => {
           notify(`《${arts[id].name}》已${save.ranks[id] === 1 ? "入门，可在当前页装备" : "精通"}。`);
@@ -717,12 +751,12 @@ function resume() {
   const draft = structuredClone(save);
   const offline = accrueOffline(draft, previousWall);
   commit(draft, () => {
-    if (!ready) resetPatrol();
+    if (!ready || (fight && !fight.boss && !patrolRemaining(save))) resetPatrol();
     ready = true;
     if (offline.earned) {
       const minutes = Math.max(1, Math.floor(offline.credited / 60000));
       const period = offline.credited < 60000 ? "不足 1 分钟" : `${minutes} 分钟`;
-      notify(`离线计入${period}${offline.elapsed > offline.credited ? "（上限 8 小时）" : ""}，得 ${integer(offline.earned)} 道行。线索按在线击杀推进。`);
+      notify(`离线计入${period}，得 ${integer(offline.earned)} 道行。${!patrolRemaining(save) ? "此地小妖已扫清。" : ""}`);
     }
   });
 }

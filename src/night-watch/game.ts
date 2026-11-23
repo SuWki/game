@@ -132,6 +132,7 @@ export function decode(raw: string | null, now: number): Save {
   }
   if (!count(data.lifetimeDao)) throw new Error("累计道行无法读取");
   data.realm = cultivation(data.lifetimeDao).realm;
+  if (!patrolRemaining(data)) data.autoPatrol = false;
   if (data.version === 1) {
     const earned = (region: Region, thresholds: readonly number[]) =>
       data.victories[region] > 0 ? 3 : thresholds.filter(target => data.kills[region] >= target).length;
@@ -141,16 +142,28 @@ export function decode(raw: string | null, now: number): Save {
   return { ...data, version: 2 };
 }
 
+export function patrolRemaining(save: Pick<Save, "lifetimeDao" | "region">, region = save.region) {
+  return Math.max(0, regions[region].patrolCap - save.lifetimeDao);
+}
+
+function earnPatrolDao(save: Save, amount: number) {
+  const earned = Math.min(patrolRemaining(save), amount);
+  earnDao(save, earned);
+  if (patrolRemaining(save) === 0) save.autoPatrol = false;
+  return earned;
+}
+
 export function clueCount(save: Save, region = save.region): number {
+  if (unlocked(save, region) && !patrolRemaining(save, region)) return 3;
   return Math.max(save.clues[region], regions[region].thresholds.filter(threshold => save.kills[region] >= threshold).length);
 }
 
 export function recordPatrolKill(save: Save, random = Math.random) {
   const region = save.region;
+  const reward = earnPatrolDao(save, regions[region].reward);
+  if (!reward) return { reward: 0, found: undefined };
   const id = minionEquipment[region][save.kills[region] % 2];
   save.kills[region]++;
-  const reward = regions[region].reward;
-  earnDao(save, reward);
   save.clues[region] = clueCount(save, region);
   const firstGear = region === 0 && save.kills[0] === 2;
   const found = (firstGear || random() < 0.25) && !save.ownedGear.includes(id) ? id : undefined;
@@ -171,9 +184,8 @@ export function canChallenge(save: Save, region: Region): boolean {
 
 export function accrueOffline(save: Save, now: number) {
   const elapsed = Math.max(0, now - save.time);
-  const credited = Math.min(maxOffline, elapsed);
-  const earned = save.autoPatrol ? Math.floor(credited * rate(save) / 60000) : 0;
-  earnDao(save, earned);
+  const credited = save.autoPatrol ? Math.min(maxOffline, elapsed, Math.ceil(patrolRemaining(save) * 60000 / rate(save))) : 0;
+  const earned = earnPatrolDao(save, Math.floor(credited * rate(save) / 60000));
   save.time = Math.max(save.time, now);
   return { elapsed, credited, earned };
 }
@@ -195,6 +207,13 @@ export function win(save: Save, region: Region, random = Math.random) {
   }
   const drop = !save.drops[region] && (region === 0 || save.victories[region] >= 5 || random() < 0.25);
   if (drop) save.drops[region] = true;
+  if (!patrolRemaining(save)) save.autoPatrol = false;
+  const recovered = !patrolRemaining(save, region) && minionEquipment[region].find(id => !save.ownedGear.includes(id));
+  if (recovered) {
+    save.ownedGear.push(recovered);
+    save.newGear.unshift(recovered);
+    return { first, drop, recovered };
+  }
   return { first, drop };
 }
 
