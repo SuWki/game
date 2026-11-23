@@ -18,7 +18,7 @@ button { font: inherit; cursor: pointer; color: inherit; }
 button:disabled { cursor: default; }
 button:focus-visible, summary:focus-visible { outline: 3px solid #d88e50; outline-offset: 3px; }
 h1, h2, p { margin: 0; }
-#night-watch { max-width: 1512px; margin: auto; padding: 0 clamp(14px, 3.3vw, 52px); }
+#night-watch { max-width: 1020px; margin: auto; padding: 0 clamp(14px, 3.3vw, 52px); }
 .masthead { display: flex; min-height: 110px; align-items: center; justify-content: space-between; gap: 16px; }
 .identity, .ledger { display: flex; align-items: center; gap: 16px; }
 .seal {
@@ -32,7 +32,7 @@ h1 { font-family: "Songti SC", SimSun, serif; font-size: clamp(25px, 3.1vw, 43px
 .ledger { gap: clamp(12px, 2.2vw, 30px); font-size: 14px; }
 .ledger strong { color: var(--gold); font-size: 21px; margin-left: 5px; font-variant-numeric: tabular-nums; }
 .motion { min-height: 44px; border: 1px solid var(--line); background: #1a333e; padding: 0 12px; }
-.layout { display: grid; grid-template-columns: minmax(0, 2.8fr) minmax(280px, 1fr); gap: 19px; align-items: start; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; }
 .theatre { border: 1px solid var(--line); }
 .stage {
   position: relative; isolation: isolate; overflow: hidden; aspect-ratio: 2.04;
@@ -234,3 +234,76 @@ footer { grid-column: 1 / -1; color: var(--muted); display: flex; justify-conten
 .charm::after { background: #e5a781; clip-path: polygon(23% 0,32% 0,50% 36%,68% 0,77% 0,57% 43%,77% 61%,77% 78%,50% 100%,23% 78%,23% 61%,43% 43%); }
 
 .flash { pointer-events: none; }
+
+/* 巡夜台与案册共用同一栏，翻页时操作直接回到视野中央。 */
+body { background: radial-gradient(ellipse at 50% 10%, #23403f, #101e24 75%); min-height: 100dvh; }
+.masthead { min-height: 92px; }
+.identity { gap: 12px; }
+.seal { width: 38px; height: 48px; }
+h1 { font-size: clamp(24px, 3vw, 35px); }
+.subtitle { font-size: 12px; color: #c4b68d; }
+.cultivation { background: transparent; border: 0; border-left: 2px solid #a58855; padding: 0 0 0 10px; text-align: left; }
+.cultivation:hover:not(:disabled) strong { text-decoration: underline; }
+.theatre { background: #182d31; border-color: #576157; box-shadow: 0 8px 26px #06121740; }
+.stage { min-height: 0; height: clamp(275px, 49dvh, 470px); aspect-ratio: auto; }
+.scenery { background-size: cover; background-position: center 58%; }
+.stage-top { padding: 20px 24px; align-items: flex-start; }
+.chapter { color: #eedcb8; font-size: 12px; letter-spacing: .13em; }
+.place { font-family: "Songti SC", SimSun, serif; font-size: clamp(28px, 4vw, 43px); letter-spacing: .09em; line-height: 1.3; text-shadow: 1px 2px 0 #132423; }
+.mode { color: #eee2c9; border: 0; border-left: 2px solid #d2ad78; }
+.stage .player { left: 35%; bottom: 18%; height: 37%; }
+.stage .enemy { right: 23%; bottom: 18%; }
+.stage[data-boss=true] .player { left: 21%; }
+.stage[data-boss=true] .enemy { right: 17%; }
+.case-link, .retreat { position: absolute; z-index: 3; border: 1px solid #8e8973; background: #102326e8; color: #ffead0; }
+.case-link { left: 20px; bottom: 15px; padding: 7px 14px; text-align: left; }
+.case-link small { display: block; color: #cbb690; font-size: 11px; }
+.case-link strong { font-size: 14px; }
+.retreat { right: 20px; top: 63px; min-height: 40px; }
+.patrol-controls { padding: 15px 22px; background: linear-gradient(100deg,#f4e9cf,#e2d1af); color: var(--ink); border-top: 2px solid #a38b62; justify-content: space-between; gap: 12px; }
+.task-note { flex: 1 1 185px; }
+#objective { color: #3b4035; font-size: 15px; }
+#rate { color: #655c49; }
+.patrol-buttons { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 7px; }
+.patrol-buttons button { border-radius: 3px; }
+.patrol-buttons [data-action=hunt]:not(.secondary), #challenge { min-width: 146px; min-height: 51px; font: bold 20px "Songti SC",SimSun,serif; letter-spacing: .12em; box-shadow: inset 0 0 0 2px #994b36, inset 0 0 0 3px #d8a674, 0 2px 0 #52362b; }
+.patrol-buttons .secondary { order: 2; color: #4e4839; border-color: #a79270; background: transparent; }
+#gear-find { padding: 10px 12px; background: #33433d; border-left: 3px solid #dcb16a; }
+#gear-find > div:last-child { margin-left: auto; }
+.field-note { min-height: 0; background: #192e32; padding: 9px 20px; gap: 12px; align-items: baseline; }
+.field-note > span { padding: 0; }
+#report { color: #dbdccd; font-size: 13px; }
+#book { background: var(--paper); border: 1px solid #b9a784; }
+.back { display: block; padding: 10px 16px; min-height: 42px; border: 0; background: #decfae; color: #4f4939; text-align: left; width: 100%; }
+#panel { max-height: none; box-shadow: none; border: 0; padding: clamp(16px,3vw,30px); }
+#panel .art { margin-top: 10px; }
+#home-guide { border: 0; max-height: none; padding: 0; box-shadow: none; }
+#home-guide .guide-card { margin: 0; }
+.nav { position: sticky; bottom: 0; z-index: 4; gap: 2px; background: #182d31fa; padding-bottom: max(5px,env(safe-area-inset-bottom)); }
+.nav button { min-height: 44px; }
+footer { justify-content: flex-end; font-size: 11px; }
+.flash { bottom: 67px; }
+@media (max-width: 600px) {
+  #night-watch { padding: 0 10px; }
+  .masthead { min-height: 74px; flex-wrap: wrap; padding: 7px 0; gap: 6px; }
+  .identity { gap: 6px; }
+  .identity h1 { font-size: 21px; }
+  .subtitle { margin-top: 2px; font-size: 10px; }
+  .seal { font-size: 17px; width: 23px; height: 33px; }
+  .ledger { flex: 0 1 auto; gap: 7px; }
+  .ledger .cultivation { min-width: 75px; padding-left: 5px; }
+  .ledger strong { font-size: 15px; }
+  #balance { font-size: 11px; }
+  #balance strong { display: block; }
+  .motion { padding: 0 6px; }
+  .stage { height: clamp(225px, 42dvh, 370px); }
+  .stage-top { padding: 13px; }
+  .case-link { left: 10px; bottom: 8px; }
+  .patrol-controls { padding: 11px; gap: 8px; }
+  .task-note, .patrol-buttons { flex-basis: 100%; }
+  #objective { font-size: 14px; }
+  .patrol-buttons [data-action=hunt]:not(.secondary), #challenge { flex: 1; }
+  .field-note { padding: 8px 10px; }
+  .nav { grid-row: auto; }
+  #gear-find > div:last-child { margin-left: 0; }
+}
