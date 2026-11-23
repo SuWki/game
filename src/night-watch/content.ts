@@ -1,15 +1,15 @@
 export const realms = ["锻骨", "舒筋", "贯劲", "听息"] as const;
-export const mountainFirstReward = 110;
+export const mountainFirstReward = 6;
 export const breakthrough = [
-  { cost: 70, gift: "开身法位。基础退步在第 1、4、7… 回合避开第一道浪。", verse: "起如山鸟，落似老熊。", gate: "须先击退吊睛山君" },
-  { cost: 180, gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。", gate: "须集齐芦花渡的三条线索" },
-  { cost: 330, gift: "开神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。", gate: "须先击退沉舟河伯" },
+  { gift: "开身法位。基础退步在第 1、4、7… 回合避开第一道浪。", verse: "起如山鸟，落似老熊。" },
+  { gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。" },
+  { gift: "开神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。" },
 ] as const;
 
 export const arts = [
-  { name: "镇山喝", first: 3, every: 3, kind: "武学", description: "第 3、6、9… 回合出招，伤害 5，截断当轮可打断的重击。", mastery: "截招成功时追加 12 点伤害。", realm: 0 },
-  { name: "听潮步", first: 2, every: 3, kind: "身法", description: "第 2、5、8… 回合踏步，闪避当轮敌方攻击。", mastery: "踏步回合的普攻增伤 50%。", realm: 1 },
-  { name: "照影", first: 1, every: 4, kind: "神通", description: "第 1、5、9… 回合照影，当轮与下一轮破除假身。", mastery: "照影持续期间普攻增伤 25%。", realm: 3 },
+  { name: "镇山喝", first: 3, every: 3, kind: "武学", cost: 30, description: "第 3、6、9… 回合出招，伤害 5，截断当轮可打断的重击。", mastery: "截招成功时追加 12 点伤害。", realm: 0 },
+  { name: "听潮步", first: 2, every: 3, kind: "身法", cost: 60, description: "第 2、5、8… 回合踏步，闪避当轮敌方攻击。", mastery: "踏步回合的普攻增伤 50%。", realm: 1 },
+  { name: "照影", first: 1, every: 4, kind: "神通", cost: 60, description: "第 1、5、9… 回合照影，当轮与下一轮破除假身。", mastery: "照影持续期间普攻增伤 25%。", realm: 3 },
 ] as const;
 
 export const regions = [

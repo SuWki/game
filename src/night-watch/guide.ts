@@ -1,5 +1,5 @@
-import { arts, breakthrough, realms, regions } from "./content.ts";
-import { canBreak, canChallenge, clueCount } from "./game.ts";
+import { arts, regions } from "./content.ts";
+import { canChallenge, clueCount } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "gear" | "archive";
@@ -33,11 +33,10 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     const brought = [save.kit.shout !== "off", save.kit.step === "tide", save.kit.reveal];
     const learned = save.ranks.findIndex((rank, i) => rank > 0 && !brought[i] && !save.guide.dismissed.includes(`equip-${i}`));
     if (learned >= 0) return equipTip(learned as Region);
-    if (save.realm === 0 && canBreak(save)) return realmTip(save, tab);
     if (save.dao >= 400 && save.ranks.includes(1) && !save.guide.dismissed.includes("mastery")) {
       return {
         id: "mastery", title: "精通招式",
-        text: "精通会增加招式效果，出招轮次照旧。道行也能拿来破境，先比较卡面上的收益再决定。",
+        text: "精通会增加招式效果，出招轮次照旧。学习消耗可用道行，累计道行照常保留。",
         target: { tab: "skills", action: `study:${save.ranks.indexOf(1)}`, label: "查看精通" },
       };
     }
@@ -47,7 +46,6 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   }
   if (tab === "practice") {
     if (save.realm === 3) return insightTip();
-    if (canBreak(save)) return realmTip(save, tab);
     if (save.realm === 1 && !save.kills[1]) return {
       ...stepTip(),
       target: { tab: "patrol", action: "region:1", label: "返回巡夜手札" },
@@ -77,9 +75,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       text: "点一次即可持续寻妖、拾取掉落和推进线索。再点一次可切回手动。",
       target: { tab: "patrol", action: "auto-patrol", label: "找到自动夜行" },
     };
-    if (save.realm === 0) return realmTip(save, tab);
     if (save.region === 0 && !save.kills[1]) return {
-      ...stepTip(),
+      id: "ferry-road", title: "去芦花渡夜行", text: "渡口每只小妖给 3 道行。收集线索，准备挑战河伯。",
       target: { tab: "patrol", action: "region:1", label: "找到渡口入口" },
     };
     if (save.region === 1 && canChallenge(save, 1)) return {
@@ -92,9 +89,6 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[2]) {
     if (result?.drop && result.region === 1 && !save.ranks[1] && !save.guide.dismissed.includes("learn-1")) {
       return learnTip(1);
-    }
-    if (save.realm < 3 && canBreak(save) && (save.dao >= breakthrough[save.realm].cost || save.region === 2)) {
-      return realmTip(save, tab);
     }
     if (save.region === 1 && !save.kills[2]) return {
       id: "temple-road", title: "去白烛庙查案",
@@ -114,7 +108,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
 function learnTip(art: Region): Tip {
   return {
     id: `learn-${art}`, title: `新传承 · ${arts[art].name}`,
-    text: "观化已记下招谱。花 60 道行学到入门，再装备才会按谱出招。",
+    text: `花 ${arts[art].cost} 可用道行学习，再装备就能在战斗中自动释放。`,
     target: { tab: "skills", action: `study:${art}`, label: "找到学习入口" },
   };
 }
@@ -124,15 +118,6 @@ function equipTip(art: Region): Tip {
     id: `equip-${art}`, title: `装上${arts[art].name}`,
     text: `这门${arts[art].kind}首发第 ${arts[art].first} 轮，每隔 ${arts[art].every} 轮自动施放。换招免费，下次交锋生效。`,
     target: { tab: "skills", action: ["kit:shout:windup", "kit:step:tide", "kit:reveal:true"][art], label: "找到装配入口" },
-  };
-}
-
-function realmTip(save: Save, tab: Tab): Tip {
-  const next = breakthrough[save.realm];
-  return {
-    id: `realm-${save.realm + 1}`, title: `可以筹备突破${realms[save.realm + 1]}`,
-    text: `在「修行」花 ${next.cost} 道行破境。${next.gift}`,
-    target: tab === "practice" ? undefined : { tab: "practice", action: "cultivate", label: "查看破境条件" },
   };
 }
 

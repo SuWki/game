@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, answerOpening, canChallenge, clueCount, combatStats, cultivate, decode, newSave,
+  accrueOffline, answerOpening, canChallenge, clueCount, combatStats, cultivation, earnDao, decode, newSave,
   recordPatrolKill, startFight, study, tickFight, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
@@ -18,7 +18,7 @@ function fightToEnd(save, region) {
 test("新档靠守式赢山君，首胜发镇山喝和一份教学道行", () => {
   const save = newSave(100);
   assert.equal(canChallenge(save, 0), false);
-  save.kills[0] = regions[0].thresholds[2];
+  for (let i = 0; i < regions[0].thresholds[2]; i++) recordPatrolKill(save, () => 1);
   assert.equal(canChallenge(save, 0), true);
   save.kit.stance = "attack";
   assert.equal(fightToEnd(save, 0).result, "lost");
@@ -26,20 +26,20 @@ test("新档靠守式赢山君，首胜发镇山喝和一份教学道行", () =>
   assert.equal(fightToEnd(save, 0).result, "won");
   assert.deepEqual(win(save, 0), { first: true, drop: true });
   assert.deepEqual(win(save, 0), { first: false, drop: false });
-  assert.equal(save.dao, mountainFirstReward);
-  assert.deepEqual(save.ownedGear, ["tigerFang"]);
+  assert.equal(save.dao, 24 + mountainFirstReward);
+  assert.deepEqual(save.ownedGear, ["pineBlade", "tigerFang"]);
   assert.equal(save.autoPatrol, false);
   assert.equal(study(save, 0), true);
-  assert.equal(save.dao, mountainFirstReward - 60);
+  assert.equal(save.dao, 0);
   assert.equal(save.ranks[0], 1);
 });
 
 test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
   const save = newSave(100);
-  save.dao = 1020;
+  earnDao(save, 130 - mountainFirstReward);
   save.kills = regions.map(region => region.thresholds[2]);
   win(save, 0);
-  assert.equal(cultivate(save), true);
+  assert.equal(save.realm, 1);
   assert.equal(canChallenge(save, 1), true);
   assert.equal(fightToEnd(save, 1).result, "won");
   save.kit.stance = "attack";
@@ -50,16 +50,16 @@ test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
   assert.equal(river.result, "won");
   assert.ok(river.log.some(line => line.includes("截断回浪")));
   win(save, 1, () => 0.9);
-  assert.equal(cultivate(save), true);
+  earnDao(save, 300);
   assert.equal(canChallenge(save, 2), false);
-  assert.equal(cultivate(save), true);
+  earnDao(save, 400);
   assert.equal(canChallenge(save, 2), true);
   save.kit.stance = "guard";
   save.kit.shout = "off";
   assert.equal(fightToEnd(save, 2).result, "won");
 });
 
-test("巡夜依次产出线索和破境道行，击退山君后可以立刻学招与入舒筋", () => {
+test("巡夜依次产出线索和破境道行，击退山君后可以立刻学招，随后靠巡夜逐层升级", () => {
   const save = newSave(100);
   for (let kill = 1; kill <= 12; kill++) {
     recordPatrolKill(save);
@@ -68,16 +68,17 @@ test("巡夜依次产出线索和破境道行，击退山君后可以立刻学�
   }
   win(save, 0);
   assert.equal(study(save, 0), true);
-  assert.equal(cultivate(save), true);
-  assert.equal(save.dao, 4);
+  assert.equal(save.realm, 0);
+  assert.equal(save.lifetimeDao, 30);
+  assert.equal(save.dao, 0);
   save.region = 1;
   for (let kill = 1; kill <= 100; kill++) recordPatrolKill(save);
   assert.equal(canChallenge(save, 1), true);
-  assert.equal(cultivate(save), true);
+  assert.equal(save.realm, 1);
   win(save, 1, () => 0.9);
   save.region = 2;
   for (let kill = 1; kill <= 42; kill++) recordPatrolKill(save);
-  assert.equal(cultivate(save), true);
+  assert.equal(save.realm, 2);
   assert.equal(canChallenge(save, 2), false);
 });
 
@@ -100,7 +101,7 @@ test("短流程旧档的已得线索、已解锁挑战和真实击杀数一起�
 });
 
 test("已进渡口的旧档跳过开场，败阵提示逐次加深且可关闭", () => {
-  const { guide, ...old } = newSave(100);
+  const { guide, lifetimeDao, ...old } = newSave(100);
   old.region = 1;
   old.realm = 1;
   old.kills = [36, 100, 0];
@@ -267,4 +268,33 @@ test("挑灯覆盖三轮且不会冒用照影精通；藏锋收刀后仅在下�
   assert.doesNotMatch(ambush.log[1], /短刀伤/);
   assert.match(ambush.log[2], /候得真身.*短刀伤 49/);
   assert.match(ambush.log[3], /短刀伤 4/);
+});
+
+test("累计道行逐层自动升级，支出学费不回退，离线可跨境且封顶", () => {
+  const save = newSave(0);
+  earnDao(save, 3);
+  assert.equal(cultivation(save.lifetimeDao).layer, 1);
+  earnDao(save, 1);
+  assert.equal(cultivation(save.lifetimeDao).layer, 2);
+  assert.equal(cultivation(129).layer, 10);
+  earnDao(save, 126);
+  assert.deepEqual(cultivation(save.lifetimeDao), { realm: 1, layer: 1, progress: 0, needed: 30, full: false });
+  save.drops[0] = true;
+  study(save, 0);
+  assert.equal(save.lifetimeDao, 130);
+  save.autoPatrol = true;
+  accrueOffline(save, 8 * 3600000);
+  assert.deepEqual(cultivation(save.lifetimeDao), { realm: 3, layer: 10, full: true, progress: 60, needed: 60 });
+});
+
+test("旧档补计学费和突破支出，已穿装备保留，掉落提醒刷新可续", () => {
+  const { lifetimeDao, newGear, ...old } = newSave(0);
+  Object.assign(old, { realm: 1, dao: 74, ranks: [1,0,0], ownedGear: ["pineBlade"], loadout: {weapon:"pineBlade"} });
+  const save = decode(JSON.stringify(old), 0);
+  assert.equal(save.lifetimeDao, 204);
+  assert.equal(save.loadout.weapon, "pineBlade");
+  recordPatrolKill(save, () => 0);
+  const restored = decode(JSON.stringify(save), 0);
+  assert.deepEqual(restored.newGear, ["hillCoat"]);
+  assert.equal(restored.lifetimeDao, 206);
 });
