@@ -1,4 +1,4 @@
-// 三处妖案的应对都来自阿照的身手与现场物件，首胜前即可尝试。
+// 应对来自阿照的身手与现场物件，首胜前即可尝试。
 export const encounters = [
   {
     first: 3, every: 3, sign: "山君伏肩，喉间一震",
@@ -18,10 +18,16 @@ export const encounters = [
     safe: { name: "挑灯照面", effect: "本轮及后两轮照出真身，这三轮的刀招均可打实。" },
     risk: { name: "藏锋候影", effect: "本轮收刀。下一轮真身出现时，普攻刀伤加 28，可叠加身法与佩饰。" },
   },
+  {
+    first: 3, every: 3, sign: "篙尖擦过石栏",
+    read: "横篙将至。退到石墩边能稳住脚步。",
+    safe: { name: "借墩稳身", effect: "清除失足，本轮横篙至多伤 8 点。" },
+    risk: { name: "迎篙抢步", effect: "镇山喝截招后普攻加 18。截不住时承受横篙全伤。" },
+  },
 ] as const;
 
 export type Response = "safe" | "risk" | "pass";
-export function decisionDue(region: 0 | 1 | 2, round: number) {
+export function decisionDue(region: 0 | 1 | 2 | 3, round: number) {
   const { first, every } = encounters[region];
   return round >= first && (round - first) % every === 0;
 }

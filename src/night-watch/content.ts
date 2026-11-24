@@ -1,4 +1,7 @@
-export const realms = ["锻骨", "舒筋", "贯劲", "听息"] as const;
+export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋"] as const;
+export const bridgeRegion = 3;
+export const heartRealm = 4;
+export const heartDao = 1430;
 export const mountainFirstReward = 6;
 export const trials = {
   ferryTrial: {
@@ -22,12 +25,14 @@ export const breakthrough = [
   { gift: "开身法位。基础退步在第 1、4、7… 回合避开第一道浪。", verse: "起如山鸟，落似老熊。" },
   { gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。" },
   { gift: "开神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。" },
+  { gift: "再开一个武学位。两门武学同轮出手时，可调换先后。", verse: "听见铃声落下，才知桥上风静。" },
 ] as const;
 
 export const arts = [
   { name: "镇山喝", first: 3, every: 3, kind: "武学", cost: 30, description: "第 3、6、9… 回合出招，伤害 5，截断当轮可打断的重击。", mastery: "截招成功时追加 12 点伤害。", realm: 0 },
   { name: "听潮步", first: 2, every: 3, kind: "身法", cost: 60, description: "第 2、5、8… 回合踏步，闪避当轮敌方攻击。", mastery: "踏步回合的普攻增伤 50%。", realm: 1 },
   { name: "照影", first: 1, every: 4, kind: "神通", cost: 60, description: "第 1、5、9… 回合照影，当轮与下一轮破除假身。", mastery: "照影持续期间普攻增伤 25%。", realm: 3 },
+  { name: "折篙刀", first: 3, every: 3, kind: "武学", cost: 90, description: "第 3、6、9… 回合斩一刀，伤害 8。同轮先用镇山喝截招，便追斩 12 点。", mastery: "追斩伤害由 12 提升至 22。", realm: 3 },
 ] as const;
 
 export const regions = [
@@ -57,5 +62,14 @@ export const regions = [
     foes: [{ name: "纸灯童", sprite: "lantern" }, { name: "铜镜妖", sprite: "mirror" }],
     boss: "借面娘娘", sprite: "mask", hp: 194,
     reward: 5, patrolInterval: 4000, chapter: "白烛还面",
+  },
+  {
+    name: "纸马驿", patrolCap: 2230, place: "驿桥", tag: "芦花渡对岸",
+    title: "桥下歇了半声铃", intro: "陆婆撑船送阿照到对岸。驿桥上的路引被雨泡软了，桥下那人却还站在旧水线里，拿一根断篙拦路。",
+    cleared: "篙鬼把路引搁在桥栏上。阿照提灯走过桥心，又听见那口铃响了半声。",
+    clues: ["湿透的驿牌", "石墩上的篙痕", "桥下半声铃"], thresholds: [12, 30, 54],
+    foes: [{ name: "纸蹄", sprite: "reed" }, { name: "缆绳鬼", sprite: "rat" }],
+    boss: "驿桥篙鬼", sprite: "post-ghost", hp: 302,
+    reward: 7, patrolInterval: 3200, chapter: "卷二 · 纸马驿",
   },
 ] as const;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
-  artDue, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, win,
+  artDue, equipArt, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
@@ -92,9 +92,11 @@ test("短流程旧档的已得线索、已解锁挑战和真实击杀数一起�
   old.version = 1;
   old.kills = [10, 8, 0];
   old.victories = [0, 0, 0];
+  old.drops = old.drops.slice(0, 3);
+  old.ranks = old.ranks.slice(0, 3);
   const migrated = decode(JSON.stringify(old), 700);
-  assert.deepEqual(migrated.clues, [3, 2, 0]);
-  assert.deepEqual(migrated.kills, [10, 8, 0]);
+  assert.deepEqual(migrated.clues, [3, 2, 0, 0]);
+  assert.deepEqual(migrated.kills, [10, 8, 0, 0]);
   assert.equal(nextTip(migrated, "patrol", null).id, "first-boss");
   assert.equal(canChallenge(migrated, 0), true);
   assert.equal(clueCount(migrated, 1), 2);
@@ -109,10 +111,10 @@ test("已进渡口的旧档跳过开场，败阵提示逐次加深且可关闭",
   const { guide, lifetimeDao, ...old } = newSave(100);
   old.region = 1;
   old.realm = 1;
-  old.kills = [36, 100, 0];
-  old.victories = [1, 0, 0];
-  old.drops = [true, false, false];
-  old.ranks = [1, 0, 0];
+  old.kills = [36, 100, 0, 0];
+  old.victories = [1, 0, 0, 0];
+  old.drops = [true, false, false, false];
+  old.ranks = [1, 0, 0, 0];
   old.kit.shout = "windup";
   const save = decode(JSON.stringify(old), 700);
   assert.equal(nextTip(save, "patrol", null).id, "auto-patrol");
@@ -137,8 +139,8 @@ test("第五胜保底按大妖独立记录，刷新后保持已得传承", () =>
   assert.equal(win(save, 2, () => 0.9).drop, false);
   assert.equal(win(save, 1, () => 0.9).drop, true);
   const loaded = decode(JSON.stringify(save), 700);
-  assert.deepEqual(loaded.victories, [0, 5, 1]);
-  assert.deepEqual(loaded.drops, [false, true, false]);
+  assert.deepEqual(loaded.victories, [0, 5, 1, 0]);
+  assert.deepEqual(loaded.drops, [false, true, false, false]);
   assert.equal(win(loaded, 1, () => 0).drop, false);
 });
 
@@ -154,8 +156,8 @@ test("离线最多八小时，仅入账道行，同一时间点不会重复到�
   assert.equal(accrueOffline(loaded, now).earned, 0);
   assert.equal(accrueOffline(loaded, 800).elapsed, 0);
   assert.equal(loaded.time, now);
-  assert.deepEqual(loaded.kills, [0, 0, 0]);
-  assert.deepEqual(loaded.victories, [1, 0, 0]);
+  assert.deepEqual(loaded.kills, [0, 0, 0, 0]);
+  assert.deepEqual(loaded.victories, [1, 0, 0, 0]);
   assert.deepEqual(loaded.ownedGear, ["tigerFang"]);
 });
 
@@ -173,7 +175,7 @@ test("夜行装备按地区分阶，第二只小妖必出教学装备且同款�
 
 test("旧档补发首胜佩饰，兵刃护具和佩饰在大妖战中分别生效", () => {
   const { autoPatrol, ownedGear, loadout, ...old } = newSave(0);
-  old.victories = [1, 1, 0];
+  old.victories = [1, 1, 0, 0];
   const save = decode(JSON.stringify(old), 10);
   assert.deepEqual(save.ownedGear, ["tigerFang", "tideSeal"]);
   assert.equal(save.autoPatrol, false);
@@ -183,11 +185,11 @@ test("旧档补发首胜佩饰，兵刃护具和佩饰在大妖战中分别生�
   assert.deepEqual(combatStats(0, "guard", loaded.loadout), { damage: 14, life: 117 });
   const f = fightToEnd(loaded, 0);
   assert.equal(f.maxLife, 117);
-  assert.match(f.log[2], /短刀伤 17/);
+  assert.match(f.log[2], /(?:普攻刀伤|短刀伤) 17/);
 });
 
 test("巡夜各地小妖均在第一刀归零，整场没有反击", () => {
-  for (const region of [0, 1, 2]) {
+  for (const region of [0, 1, 2, 3]) {
     for (const index of [0, 1]) {
       const f = startFight(newSave(0), region, false, index);
       for (let i = 0; i < 3; i++) tickFight(f);
@@ -202,7 +204,7 @@ test("巡夜各地小妖均在第一刀归零，整场没有反击", () => {
 test("招式按回合循环，同轮照影先结算，身法与截招不争普攻", () => {
   const save = newSave(0);
   save.realm = 3;
-  save.ranks = [2, 2, 2];
+  save.ranks = [2, 2, 2, 0];
   save.kit = { stance: "attack", shout: "windup", step: "tide", reveal: true };
   const f = startFight(save, 1, true);
   f.hp = f.maxHp = 99999;
@@ -211,8 +213,8 @@ test("招式按回合循环，同轮照影先结算，身法与截招不争普�
   assert.deepEqual(f.log.map((line,i) => line.includes("镇山喝") ? i+1 : 0).filter(Boolean), [3,6,9]);
   assert.deepEqual(f.log.map((line,i) => line.includes("听潮步") ? i+1 : 0).filter(Boolean), [2,5,8]);
   assert.deepEqual(f.log.map((line,i) => line.includes("照影") ? i+1 : 0).filter(Boolean), [1,5,9]);
-  assert.match(f.log[4], /照影.*听潮步.*短刀伤 49.*避过挥篙/);
-  assert.match(f.log[8], /照影.*截断回浪.*短刀/);
+  assert.match(f.log[4], /照影.*听潮步.*(?:普攻刀伤|短刀伤) 49.*避过挥篙/);
+  assert.match(f.log[8], /照影.*截断回浪.*(?:普攻|短刀)/);
 });
 
 function playRounds(f, count, decisions = {}) {
@@ -243,10 +245,10 @@ test("同一套锻骨攻式，伏身能救命，迎啸可抢先斩杀；定神�
   assert.equal(duel({}).result, "lost");
   const safe = duel({ 3: "safe", 6: "safe" });
   assert.deepEqual([safe.result, safe.round, safe.focus], ["won", 7, 0]);
-  assert.match(safe.log[2], /伏身避啸.*虎啸，失血 4/);
+  assert.match(safe.log[2], /伏身避啸.*虎啸，(?:扣 4 点气血|失血 4)/);
   const finisher = duel({ 3: "safe", 6: "risk" });
   assert.deepEqual([finisher.result, finisher.round], ["won", 6]);
-  assert.match(finisher.log[5], /迎啸进刀.*短刀伤 27/);
+  assert.match(finisher.log[5], /迎啸进刀.*(?:普攻刀伤|短刀伤) 27/);
 });
 
 test("河伯上一轮的选择影响回浪，与截招是否对齐决定收益", () => {
@@ -254,11 +256,11 @@ test("河伯上一轮的选择影响回浪，与截招是否对齐决定收益",
   save.realm = 1;
   save.kit.stance = "attack";
   const duel = choice => playRounds(startFight(save, 1, true), 3, { 2: choice });
-  assert.match(duel("safe").log[2], /缆断浪浅.*回浪，失血 12/);
-  assert.match(duel("risk").log[2], /浪涌船高.*回浪，失血 46/);
+  assert.match(duel("safe").log[2], /缆断浪浅.*回浪，(?:扣 12 点气血|失血 12)/);
+  assert.match(duel("risk").log[2], /浪涌船高.*回浪，(?:扣 46 点气血|失血 46)/);
   save.kit.shout = "windup";
   save.ranks[0] = 1;
-  assert.match(duel("risk").log[2], /截断回浪.*回浪撞舟，反伤 18.*短刀/);
+  assert.match(duel("risk").log[2], /截断回浪.*回浪撞舟，反伤 18.*(?:普攻|短刀)/);
 });
 
 test("挑灯覆盖三轮且不会冒用照影精通；藏锋收刀后仅在下一轮打实", () => {
@@ -267,12 +269,12 @@ test("挑灯覆盖三轮且不会冒用照影精通；藏锋收刀后仅在下�
   save.ranks[2] = 2;
   const duel = choice => playRounds(startFight(save, 2, true), 5, { 2: choice });
   const lamp = duel("safe");
-  assert.ok(lamp.log.slice(1, 4).every(line => /灯下见真身.*短刀伤 21/.test(line)));
-  assert.match(lamp.log[4], /短刀伤 4/);
+  assert.ok(lamp.log.slice(1, 4).every(line => /灯下见真身.*(?:普攻刀伤|短刀伤) 21/.test(line)));
+  assert.match(lamp.log[4], /(?:普攻刀伤|短刀伤) 4/);
   const ambush = duel("risk");
-  assert.doesNotMatch(ambush.log[1], /短刀伤/);
-  assert.match(ambush.log[2], /候得真身.*短刀伤 49/);
-  assert.match(ambush.log[3], /短刀伤 4/);
+  assert.doesNotMatch(ambush.log[1], /(?:普攻刀伤|短刀伤)/);
+  assert.match(ambush.log[2], /候得真身.*(?:普攻刀伤|短刀伤) 49/);
+  assert.match(ambush.log[3], /(?:普攻刀伤|短刀伤) 4/);
 });
 
 test("累计道行逐层自动升级，支出学费不回退，离线可跨境且封顶", () => {
@@ -288,7 +290,7 @@ test("累计道行逐层自动升级，支出学费不回退，离线可跨境�
   study(save, 0);
   assert.equal(save.lifetimeDao, 130);
   save.region = 2;
-  save.victories = [1, 1, 0];
+  save.victories = [1, 1, 0, 0];
   save.autoPatrol = true;
   accrueOffline(save, 8 * 3600000);
   assert.deepEqual(cultivation(save.lifetimeDao), { realm: 3, layer: 10, full: true, progress: 60, needed: 60 });
@@ -296,7 +298,7 @@ test("累计道行逐层自动升级，支出学费不回退，离线可跨境�
 
 test("旧档补计学费和突破支出，已穿装备保留，掉落提醒刷新可续", () => {
   const { lifetimeDao, newGear, ...old } = newSave(0);
-  Object.assign(old, { realm: 1, dao: 74, ranks: [1,0,0], ownedGear: ["pineBlade"], loadout: {weapon:"pineBlade"} });
+  Object.assign(old, { realm: 1, dao: 74, ranks: [1,0,0, 0], ownedGear: ["pineBlade"], loadout: {weapon:"pineBlade"} });
   const save = decode(JSON.stringify(old), 0);
   assert.equal(save.lifetimeDao, 204);
   assert.equal(save.loadout.weapon, "pineBlade");
@@ -311,11 +313,11 @@ test("松纹刀须成功截招，山行衣须守式实际架住重击", () => {
   const save = newSave(0);
   save.loadout = { weapon: "pineBlade", armor: "hillCoat", charm: "tigerFang" };
   const duel = () => playRounds(startFight(save, 0, true), 3);
-  assert.match(duel().log[2], /山行衣减伤 3.*虎啸，失血 4/);
+  assert.match(duel().log[2], /山行衣减伤 3.*虎啸，(?:扣 4 点气血|失血 4)/);
   save.ranks[0] = 1;
   save.kit.shout = "windup";
   const fight = duel();
-  assert.match(fight.log[2], /松纹刀应喝，喝伤 \+12.*截断虎啸，伤 17.*山君牙坠.*短刀伤 17/);
+  assert.match(fight.log[2], /松纹刀应喝，喝伤 \+12.*截断虎啸，(?:喝)?伤 17.*山君牙坠.*(?:普攻刀伤|短刀伤) 17/);
   assert.doesNotMatch(fight.log[2], /山行衣减伤/);
   assert.doesNotMatch(playRounds(startFight(save, 2, true), 3).log[2], /松纹刀应喝/);
 });
@@ -330,7 +332,7 @@ test("听潮步回合斩芦刀借势，渡水蓑在真实避击后回血且不�
   const afterHit = fight.life;
   playRounds(fight, 2);
   assert.equal(fight.life, afterHit + 5);
-  assert.match(fight.log[1], /斩芦刀，刀伤 \+8.*短刀伤 27.*避过挥篙.*渡水蓑回复 5/);
+  assert.match(fight.log[1], /斩芦刀，刀伤 \+8.*(?:普攻刀伤|短刀伤) 27.*避过挥篙.*渡水蓑回复 5/);
   const fresh = playRounds(startFight(save, 1, true), 1);
   fresh.life = fresh.maxLife - 1;
   playRounds(fresh, 2);
@@ -345,8 +347,8 @@ test("照影持续轮触发烛影刀和护灯袍，单靠听息辨真与挑灯�
   save.ranks[2] = 1;
   save.kit.reveal = true;
   const fight = playRounds(startFight(save, 2, true), 3);
-  assert.match(fight.log[0], /烛影刀.*借面珠.*短刀伤 38.*护灯袍减伤 4.*失血 3/);
-  assert.match(fight.log[1], /烛影刀.*短刀伤 33.*护灯袍减伤 4/);
+  assert.match(fight.log[0], /烛影刀.*借面珠.*(?:普攻刀伤|短刀伤) 38.*护灯袍减伤 4.*(?:扣 3 点气血|失血 3)/);
+  assert.match(fight.log[1], /烛影刀.*(?:普攻刀伤|短刀伤) 33.*护灯袍减伤 4/);
   assert.doesNotMatch(fight.log[2], /烛影刀|护灯袍/);
   save.kit.reveal = false;
   const lamp = playRounds(startFight(save, 2, true), 3, { 2: "safe" });
@@ -357,7 +359,7 @@ test("巡夜最后一刀只给剩余额度，学招、换回旧地图及刷新�
   for (const [region, cap] of [[0,108], [1,400], [2,1370]]) {
     const save = newSave(0);
     save.region = region;
-    save.victories = [1, 1, 0];
+    save.victories = [1, 1, 0, 0];
     earnDao(save, cap - 1);
     save.autoPatrol = true;
     assert.equal(recordPatrolKill(save, () => 1).reward, 1);
@@ -410,7 +412,7 @@ test("新装备未处置前手动、沿路与离线停在同一刻，逐件收�
   assert.equal(recordPatrolKill(save, () => 0).reward, 0);
   const restored = decode(JSON.stringify(save), 60000);
   assert.equal(accrueOffline(restored, 60000).earned, 0);
-  assert.deepEqual(restored.kills, [1, 0, 0]);
+  assert.deepEqual(restored.kills, [1, 0, 0, 0]);
   assert.equal(restored.lifetimeDao, 2);
   assert.equal(restored.autoPatrol, true);
   restored.newGear = ["hillCoat", "tigerFang"];
@@ -498,7 +500,7 @@ test("照妖镜首破结算旧速率之后才提升纪录，重演和重复提�
   const hour = 3600000;
   const save = decode(JSON.stringify({ ...newSave(0), mirror: undefined }), 0);
   assert.equal(startMirrorFight(save, 1), undefined);
-  save.victories = [1, 1, 1];
+  save.victories = [1, 1, 1, 0];
   earnDao(save, 1100);
   const startChapter = [...save.victories];
   const battle = startMirrorFight(save, 1);
@@ -524,7 +526,7 @@ test("照妖镜首破结算旧速率之后才提升纪录，重演和重复提�
 
 test("第五重回浪提前，镇山喝赶不上，割缆仍能清空水位", () => {
   const save = newSave(0);
-  save.victories = [1, 1, 1];
+  save.victories = [1, 1, 1, 0];
   save.mirror.best = 4;
   earnDao(save, 1100);
   save.kit.shout = "windup";
@@ -542,14 +544,14 @@ test("招式卡的亮格与河伯战前对照采用相同轮次，卸招后实�
   save.kit = { stance: "guard", shout: "windup", step: "tide", reveal: true };
   assert.deepEqual(Array.from({ length: 9 }, (_, i) => i + 1).filter(round => artDue(round, 0)), [3, 6, 9]);
   assert.deepEqual(roundMoves(1, save.kit, 3), { names: ["镇山喝"], enemy: "回浪", opening: false });
-  assert.deepEqual(roundMoves(1, save.kit, 5).names, ["听潮步", "照影"]);
+  assert.deepEqual(roundMoves(1, save.kit, 5).names, ["照影", "听潮步"]);
   save.kit.shout = "off";
   assert.deepEqual(roundMoves(1, save.kit, 3).names, []);
 });
 
 test("刻纹实际出手，断潮留到下一刀，回息只在成功避击且有伤时回复", () => {
   const save = newSave(0);
-  save.victories = [1, 1, 1];
+  save.victories = [1, 1, 1, 0];
   save.mirror.sand = 12;
   earnDao(save, 1100);
   save.kit.shout = "windup";
@@ -584,7 +586,7 @@ test("白烛庙常见配装盲打会反噬败阵，挑灯或藏锋都能首胜",
 test("第十二重遇到娘娘，照影能取代部分应变，镜战仍照原规则发放首破砂", () => {
   const save = newSave(0);
   earnDao(save, 1370);
-  save.victories = [1, 1, 1];
+  save.victories = [1, 1, 1, 0];
   save.mirror.best = 11;
   save.loadout = { weapon: "templeBlade", armor: "templeCoat", charm: "tigerFang" };
   assert.equal(startMirrorFight(save, 11).region, 1);
@@ -600,14 +602,14 @@ test("第十二重遇到娘娘，照影能取代部分应变，镜战仍照原�
   assert.equal(settleMirror(save, revealed, 0).reward, 34);
   assert.equal(settleMirror(save, revealed, 0).reward, 0);
   assert.equal(save.mirror.best, 12);
-  assert.deepEqual(save.victories, [1, 1, 1]);
+  assert.deepEqual(save.victories, [1, 1, 1, 0]);
 });
 
 test("旧档按案补入异相纪录，首卷未平不能接托付", () => {
   const s = newSave(0);
   assert.equal(startTrial(s, "ferryTrial"), undefined);
   delete s.trialBest;
-  s.victories = [1, 1, 1];
+  s.victories = [1, 1, 1, 0];
   s.mirror.best = 12;
   const old = decode(JSON.stringify(s), 100);
   assert.deepEqual(old.trialBest, { ferryTrial: 0, templeTrial: 0 });
@@ -618,7 +620,7 @@ test("旧档按案补入异相纪录，首卷未平不能接托付", () => {
 
 test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水位", () => {
   const s = newSave(0);
-  s.victories = [1, 1, 1];
+  s.victories = [1, 1, 1, 0];
   earnDao(s, 1100);
   const f = startTrial(s, "ferryTrial");
   while (!f.waiting) tickFight(f);
@@ -641,12 +643,12 @@ test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水�
   assert.equal(s.trialBest.ferryTrial, quicker.round);
   assert.equal(settleTrial(s, f), 0);
   assert.equal(s.trialBest.ferryTrial, quicker.round);
-  assert.deepEqual([s.mirror.sand, s.mirror.best, s.lifetimeDao, s.victories], [8, 0, 1100, [1, 1, 1]]);
+  assert.deepEqual([s.mirror.sand, s.mirror.best, s.lifetimeDao, s.victories], [8, 0, 1100, [1, 1, 1, 0]]);
 });
 
 test("烛下还名反噬即失托，保底装备挑灯可胜；只杀妖不能交差", () => {
   const s = newSave(0);
-  s.victories = [1, 1, 1];
+  s.victories = [1, 1, 1, 0];
   earnDao(s, 830);
   s.loadout = { weapon: "pineBlade", charm: "tigerFang" };
   s.kit.stance = "attack";
@@ -664,4 +666,89 @@ test("烛下还名反噬即失托，保底装备挑灯可胜；只杀妖不能�
   const restored = decode(JSON.stringify(s), 100);
   assert.equal(settleTrial(restored, won), 0);
   assert.deepEqual(restored.trialBest, { ferryTrial: 0, templeTrial: 9 });
+});
+
+test("首卷旧档过桥查案，首胜确定给路引与折篙刀，心斋同时检查道行和首胜", () => {
+  const old = newSave(0);
+  old.version = 2;
+  old.region = 2;
+  old.realm = 3;
+  old.lifetimeDao = 1036;
+  old.dao = 300;
+  old.victories = [1, 1, 1];
+  old.kills = [12, 100, 140];
+  old.clues = [3, 3, 3];
+  old.drops = [true, false, false];
+  old.ranks = [1, 0, 0];
+  old.guide.defeats = [0, 1, 2];
+  old.mirror.best = 12;
+  old.trialBest.ferryTrial = 9;
+  const s = decode(JSON.stringify(old), 100);
+  assert.deepEqual(s.clues, [3, 3, 3, 0]);
+  assert.deepEqual([s.mirror.best, s.trialBest.ferryTrial], [12, 9]);
+  s.region = 3;
+  for (let i = 0; i < 53; i++) stowThenPatrol(s, () => 1);
+  assert.equal(canChallenge(s, 3), false);
+  stowThenPatrol(s, () => 1);
+  assert.equal(canChallenge(s, 3), true);
+  assert.equal(s.lifetimeDao, 1414);
+  assert.equal(s.realm, 3);
+  assert.deepEqual(win(s, 3, () => 1), { first: true, drop: true });
+  assert.ok(s.newGear.includes("postSeal"));
+  assert.equal(study(s, 3), true);
+  equipArt(s, 0, true);
+  equipArt(s, 3, true);
+  assert.deepEqual(weaponArts(s.kit), [3]);
+  earnDao(s, 16);
+  assert.equal(s.realm, 4);
+  equipArt(s, 0, true);
+  assert.deepEqual(weaponArts(s.kit), [0, 3]);
+  assert.equal(win(s, 3, () => 1).drop, false);
+  assert.deepEqual(weaponArts(decode(JSON.stringify(s), 120).kit), [0, 3]);
+  const blocked = newSave(0);
+  earnDao(blocked, 2230);
+  assert.equal(blocked.realm, 3);
+  const lateUnlock = newSave(0);
+  lateUnlock.victories = [1, 1, 1, 0];
+  earnDao(lateUnlock, 1600);
+  assert.equal(lateUnlock.realm, 3);
+  win(lateUnlock, 3);
+  assert.equal(lateUnlock.realm, 4);
+});
+
+test("驿桥低配硬接第三篙会落桥，预览与借墩结算一致", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1, 0];
+  earnDao(s, 1414);
+  s.loadout = { weapon: "pineBlade", charm: "tigerFang" };
+  const lost = playRounds(startFight(s, 3, true), 20);
+  assert.deepEqual([lost.result, lost.round, lost.footing], ["lost", 9, 3]);
+  const fight = playRounds(startFight(s, 3, true), 5);
+  while (!fight.waiting) tickFight(fight);
+  const preview = previewOpening(fight, "safe");
+  assert.equal(preview.footing, 0);
+  playRounds(fight, 6, { 6: "safe" });
+  assert.deepEqual([fight.life, fight.hp, fight.footing], [preview.life, preview.hp, preview.footing]);
+  playRounds(fight, 20, { 9: "safe" });
+  assert.deepEqual([fight.result, fight.round], ["won", 12]);
+});
+
+test("武学顺序驱动预览和实际追斩，松纹刀与路引按各自条件生效", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1, 1];
+  earnDao(s, 1600);
+  s.ranks = [1, 0, 0, 1];
+  s.loadout = { weapon: "pineBlade", charm: "postSeal" };
+  equipArt(s, 0, true);
+  equipArt(s, 3, true);
+  const ordered = playRounds(startFight(s, 3, true), 3);
+  assert.deepEqual(roundMoves(3, s.kit, 3).names, ["镇山喝", "折篙刀"]);
+  assert.match(ordered.log[2], /松纹刀应喝.*截断横篙.*折篙刀伤 14.*追斩，伤 12/);
+  s.kit.foldFirst = true;
+  const reversed = playRounds(startFight(s, 3, true), 3);
+  assert.deepEqual(roundMoves(3, s.kit, 3).names, ["折篙刀", "镇山喝"]);
+  assert.match(reversed.log[2], /折篙刀伤 14.*截断横篙/);
+  assert.doesNotMatch(reversed.log[2], /追斩/);
+  assert.equal(reversed.hp - ordered.hp, 12);
+  assert.equal(ordered.life, reversed.life);
 });

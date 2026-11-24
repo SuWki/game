@@ -13,6 +13,9 @@ export const equipment = {
   tigerFang: { name: "山君牙坠", slot: "charm", level: 1, effect: "第 3、6、9…轮普攻伤害 +3" },
   tideSeal: { name: "河伯镇潮印", slot: "charm", level: 2, effect: "第 2、5、8…轮受到的伤害 -4，最低 1 点" },
   mirrorPearl: { name: "借面珠", slot: "charm", level: 3, effect: "第 1、5、9…轮普攻伤害 +5" },
+  postBlade: { name: "青石刀", slot: "weapon", level: 4, effect: "基础刀伤 +8", damage: 8 },
+  postCoat: { name: "驿衣", slot: "armor", level: 4, effect: "气血上限 +42", life: 42 },
+  postSeal: { name: "驿桥路引", slot: "charm", level: 4, effect: "第 3、6、9…轮折篙刀首斩伤害 +6" },
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
@@ -33,9 +36,9 @@ export function traitText(id: GearId) {
 }
 
 export type GearLoadout = Partial<Record<GearSlot, GearId>>;
-export const bossEquipment = ["tigerFang", "tideSeal", "mirrorPearl"] as const;
+export const bossEquipment = ["tigerFang", "tideSeal", "mirrorPearl", "postSeal"] as const;
 export const minionEquipment = [
-  ["hillCoat", "pineBlade"], ["ferryCoat", "reedBlade"], ["templeCoat", "templeBlade"],
+  ["hillCoat", "pineBlade"], ["ferryCoat", "reedBlade"], ["templeCoat", "templeBlade"], ["postCoat", "postBlade"],
 ] as const;
 
 export function knownGear(id: unknown): id is GearId {

@@ -538,10 +538,22 @@ footer { color:#6c6554; }
 .trial-meter { display:flex; align-items:center; gap:8px; color:#ffd390; }
 .trial-meter span { letter-spacing:3px; }
 .trial-preview { display:block; font-size:13px; color:#ffda9c; }
+.skill-slots:has(.skill-slot:nth-child(4)) { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.skill-rack [data-action="swap-weapons"] { margin-top:8px; min-height:44px; }
+.post-route { display:grid; grid-template-columns:minmax(136px,1fr) minmax(0,1.8fr); overflow:hidden; margin:12px 0 20px; border:1px solid #ab9474; background:#eee1c3; }
+.post-route img { width:100%; height:100%; min-height:130px; object-fit:cover; }
+.post-route > div { padding:12px; }
+.post-route h3,.post-route p { margin:2px 0 6px; }
+.post-route button { min-height:44px; }
+.stage[data-zone="post-bridge"][data-boss="true"] .enemy { right:12%; }
+.stage[data-zone="post-bridge"][data-boss="true"] .enemy img { max-width:42vw; object-fit:contain; object-position:bottom; }
 .duel-head { align-items:center; }
 .duel-head > span { margin-left:auto; }
 .duel-head button { min-height:38px; padding:4px 8px; margin:0; font-size:13px; }
 @media(max-width:680px) {
+  .skill-slots:has(.skill-slot:nth-child(4)) { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .post-route { grid-template-columns:1fr; }
+  .post-route img { height:86px; min-height:0; }
   .trial-layout,.after-roads { grid-template-columns:1fr; gap:8px; }
   .after-road { grid-template-columns:68px minmax(0,1fr) auto; }
   .after-road img { grid-column:auto; height:100%; min-height:76px; }
