@@ -516,3 +516,35 @@ footer { color:#6c6554; }
 @media(max-width:680px) { .mirror-layout { grid-template-columns:1fr; } }
 
 .water-preview.danger { color:#ffca94; font-weight:600; }
+
+#clue-track { display:block; width:min(100%,16rem); height:5px; margin:6px 0; accent-color:#946237; }
+.after-roads { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:10px 0 20px; }
+.after-road { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:0; overflow:hidden; background:#f7eedb; border:1px solid #baa380; color:#443823; text-align:left; }
+.after-road img { grid-column:1/-1; width:100%; height:80px; object-fit:cover; image-rendering:pixelated; }
+.after-road > span { display:grid; align-content:start; gap:4px; padding:12px; }
+.after-road small,.trial-goal small { color:#6b5944; }
+.after-road strong { font:bold 22px "Songti SC",SimSun,serif; }
+.after-road span span { font-size:14px; line-height:1.5; }
+.after-road > b { align-self:center; padding-right:10px; color:#81492c; }
+.after-road:hover,.after-road:focus-visible { background:#f1dfbb; border-color:#8d543a; }
+.trial-layout { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:24px; }
+.trial-layout h3 { margin-top:0; }
+.trial-scene { position:relative; overflow:hidden; color:#fff3d7; background:#233635; }
+.trial-scene img { display:block; width:100%; height:128px; object-fit:cover; image-rendering:pixelated; }
+.trial-scene div { position:absolute; inset:0; display:grid; align-content:end; padding:16px; background:linear-gradient(transparent,#18232bef); }
+#panel .trial-scene h2 { color:inherit; margin:2px 0 0; }
+.trial-goal { padding:10px 14px; background:#eee1c3; border-left:3px solid #905438; }
+.trial-goal p { margin:5px 0; }
+.trial-meter { display:flex; align-items:center; gap:8px; color:#ffd390; }
+.trial-meter span { letter-spacing:3px; }
+.trial-preview { display:block; font-size:13px; color:#ffda9c; }
+.duel-head { align-items:center; }
+.duel-head > span { margin-left:auto; }
+.duel-head button { min-height:38px; padding:4px 8px; margin:0; font-size:13px; }
+@media(max-width:680px) {
+  .trial-layout,.after-roads { grid-template-columns:1fr; gap:8px; }
+  .after-road { grid-template-columns:68px minmax(0,1fr) auto; }
+  .after-road img { grid-column:auto; height:100%; min-height:76px; }
+  .after-road > span { padding:8px 10px; }
+  .after-road strong { font-size:19px; }
+}

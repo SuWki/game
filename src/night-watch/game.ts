@@ -1,4 +1,5 @@
-import { arts, mountainFirstReward, regions } from "./content.ts";
+import { arts, mountainFirstReward, regions, trialIds, trialRounds, trials, trialSand } from "./content.ts";
+import type { TrialId } from "./content.ts";
 import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
 import { decisionDue, encounters } from "./tactics.ts";
@@ -37,6 +38,7 @@ export type Save = {
   time: number;
   report: string;
   mirror: MirrorProgress;
+  trialBest: Record<TrialId, number>;
 };
 
 export const saveKey = "night-watch-v1";
@@ -160,7 +162,7 @@ export function newSave(now: number): Save {
   return {
     version: 2, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0], clues: [0, 0, 0], victories: [0, 0, 0],
     drops: [false, false, false], ranks: [0, 0, 0], time: now,
-    guide: newGuide(), mirror: newMirror(now),
+    guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 },
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
@@ -217,6 +219,11 @@ export function decode(raw: string | null, now: number): Save {
     delete mirror.equipped;
   }
   data.realm = cultivation(data.lifetimeDao).realm;
+  const best = data.trialBest;
+  data.trialBest = { ferryTrial: 0, templeTrial: 0 };
+  for (const id of trialIds) {
+    if (count(best?.[id], trialRounds)) data.trialBest[id] = best[id];
+  }
   if (!patrolRemaining(data)) data.autoPatrol = false;
   if (data.version === 1) {
     const earned = (region: Region, thresholds: readonly number[]) =>
@@ -329,6 +336,7 @@ const patterns: Move[][] = [
 export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
   limit: number; mirrorLevel?: number; water: number; paperHits: number; riverWave: 2 | 3;
+  trial?: { id: TrialId; progress: number };
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
@@ -361,6 +369,27 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
 
 export function mirrorWave(level: number): 2 | 3 {
   return Math.floor(level / 5) % 2 ? 2 : 3;
+}
+
+export function startTrial(save: Save, id: TrialId) {
+  if (!mirrorUnlocked(save) || !Object.hasOwn(trials, id)) return;
+  const spec = trials[id];
+  const fight = startFight(save, spec.region, true);
+  fight.trial = { id, progress: 0 };
+  fight.riverWave = spec.wave;
+  fight.limit = trialRounds;
+  fight.hp = fight.maxHp = spec.hp;
+  return fight;
+}
+
+export function settleTrial(save: Save, fight: Fight) {
+  const trial = fight.trial;
+  if (!trial || fight.result !== "won" || !mirrorUnlocked(save) || trial.progress < trials[trial.id].target) return 0;
+  const previous = save.trialBest[trial.id];
+  save.trialBest[trial.id] = previous ? Math.min(previous, fight.round) : fight.round;
+  if (previous) return 0;
+  save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + trialSand);
+  return trialSand;
 }
 
 export function mirrorOpponent(level: number) {
@@ -466,6 +495,8 @@ function resolveRound(f: Fight) {
   const interrupted = shout && move.interruptible;
   const cut = move.backwash && elapsed === 1 && choice === "safe";
   const reversed = move.backwash && elapsed === 1 && choice === "risk" && interrupted;
+  const trial = f.trial;
+  let protectedLamp = cut || reversed;
   if (move.backwash) {
     if (cut || reversed) {
       f.water = 0;
@@ -497,6 +528,8 @@ function resolveRound(f: Fight) {
   f.cue = interrupted ? "stagger" : "slash";
   const holding = f.region === 2 && choice === "risk" && elapsed === 0;
   const charge = f.region === 0 && choice === "risk" && elapsed === 0;
+  let struckTrue = false;
+  let backlash = false;
   if (f.hp > 0 && !holding) {
     const flank = tide && f.ranks[1] === 2 ? 1.5 : 1;
     const seal = f.revealedThrough >= round && f.ranks[2] === 2 ? 1.25 : 1;
@@ -523,16 +556,22 @@ function resolveRound(f: Fight) {
     f.hp -= damage;
     actions.push(`短刀伤 ${damage}`);
     if (f.region === 2) {
+      struckTrue = exposed;
       f.paperHits = exposed ? 0 : f.paperHits + 1;
       if (f.hp > 0 && f.paperHits === paperHitLimit) {
         f.paperHits = 0;
         f.life -= paperBacklashDamage;
+        backlash = true;
         marks.push("纸面反噬");
         actions.push(`连斩纸面招来反噬，失血 ${paperBacklashDamage}`);
       }
     }
   }
   if (interrupted && f.engraving?.id === "edge") f.cutRound = round;
+  if (trial?.id === "templeTrial" && trial.progress < trials.templeTrial.target) {
+    trial.progress = struckTrue ? trial.progress + 1 : 0;
+    if (trial.progress === trials.templeTrial.target) actions.push("三个名字都已写下");
+  }
   if (f.hp > 0 && flood) {
     f.life = 0;
     f.cue = "strike";
@@ -540,6 +579,7 @@ function resolveRound(f: Fight) {
     marks.push("覆舟");
   } else if (f.hp > 0 && f.life > 0 && !interrupted) {
     if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
+      if (move.backwash) protectedLamp = true;
       actions.push(`避过${move.name}`);
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
         const heal = Math.min(f.maxLife - f.life, traits.ferryCoat.amount);
@@ -584,6 +624,11 @@ function resolveRound(f: Fight) {
       }
     }
   }
+  if (trial?.id === "ferryTrial" && protectedLamp && trial.progress < trials.ferryTrial.target) {
+    trial.progress++;
+    marks.push("渡灯未熄");
+    actions.push("护住渡灯");
+  }
   f.lastExchange = { round, life: Math.max(0, f.life) - startingLife, hp: Math.max(0, f.hp) - startingHp, marks };
   for (const mark of marks) f.links[mark] = (f.links[mark] ?? 0) + 1;
   f.event = `第 ${round} 回合 · ${actions.join(" → ")}。`;
@@ -591,7 +636,13 @@ function resolveRound(f: Fight) {
   if (order && order.choice !== "pass" && (elapsed === 0 || f.region !== 0 && elapsed === 1)) {
     f.turningPoint = elapsed === 0 ? f.event : `第 ${order.round} 回合${encounters[f.region][order.choice].name}。 ${f.event}`;
   }
-  if (f.hp <= 0) f.result = "won";
+  if (trial?.id === "templeTrial" && backlash) {
+    f.result = "lost";
+    f.lastThreat = "纸面反噬吹熄了烛火。挑灯照出真身，或收刀等烛偏。";
+  } else if (trial && f.hp <= 0 && trial.progress < trials[trial.id].target) {
+    f.result = "lost";
+    f.lastThreat = `大妖已退，${trials[trial.id].counter}只完成 ${trial.progress} / ${trials[trial.id].target}。`;
+  } else if (f.hp <= 0) f.result = "won";
   else if (f.life <= 0 || round === f.limit) {
     f.result = "lost";
     f.lastThreat = f.life <= 0 ? f.event : `已满 ${f.limit} 回合，妖影仍未伏诛。`;
@@ -603,7 +654,7 @@ export function previewOpening(fight: Fight, choice: Response) {
   if (!answerOpening(trial, choice)) throw new Error("此刻没有待决的险招");
   const end = Math.min(trial.limit, trial.round + [1, 2, 3][trial.region]);
   while (trial.round < end && trial.result === "fighting") resolveRound(trial);
-  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water, paperHits: trial.paperHits,
+  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water, paperHits: trial.paperHits, ...(trial.trial && { trialProgress: trial.trial.progress }),
     backlashes: (trial.links["纸面反噬"] ?? 0) - (fight.links["纸面反噬"] ?? 0) };
 }
 

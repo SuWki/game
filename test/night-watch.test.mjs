@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
-  artDue, previewOpening, recordPatrolKill, roundMoves, settleMirror, startFight, startMirrorFight, study, tickFight, tuneEngraving, win,
+  artDue, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
@@ -601,4 +601,67 @@ test("第十二重遇到娘娘，照影能取代部分应变，镜战仍照原�
   assert.equal(settleMirror(save, revealed, 0).reward, 0);
   assert.equal(save.mirror.best, 12);
   assert.deepEqual(save.victories, [1, 1, 1]);
+});
+
+test("旧档按案补入异相纪录，首卷未平不能接托付", () => {
+  const s = newSave(0);
+  assert.equal(startTrial(s, "ferryTrial"), undefined);
+  delete s.trialBest;
+  s.victories = [1, 1, 1];
+  s.mirror.best = 12;
+  const old = decode(JSON.stringify(s), 100);
+  assert.deepEqual(old.trialBest, { ferryTrial: 0, templeTrial: 0 });
+  assert.equal(old.mirror.best, 12);
+  old.trialBest = { ferryTrial: 11, templeTrial: -1 };
+  assert.deepEqual(decode(JSON.stringify(old), 100).trialBest, { ferryTrial: 11, templeTrial: 0 });
+});
+
+test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水位", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1];
+  earnDao(s, 1100);
+  const f = startTrial(s, "ferryTrial");
+  while (!f.waiting) tickFight(f);
+  assert.equal(previewOpening(f, "safe").trialProgress, 1);
+  assert.equal(previewOpening(f, "pass").trialProgress, 0);
+  assert.equal(f.trial.progress, 0);
+  playRounds(f, 16, { 1: "safe", 4: "safe" });
+  assert.deepEqual([f.result, f.round, f.trial.progress], ["won", 13, 2]);
+  assert.equal(settleTrial(s, f), 8);
+  assert.equal(settleTrial(s, f), 0);
+  s.kit.step = "tide";
+  s.ranks[1] = 2;
+  s.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tigerFang" };
+  const flood = playRounds(startTrial(s, "ferryTrial"), 16);
+  assert.deepEqual([flood.result, flood.water, flood.trial.progress], ["lost", 3, 2]);
+  assert.equal(settleTrial(s, flood), 0);
+  const quicker = playRounds(startTrial(s, "ferryTrial"), 16, { 4: "safe" });
+  assert.equal(quicker.result, "won");
+  assert.equal(settleTrial(s, quicker), 0);
+  assert.equal(s.trialBest.ferryTrial, quicker.round);
+  assert.equal(settleTrial(s, f), 0);
+  assert.equal(s.trialBest.ferryTrial, quicker.round);
+  assert.deepEqual([s.mirror.sand, s.mirror.best, s.lifetimeDao, s.victories], [8, 0, 1100, [1, 1, 1]]);
+});
+
+test("烛下还名反噬即失托，保底装备挑灯可胜；只杀妖不能交差", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1];
+  earnDao(s, 830);
+  s.loadout = { weapon: "pineBlade", charm: "tigerFang" };
+  s.kit.stance = "attack";
+  const lost = playRounds(startTrial(s, "templeTrial"), 16);
+  assert.deepEqual([lost.result, lost.round], ["lost", 2]);
+  assert.match(lost.lastThreat, /纸面反噬/);
+  const incomplete = startTrial(s, "templeTrial");
+  incomplete.hp = 1;
+  playRounds(incomplete, 1);
+  assert.equal(incomplete.result, "lost");
+  assert.match(incomplete.lastThreat, /连中真身只完成/);
+  const won = playRounds(startTrial(s, "templeTrial"), 16, { 2: "safe", 5: "safe" });
+  assert.deepEqual([won.result, won.round, won.trial.progress], ["won", 9, 3]);
+  assert.equal(settleTrial(s, won), 8);
+  const restored = decode(JSON.stringify(s), 100);
+  assert.equal(settleTrial(restored, won), 0);
+  assert.deepEqual(restored.trialBest, { ferryTrial: 0, templeTrial: 9 });
 });

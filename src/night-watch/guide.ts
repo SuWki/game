@@ -1,9 +1,10 @@
 import { arts, regions } from "./content.ts";
+import type { TrialId } from "./content.ts";
 import { canChallenge, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
-export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror";
-type Result = { region: Region; won: boolean; drop?: boolean };
+export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | TrialId;
+type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
 
@@ -16,12 +17,14 @@ export function nextTip(save: Save, tab: Tab, result: Result | null): Tip | unde
 function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined {
   if (tab === "patrol" && result && !result.won) return defeatTip(save, result.region);
   if (tab === "archive") {
+    if (save.victories[2]) return { id: "archive-after-chapter", title: "卷末去处",
+      text: "两桩托付各有胜法，点地名可看详情。进照妖镜能挑战妖影、温养刻纹。要换回从前的巡夜地，展开「首卷旧案」。" };
     return save.victories[0] ? {
       id: "archive", title: "换路与重演",
       text: "标着「当前地点」的是阿照所在的山道。点地名旁的「前往」换路，点「重演」再会大妖。",
     } : undefined;
   }
-  if (tab === "skills" && result && !result.won) return defeatTip(save, result.region);
+  if (tab === "skills" && result && !result.won && !result.trialId && !result.mirrorLevel) return defeatTip(save, result.region);
   if (tab === "skills") {
     const unlearned = arts.findIndex((art, i) => save.drops[i] && !save.ranks[i] && save.realm >= art.realm &&
       !save.guide.dismissed.includes(`learn-${i}`));
@@ -49,6 +52,13 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     return;
   }
   if (tab !== "patrol") return;
+
+  if (result?.drop && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
+  if (save.victories[2]) return {
+    id: "after-chapter", title: "渡口又点起了灯",
+    text: "翻开斩妖录，护送渡灯、替失名人守烛，或入照妖镜积砂养纹。",
+    target: { tab: "archive", label: "查看卷末去处" },
+  };
 
   if (!patrolRemaining(save)) {
     const next = save.region + 1;
@@ -90,9 +100,6 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     return;
   }
   if (!save.victories[2]) {
-    if (result?.drop && result.region === 1 && !save.ranks[1] && !save.guide.dismissed.includes("learn-1")) {
-      return learnTip(1);
-    }
     if (save.region === 1 && !save.kills[2]) return {
       id: "temple-road", title: "去白烛庙查案",
       text: "河伯首胜已开庙街。到庙街斩妖可攒下入听息所需的道行，查齐线索后再挑战娘娘。",
@@ -100,12 +107,6 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     };
     if (save.realm === 3 && save.region === 2 && clueCount(save) < 3) return insightTip();
   }
-  if (result?.drop && result.region === 2 && !save.ranks[2]) return learnTip(2);
-  if (save.victories[2]) return {
-    id: "replay", title: "旧案仍可再访",
-    text: "首卷已平。可以在斩妖录重演大妖来补全传承，或换一套配招试试能否更早取胜。",
-    target: { tab: "archive", label: "打开斩妖录" },
-  };
 }
 
 function learnTip(art: Region): Tip {

@@ -1,5 +1,23 @@
 export const realms = ["锻骨", "舒筋", "贯劲", "听息"] as const;
 export const mountainFirstReward = 6;
+export const trials = {
+  ferryTrial: {
+    name: "回灯过渡", region: 1, hp: 238, wave: 2, target: 2, counter: "护灯",
+    goal: "护住两次回浪，再斩退河伯。", hint: "第 2、5、8… 回合起回浪。提前割缆可以护灯断水，听潮步也能护灯，船中水位仍会涨。",
+    opening: "末班渡船载着两盏归家的灯。陆婆把篙交给阿照，自己俯身护住灯芯。",
+    ending: "两点灯火一前一后上了岸。陆婆这才放下篙，朝对岸喊了一声：明早照旧开船。",
+  },
+  templeTrial: {
+    name: "烛下还名", region: 2, hp: 220, wave: 3, target: 3, counter: "连中真身",
+    goal: "连续三轮出刀命中真身，斩退娘娘。全场须避开纸面反噬。", hint: "挑灯能照出连续三轮真身。若带照影，可借烛偏接上显形的轮次，把应变留给下一次换面。",
+    opening: "最后三块木牌摆在灯下。石生求阿照守住这簇火，让失名的人一个个应声。",
+    ending: "第三个名字落笔时，庙门外有人应了一声。石生把余蜡裹好，留作明年的灯。",
+  },
+} as const;
+export type TrialId = keyof typeof trials;
+export const trialIds = Object.keys(trials) as TrialId[];
+export const trialRounds = 16;
+export const trialSand = 8;
 export const breakthrough = [
   { gift: "开身法位。基础退步在第 1、4、7… 回合避开第一道浪。", verse: "起如山鸟，落似老熊。" },
   { gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。" },
