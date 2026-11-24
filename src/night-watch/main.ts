@@ -5,7 +5,7 @@ import { equipment, knownGear, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import type { Response } from "./tactics.ts";
 import { caseClues, encounters, preparationText } from "./tactics.ts";
-import { nextTip } from "./guide.ts";
+import { clueTip, nextTip, openingTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
 import {
   accrueOffline, accrueSand, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, cultivationFor, decode, equipArt, equippedArts, footingLimit, frame, engravingCost, engravingPower, engravings, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, weaponArts,
@@ -104,6 +104,7 @@ root.innerHTML = `
         <button type="button" data-action="fight:0" id="challenge" hidden>挑战吊睛山君</button></div>
       </div>
       <div id="loot-strip" hidden><div id="gear-find" role="status"></div></div>
+      <section id="clue-guide" aria-label="线索指引" hidden></section>
       <div class="field-note"><span>巡簿</span><div id="report"></div></div></div>
       <div class="satchel"><section id="outfit" aria-label="随身装备"></section>
 
@@ -211,7 +212,7 @@ function patrolPanel(): string {
   const done = save.victories[save.region] > 0;
   const kills = save.kills[save.region];
   const effects = [evidence.danger, evidence.counter, preparationText(id)];
-  const known = location.clues.map((clue, i) => `<li class="${i < clues ? "found" : ""}">
+  const known = location.clues.map((clue, i) => `<li id="case-clue-${i + 1}" tabindex="-1" class="${i < clues ? "found" : ""}">
       <span aria-hidden="true">${i < clues ? "◆" : "◇"}</span><div><strong>${clueLabels[i]}</strong>
       ${i < clues ? `<small>${clue}</small><p>${effects[i]}</p>` : i === clues ? `<p>再斩 ${location.thresholds[i] - kills} 只小妖${i === 2 ? " · 可选准备" : ""}</p>
       ${i === 2 ? `<p>${effects[i]}</p>` : ""}` : ""}
@@ -531,7 +532,8 @@ function paintHelp() {
   const toggle = help.querySelector<HTMLButtonElement>("[data-action=guide-toggle]")!;
   toggle.textContent = save.guide.enabled ? "收起巡夜指引" : "显示巡夜指引";
   toggle.disabled = !ready || !!pending;
-  const tip = nextTip({ ...save, guide: { ...save.guide, enabled: true, dismissed: [] } }, tab, result);
+  const tip = (tab === "patrol" && !result ? clueTip(save, true) : undefined)
+    ?? nextTip({ ...save, guide: { ...save.guide, enabled: true, dismissed: [] } }, tab, result);
   changedText("#guide-current", fight?.trial ? trials[fight.trial.id].goal : fight?.boss ? "敌招起手时看战场下方。可花一次应变，也可保留次数。" : isTrial(tab) ? trials[tab].hint : save.newGear.length ? "阿照停下来查看新拾的装备。穿在身上或收入行囊后，再继续巡夜。" : tip?.text ?? "点境界看道行，点行装槽位换装。");
 }
 
@@ -553,7 +555,17 @@ function paintPanel() {
     : !ready && waiting !== "另一页正在巡夜，此页可查阅巡簿" ? title("青芦夜话", "巡簿", waiting)
       : isTrial(tab) ? trialPanel(tab) : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel, mirror: mirrorPanel }[tab]();
   const inBook = !!pending || !ready || tab !== "patrol" || journal || !!result;
-  const homeTip = !inBook && patrolRemaining(save) > 0 && !save.newGear.length && currentTip;
+  const lead = !inBook && !fight?.boss ? clueTip(save) : undefined;
+  const clueGuide = element("#clue-guide");
+  clueGuide.hidden = !lead;
+  const clueMarkup = lead ? `<div role="status"><strong>${lead.title}</strong><p>${lead.text}</p></div>
+    <div class="clue-actions">${button("clue-guide-open", lead.label)}${button("clue-guide-dismiss", "知道了")}</div>` : "";
+  if (clueGuide.dataset.markup !== clueMarkup) {
+    clueGuide.innerHTML = clueMarkup;
+    clueGuide.dataset.markup = clueMarkup;
+  }
+  const repeatsClue = currentTip?.target?.action === "preview" && clueCount(save) > 0;
+  const homeTip = !lead && !repeatsClue && !inBook && patrolRemaining(save) > 0 && !save.newGear.length && currentTip;
   const repeatsControl = homeTip && (homeTip.target?.action === "auto-patrol" || homeTip.target?.action?.startsWith("region:") || homeTip.id.startsWith("learn-") || homeTip.id === "after-chapter" && save.region === 2);
   const outfit = element("#outfit");
   outfit.hidden = inBook || !!fight?.boss;
@@ -589,7 +601,7 @@ function paintPanel() {
   const bookLoot = inBook && ready && !pending && !fight?.boss && !(result && tab === "patrol") && save.newGear[0];
   const drop = bookLoot ? lootCard(bookLoot) : "";
   const html =
-    (inBook && tab !== "skills" && tab !== "archive" && currentTip && !(result?.won && tab === "patrol") ? guideCard(currentTip) : "") +
+    (inBook && !journal && tab !== "skills" && tab !== "archive" && currentTip && !(result?.won && tab === "patrol") ? guideCard(currentTip) : "") +
     body + drop;
   if (html !== renderedPanel) {
     const scroll = panel.scrollTop;
@@ -684,7 +696,7 @@ function paintPatrolControls() {
       : done ? "家书已送达，云栈钥匙已记入斩妖录。"
       : !challenge.hidden ? (clues === challengeClues ? `可挑战${region.boss}。再斩 ${remainingKills} 只，备好应变。` : swept ? "此地小妖已扫清，可以挑战" + region.boss + "。" : "应变已备好，可以挑战" + region.boss + "。")
       : clues >= challengeClues ? `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
-      : save.region === 0 && save.kills[0] === 0 ? "提灯上山，找出第一只小妖。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
+      : save.region === 0 && save.kills[0] === 0 && save.guide.enabled ? "提灯上山。斩到第三只小妖，就能查山君招路。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
   }
   const drop = element("#gear-find");
   const id = save.newGear[0];
@@ -740,7 +752,7 @@ function openingCards(f: Fight) {
       ${outcome.footing !== undefined ? `<span class="water-preview">失足 ${f.footing} → ${outcome.footing}</span>` : ""}
       ${outcome.ward !== undefined ? `<span class="water-preview">更印 ${f.ward} → ${outcome.ward}</span>` : ""}
       ${outcome.cover !== undefined ? `<span class="water-preview">${outcome.cover ? "马灯仍在" : "马灯已倒"}</span>` : ""}
-      ${outcome.prepared ? `<span class="trial-preview">${outcome.prepared} +${caseClues[f.region].damage}</span>` : ""}
+      ${outcome.prepared ? `<span class="trial-preview clue-bonus">线索准备 · ${outcome.prepared} +${caseClues[f.region].damage}</span>` : ""}
       ${f.trial ? `<span class="trial-preview">${trials[f.trial.id].counter} ${f.trial.progress} → ${outcome.trialProgress}</span>` : ""}<small>${timing}</small>`,
       f.region === watchRegion && choice === "risk" && f.sigilThrough <= f.round);
   }).join("");
@@ -785,9 +797,11 @@ function paintDuel() {
     <span>${f.ward}/${watchWard} · 敲更前未破，震响扣 28 气血</span></div>` : "";
   const sigil = f.sigilThrough >= round ? `<div class="trial-meter"><b>寄灯符</b><span>可引爆 · 第 ${f.sigilThrough} 回合末消散</span></div>` : "";
   const preparation = f.preparation === "ready" && !f.waiting && !last ? `<p class="duel-moves">${preparationText(f.region)}</p>` : "";
+  const cluePrompt = openingTip(save, f);
   const speed = save.victories[f.region] ? `<button type="button" data-action="battle-speed" aria-pressed="${quickBattle}" aria-label="加快交锋演出">战速 ×${quickBattle ? 2 : 1}</button>` : "";
   const body = `<div class="duel-head"><strong>${headline}</strong><span>应变 ${f.focus} / 2</span>${speed}</div>${track}${lamps}${water}${paper}${footing}${horse}${ward}${sigil}${preparation}${nextMoves}` +
-    (f.waiting ? `<div class="choice-caption">选一招 · 预判双方气血</div><div class="duel-options">${openingCards(f)}</div>` :
+    (f.waiting ? `<div class="choice-caption">选一招 · 预判双方气血</div>
+      ${cluePrompt ? `<p class="duel-clue">妖案提示 · ${cluePrompt}</p>` : ""}<div class="duel-options">${openingCards(f)}</div>` :
       (!last && f.region === 1 ? "<p>河伯靠船缆汲水。看他绷缆，再决定割缆还是借浪。</p>" : !last && f.region === 2 ? "<p>留心烛火。挑灯可让真身现形，也可收刀等她自己露面。</p>" : "") + lastLine) + toggle;
   if (duelMarkup !== body) {
     duel.innerHTML = body;
@@ -911,7 +925,7 @@ function finishPatrol(current: Fight) {
     (realmLabel(draft.lifetimeDao) !== realmLabel(save.lifetimeDao) ? ` · 升至${realmLabel(draft.lifetimeDao)}` : "") +
     (foundClue ? ` · ${clueLabels[clues - 1]}「${regions[draft.region].clues[clues - 1]}」` : "") + "。";
   commit(draft, () => {
-    if (foundClue) {
+    if (foundClue && (tab !== "patrol" || journal || !save.guide.enabled)) {
       const line = clues === 1 ? "点场景上的妖案看招路" : clues === 2 ? "应对办法已记入妖案" : `「${caseClues[draft.region].aid}」已备好`;
       notify(`${clueLabels[clues - 1]} · ${line}`);
     } else if (found && tab !== "patrol") notify(`拾得${equipment[found].name} · ${slots[equipment[found].slot]}`);
@@ -970,6 +984,26 @@ function faceChallenge(encounter: Fight | undefined) {
   paintStage();
 }
 
+function openClueView(step?: number) {
+  backTrail.push(pageLocation());
+  const preview = step === 1;
+  tab = preview ? "skills" : "patrol";
+  journal = !preview;
+  paintPanel();
+  window.scrollTo(0, 0);
+  if (preview) {
+    const details = panel.querySelector<HTMLDetailsElement>("#round-preview");
+    if (!details) return;
+    details.open = true;
+    details.querySelector("summary")?.focus({ preventScroll: true });
+    details.scrollIntoView({ block: "start" });
+  } else if (step) {
+    const row = panel.querySelector<HTMLElement>(`#case-clue-${step}`);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: "nearest" });
+  }
+}
+
 root.addEventListener("submit", event => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
@@ -1003,22 +1037,23 @@ root.addEventListener("click", event => {
     tab = "patrol";
     paintPanel();
     window.scrollTo(0, 0);
-  } else if (name === "journal" && !fight?.boss) {
-    backTrail.push(pageLocation());
-    journal = true;
-    paintPanel();
-    window.scrollTo(0, 0);
+  } else if ((name === "journal" || name === "clue-guide-open" || name === "clue-guide-dismiss") && !fight?.boss) {
+    const tip = clueTip(save);
+    const open = () => {
+      if (name === "journal") openClueView();
+      else if (name === "clue-guide-open") openClueView(tip?.step);
+      else {
+        paintPanel();
+        element(".case-link").focus({ preventScroll: true });
+      }
+    };
+    if (tip && ready && !pending) {
+      const draft = structuredClone(save);
+      draft.guide.dismissed.push(tip.id);
+      commit(draft, open);
+    } else if (name === "journal") open();
   } else if (name === "show-preview" && journal && clueCount(save) > 0) {
-    backTrail.push(pageLocation());
-    tab = "skills";
-    journal = false;
-    paintPanel();
-    const preview = panel.querySelector<HTMLDetailsElement>("#round-preview");
-    if (preview) {
-      preview.open = true;
-      preview.querySelector("summary")?.focus();
-      preview.scrollIntoView({ block: "start" });
-    }
+    openClueView(1);
   } else if (name === "motion") {
     quiet = !quiet;
     applyMotion();

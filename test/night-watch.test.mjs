@@ -6,7 +6,7 @@ import {
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
-import { nextTip } from "../src/night-watch/guide.ts";
+import { clueTip, nextTip, openingTip } from "../src/night-watch/guide.ts";
 
 function stowThenPatrol(save, random) {
   save.newGear = [];
@@ -902,4 +902,45 @@ test("第三条线索在正篇首次割缆时追加伤害，预览不会消耗�
   save.victories[2] = 1;
   assert.equal(startMirrorFight(save, 1).preparation, undefined);
   assert.equal(startTrial(save, "ferryTrial").preparation, undefined);
+});
+
+test("线索指引随阶段出现，已读可持久化，境界达标会补上出战提示", () => {
+  const s = newSave(0);
+  assert.equal(clueTip(s), undefined);
+  s.kills[0] = 3;
+  const first = clueTip(s);
+  assert.deepEqual([first.step, first.label], [1, "查看首领招路"]);
+  s.guide.dismissed.push(first.id);
+  assert.equal(clueTip(decode(JSON.stringify(s), 0)), undefined);
+  s.kills[0] = 7;
+  assert.match(clueTip(s).text, /现在可以挑战吊睛山君/);
+  s.kills[0] = 12;
+  assert.match(clueTip(s).text, /伏身避啸.*8 点伤害/);
+  s.region = 2;
+  s.victories = [1, 1, 0, 0, 0, 0];
+  s.kills[2] = 84;
+  earnDao(s, 800);
+  const locked = clueTip(s);
+  assert.match(locked.text, /进入听息境后可挑战/);
+  s.guide.dismissed.push(locked.id);
+  earnDao(s, 30);
+  assert.match(clueTip(s).text, /现在可以挑战借面娘娘/);
+  s.guide.enabled = false;
+  assert.equal(clueTip(s), undefined);
+  assert.match(clueTip(s, true).text, /挑灯照面/);
+});
+
+test("首次险招显示妖案提示，带备战时提示点名实际触发的选择", () => {
+  const s = newSave(0);
+  s.kills[0] = 12;
+  const f = startCaseFight(s, 0);
+  assert.equal(openingTip(s, f), undefined);
+  while (!f.waiting) tickFight(f);
+  assert.match(openingTip(s, f), /伏身避啸.*8 点伤害/);
+  playRounds(f, 3, { 3: "safe" });
+  assert.equal(openingTip(s, f), undefined);
+  s.guide.enabled = false;
+  const disabled = startCaseFight(s, 0);
+  while (!disabled.waiting) tickFight(disabled);
+  assert.equal(openingTip(s, disabled), undefined);
 });

@@ -1,12 +1,44 @@
-import { arts, bridgeRegion, courierRegion, heartRealm, regions, watchRegion } from "./content.ts";
+import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { canChallenge, challengeClues, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
-import type { Region, Save } from "./game.ts";
+import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
+import type { Fight, Region, Save } from "./game.ts";
+import { caseClues, encounters, preparationText } from "./tactics.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | TrialId;
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
+
+export function clueTip(save: Save, showRead = false) {
+  const region = save.region;
+  if (save.victories[region]) return;
+  const step = clueCount(save);
+  if (!step || !showRead && !save.guide.enabled) return;
+  const available = canChallenge(save, region);
+  const id = `clue-${region}-${step}${step >= challengeClues && !available ? "-locked" : ""}`;
+  if (!showRead && save.guide.dismissed.includes(id)) return;
+  const enemy = regions[region].boss;
+  const response = encounters[region].safe.name;
+  const unlock = available ? `现在可以挑战${enemy}。` : `进入${realms[challengeRealms[region]]}境后可挑战${enemy}。`;
+  if (step === 1) return {
+    id, step, title: `第一条线索 · ${regions[region].clues[0]}`, text: caseClues[region].danger, label: "查看首领招路",
+  };
+  if (step === challengeClues) return {
+    id, step, title: "第二条线索 · 找到应对",
+    text: `${unlock}险招起手时，可选「${response}」。第三条线索能强化这次应对。`, label: "查看应对办法",
+  };
+  return {
+    id, step, title: "第三条线索 · 应变已备好",
+    text: `首次选择「${response}」，额外打 ${caseClues[region].damage} 点伤害。${available ? "选招时看卡上的「线索准备」。" : unlock}`,
+    label: "查看备战效果",
+  };
+}
+
+export function openingTip(save: Save, fight: Fight) {
+  if (!save.guide.enabled || !fight.waiting || fight.trial || fight.mirrorLevel) return;
+  if (fight.preparation === "ready") return preparationText(fight.region);
+  if (fight.round < 3 && !save.victories[fight.region]) return caseClues[fight.region].counter;
+}
 
 export function nextTip(save: Save, tab: Tab, result: Result | null): Tip | undefined {
   if (!save.guide.enabled) return;
