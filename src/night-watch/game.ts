@@ -1,6 +1,6 @@
 import { arts, bridgeRegion, courierRegion, heartDao, heartRealm, mountainFirstReward, regions, trialIds, trialRounds, trials, trialSand, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits, traitText } from "./equipment.ts";
+import { bossEquipment, charmPower, equipment, gearDamage, gearEffect, gearLife, gearRank, knownGear, minionEquipment, slots, traitPower, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
 import { caseClues, decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
@@ -49,6 +49,7 @@ export type Save = {
   mirror: MirrorProgress;
   trialBest: Record<TrialId, number>;
   presets: [Preset | null, Preset | null];
+  rematchRanks: PerRegion<number>;
 };
 
 export const saveKey = "night-watch-v1";
@@ -60,6 +61,9 @@ export const mirrorRounds = 12;
 export const paperHitLimit = 2;
 export const footingLimit = 3;
 export const watchWard = 58;
+export const maxRematchRank = 3;
+const rematchHealth = [0, 42, 92, 155];
+const rematchAttack = [0, 4, 9, 15];
 const paperBacklashDamage = 34;
 export const engravings = {
   edge: { name: "断潮纹", trigger: "成功截断后的下一刀", effect: "刀伤" },
@@ -149,13 +153,12 @@ export function earnDao(save: Save, amount: number) {
   save.realm = cultivationFor(save).realm;
 }
 
-export function combatStats(realm: number, stance: Kit["stance"], loadout: GearLoadout = {}, layer = 1) {
-  const weapon = loadout.weapon && equipment[loadout.weapon];
-  const armor = loadout.armor && equipment[loadout.armor];
-  const base = 12 + realm * 3 + (weapon && "damage" in weapon ? weapon.damage : 0);
+export function combatStats(realm: number, stance: Kit["stance"], loadout: GearLoadout = {}, layer = 1, upgrades: readonly number[] = []) {
+  const { weapon, armor } = loadout;
+  const base = 12 + realm * 3 + (weapon ? gearDamage(weapon, gearRank(weapon, upgrades)) : 0);
   return {
     damage: stance === "attack" ? Math.round(base * 1.25) : base,
-    life: 105 + layer - 1 + realm * 24 + (armor && "life" in armor ? armor.life : 0),
+    life: 105 + layer - 1 + realm * 24 + (armor ? gearLife(armor, gearRank(armor, upgrades)) : 0),
   };
 }
 
@@ -163,9 +166,12 @@ export function compareGear(save: Save, id: GearId) {
   const { slot } = equipment[id];
   const current = save.loadout[slot];
   const layer = cultivationFor(save).layer;
-  const before = combatStats(save.realm, save.kit.stance, save.loadout, layer);
-  const after = combatStats(save.realm, save.kit.stance, { ...save.loadout, [slot]: id }, layer);
-  const effect = (gear: GearId) => equipment[gear].slot === "charm" ? equipment[gear].effect : traitText(gear);
+  const before = combatStats(save.realm, save.kit.stance, save.loadout, layer, save.rematchRanks);
+  const after = combatStats(save.realm, save.kit.stance, { ...save.loadout, [slot]: id }, layer, save.rematchRanks);
+  const effect = (gear: GearId) => {
+    const rank = gearRank(gear, save.rematchRanks);
+    return equipment[gear].slot === "charm" ? gearEffect(gear, rank) : traitText(gear, rank);
+  };
   const oldEffect = current ? effect(current) : "";
   const newEffect = effect(id);
   return { before, after, added: newEffect !== oldEffect ? newEffect : "", lost: oldEffect !== newEffect ? oldEffect : "" };
@@ -195,6 +201,7 @@ export function newSave(now: number): Save {
     version: 4, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0],
     drops: [false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0], time: now,
     guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 }, presets: [null, null],
+    rematchRanks: [0, 0, 0, 0, 0, 0],
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
@@ -314,6 +321,11 @@ export function decode(raw: string | null, now: number): Save {
   }
   data.realm = cultivationFor(data).realm;
   const save: Save = { ...data, version: 4 };
+  const progress = data.rematchRanks;
+  save.rematchRanks = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < regions.length; i++) {
+    if (save.victories[i] && count(progress?.[i], maxRematchRank)) save.rematchRanks[i] = progress[i];
+  }
   save.kit = cleanKit(data.kit, save);
   save.presets = [cleanPreset(data.presets?.[0], save), cleanPreset(data.presets?.[1], save)];
   const best = data.trialBest;
@@ -443,6 +455,7 @@ export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
   limit: number; mirrorLevel?: number; water: number; paperHits: number; footing: number; riverWave: 2 | 3;
   trial?: { id: TrialId; progress: number };
+  rematchRank?: number;
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
@@ -450,13 +463,13 @@ export type Fight = {
   preparation?: "ready" | "used";
   kit: Kit; realm: number; ranks: Save["ranks"];
   loadout: GearLoadout;
+  gearUpgrades: Save["rematchRanks"];
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
   lastExchange?: { round: number; life: number; hp: number; marks: string[] };
   links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
-  turningPoint?: string;
   result: "fighting" | "won" | "lost";
 };
 
@@ -464,12 +477,13 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const data = regions[region];
   const actor = boss ? { name: data.boss, sprite: data.sprite } : data.foes[foeIndex % data.foes.length];
   const hp = boss ? data.hp : 1;
-  const life = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer).life;
+  const life = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks).life;
   const id = save.mirror.equipped;
   const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
     ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, paperHits: 0, footing: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
-    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, sigilThrough: 0, ward: 0, links: {},
+    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, gearUpgrades: [...save.rematchRanks],
+    revealedThrough: 0, sigilThrough: 0, ward: 0, links: {},
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
@@ -480,6 +494,45 @@ export function startCaseFight(save: Save, region: Region) {
   const fight = startFight(save, region, true);
   if (clueCount(save, region) === 3) fight.preparation = "ready";
   return fight;
+}
+
+export function rematchSpec(save: Save, region: Region) {
+  const rank = save.rematchRanks[region] + 1;
+  if (!save.victories[region] || rank > maxRematchRank) return;
+  const riverWave = region === 1 && rank >= 2 ? 2 : 3;
+  const detail = [
+    `虎啸基础伤害额外 +${8 * rank}。守式能减伤，镇山喝能截断。`,
+    `回浪在第 ${riverWave}、${riverWave + 3}、${riverWave + 6}… 回合。每次汲水最多回 ${24 + 8 * rank} 气血，割缆可清水位。`,
+    `连斩纸面会反噬 ${paperBacklashDamage + 8 * rank} 点。挑灯或照影能找到真身。`,
+    `横篙基础伤害额外 +${8 * rank}。第三次中招仍会落桥。`,
+    `带着马灯撞中时，灼伤提高到 ${18 + 8 * rank} 点。冲灯前可压灯。`,
+    `更印提高至 ${wardStrength(rank)} 点。可揭去更印，或用符火烧掉。`,
+  ][region];
+  return { rank, hp: regions[region].hp + rematchHealth[rank], attack: rematchAttack[rank], detail, riverWave } as const;
+}
+
+export function startRematch(save: Save, region: Region) {
+  const spec = rematchSpec(save, region);
+  if (!spec) return;
+  const fight = startFight(save, region, true);
+  fight.rematchRank = spec.rank;
+  fight.hp = fight.maxHp = spec.hp;
+  fight.riverWave = spec.riverWave;
+  return fight;
+}
+
+export function settleRematch(save: Save, fight: Fight) {
+  const { rematchRank: rank, region } = fight;
+  if (!rank || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
+  save.rematchRanks[region] = rank;
+  const drop = !save.drops[region];
+  if (drop) save.drops[region] = true;
+  for (const id of [bossEquipment[region], ...minionEquipment[region]]) {
+    if (save.ownedGear.includes(id)) continue;
+    save.ownedGear.push(id);
+    save.newGear.push(id);
+  }
+  return { rank, drop };
 }
 
 export function mirrorWave(level: number): 2 | 3 {
@@ -628,12 +681,18 @@ export function horseCovered(round: number, choice?: Response) {
   return round % 3 === 1 || round % 3 === 2 && (!choice || choice === "pass");
 }
 
+export function wardStrength(rank = 0) {
+  return watchWard + 12 * rank;
+}
+
 function resolveRound(f: Fight) {
   const startingLife = f.life, startingHp = f.hp;
   const marks: string[] = [];
   const round = ++f.round;
   const move = moveFor(f.region, round, f.riverWave);
   const actions: string[] = [];
+  const rank = f.rematchRank ?? 0;
+  const upgrade = (id: GearId) => gearRank(id, f.gearUpgrades);
   const order = f.order;
   const elapsed = order ? round - order.round : -1;
   const choice = order?.choice;
@@ -645,8 +704,8 @@ function resolveRound(f: Fight) {
   const cover = f.region === courierRegion && horseCovered(round, horseChoice);
   const watching = f.region === watchRegion;
   if (watching && round % 3 === 1) {
-    f.ward = watchWard;
-    actions.push(`更印凝成，吸收 ${watchWard} 伤害`);
+    f.ward = wardStrength(rank);
+    actions.push(`更印凝成，吸收 ${f.ward} 伤害`);
   }
   const deal = (damage: number) => {
     const blocked = Math.min(f.ward, damage);
@@ -661,7 +720,7 @@ function resolveRound(f: Fight) {
       f.ward = 0;
       actions.push("符火烧去更印");
     }
-    const damage = (f.ranks[4] === 2 ? 38 : 26) + (f.loadout.charm === "courierSeal" ? 8 : 0);
+    const damage = (f.ranks[4] === 2 ? 38 : 26) + (f.loadout.charm === "courierSeal" ? charmPower("courierSeal", upgrade("courierSeal")) : 0);
     f.hp -= damage;
     marks.push("符火引爆");
     actions.push(`符火引爆，火伤 ${damage}`);
@@ -675,7 +734,7 @@ function resolveRound(f: Fight) {
     if (choice === "safe") f.ward = 0;
     if (choice === "risk" && f.sigilThrough >= round) ignite();
   }
-  const stats = combatStats(f.realm, f.kit.stance, f.loadout);
+  const stats = combatStats(f.realm, f.kit.stance, f.loadout, 1, f.gearUpgrades);
   const reveal = f.kit.reveal && f.ranks[2] > 0 && artDue(round, 2);
   if (reveal) {
     marks.push("照影显形");
@@ -701,7 +760,7 @@ function resolveRound(f: Fight) {
       f.water = 0;
       marks.push(cut ? "割缆断流" : "倒浪断流");
     } else {
-      const healed = Math.min(24, f.maxHp - f.hp);
+      const healed = Math.min(24 + 8 * rank, f.maxHp - f.hp);
       f.hp += healed;
       f.water++;
       if (healed) actions.push(`船缆汲水，河伯回血 ${healed}`);
@@ -716,9 +775,9 @@ function resolveRound(f: Fight) {
       continue;
     }
     if (art === 3) {
-      const seal = f.loadout.charm === "postSeal" ? 6 : 0;
+      const seal = f.loadout.charm === "postSeal" ? charmPower("postSeal", upgrade("postSeal")) : 0;
       const damage = deal(hurt(8 + seal));
-      actions.push(`折篙刀伤 ${damage}${seal ? "（路引 +6）" : ""}`);
+      actions.push(`折篙刀伤 ${damage}${seal ? `（路引 +${seal}）` : ""}`);
       if (interrupted && f.hp > 0) {
         const follow = deal(hurt(f.ranks[3] === 2 ? 22 : 12));
         marks.push("折篙刀追斩");
@@ -729,7 +788,7 @@ function resolveRound(f: Fight) {
     interrupted = !!move.interruptible;
     marks.push(interrupted ? "镇山喝截断" + move.name : "镇山喝出手");
     const extra = interrupted && f.ranks[0] === 2 ? 12 : 0;
-    const echo = interrupted && f.loadout.weapon === "pineBlade" ? traits.pineBlade.amount : 0;
+    const echo = interrupted && f.loadout.weapon === "pineBlade" ? traitPower("pineBlade", upgrade("pineBlade")) : 0;
     if (echo) marks.push("松纹刀 +" + echo);
     if (echo) actions.push(`松纹刀应喝，喝伤 +${echo}`);
     const damage = deal(hurt(5 + extra + echo));
@@ -763,11 +822,11 @@ function resolveRound(f: Fight) {
     const flank = tide && f.ranks[1] === 2 ? 1.5 : 1;
     const seal = f.revealedThrough >= round && f.ranks[2] === 2 ? 1.25 : 1;
     const charm = f.loadout.charm;
-    const bonus = charm === "tigerFang" && round % 3 === 0 ? 3
-      : charm === "mirrorPearl" && (round - 1) % 4 === 0 ? 5 : 0;
+    const bonus = charm === "tigerFang" && round % 3 === 0 || charm === "mirrorPearl" && (round - 1) % 4 === 0
+      ? charmPower(charm, upgrade(charm)) : 0;
     let bladeBonus = 0;
-    if (tide && f.loadout.weapon === "reedBlade") bladeBonus = traits.reedBlade.amount;
-    if (f.revealedThrough >= round && f.loadout.weapon === "templeBlade") bladeBonus = traits.templeBlade.amount;
+    if (tide && f.loadout.weapon === "reedBlade") bladeBonus = traitPower("reedBlade", upgrade("reedBlade"));
+    if (f.revealedThrough >= round && f.loadout.weapon === "templeBlade") bladeBonus = traitPower("templeBlade", upgrade("templeBlade"));
     if (bladeBonus && f.loadout.weapon) marks.push(equipment[f.loadout.weapon].name + " +" + bladeBonus);
     if (bladeBonus && f.loadout.weapon) actions.push(`${equipment[f.loadout.weapon].name}，刀伤 +${bladeBonus}`);
     if (bonus && charm) marks.push(equipment[charm].name + " +" + bonus);
@@ -790,10 +849,11 @@ function resolveRound(f: Fight) {
       f.paperHits = exposed ? 0 : f.paperHits + 1;
       if (f.hp > 0 && f.paperHits === paperHitLimit) {
         f.paperHits = 0;
-        f.life -= paperBacklashDamage;
+        const damage = paperBacklashDamage + 8 * rank;
+        f.life -= damage;
         backlash = true;
         marks.push("纸面反噬");
-        actions.push(`连斩纸面招来反噬，扣 ${paperBacklashDamage} 点气血`);
+        actions.push(`连斩纸面招来反噬，扣 ${damage} 点气血`);
       }
     }
   }
@@ -818,7 +878,7 @@ function resolveRound(f: Fight) {
       if (move.backwash) protectedLamp = true;
       actions.push(`闪避过${move.name}`);
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
-        const heal = Math.min(f.maxLife - f.life, traits.ferryCoat.amount);
+        const heal = Math.min(f.maxLife - f.life, traitPower("ferryCoat", upgrade("ferryCoat")));
         f.life += heal;
         if (heal) marks.push("渡水蓑回血 +" + heal);
         actions.push(`渡水蓑回复 ${heal} 气血`);
@@ -839,6 +899,8 @@ function resolveRound(f: Fight) {
       }
       const braced = f.region === 0 && elapsed === 0 && choice === "safe";
       if (f.mirrorLevel) power = Math.min(Number.MAX_SAFE_INTEGER, power + mirrorOpponent(f.mirrorLevel).damageBonus);
+      power += rematchAttack[rank];
+      if (move.heavy && (f.region === 0 || f.region === bridgeRegion)) power += 8 * rank;
       const received = guard ? Math.ceil(power * 0.18) : power;
       const rawDamage = steady || horseChoice === "safe" ? Math.min(received, 8) : braced ? Math.min(received, 4) : received;
       let damage = rawDamage;
@@ -848,16 +910,17 @@ function resolveRound(f: Fight) {
         if (blocked) marks.push(equipment[id].name + "护身");
         damage -= blocked;
       };
-      if (guard && f.loadout.armor === "hillCoat") reduce("hillCoat", traits.hillCoat.amount);
-      if (f.revealedThrough >= round && f.loadout.armor === "templeCoat") reduce("templeCoat", traits.templeCoat.amount);
-      if (round % 3 === 2 && f.loadout.charm === "tideSeal") reduce("tideSeal", 4);
-      if (round % 3 === 0 && f.loadout.charm === "watchSeal") reduce("watchSeal", 6);
+      if (guard && f.loadout.armor === "hillCoat") reduce("hillCoat", traitPower("hillCoat", upgrade("hillCoat")));
+      if (f.revealedThrough >= round && f.loadout.armor === "templeCoat") reduce("templeCoat", traitPower("templeCoat", upgrade("templeCoat")));
+      if (round % 3 === 2 && f.loadout.charm === "tideSeal") reduce("tideSeal", charmPower("tideSeal", upgrade("tideSeal")));
+      if (round % 3 === 0 && f.loadout.charm === "watchSeal") reduce("watchSeal", charmPower("watchSeal", upgrade("watchSeal")));
       f.life -= damage;
       actions.push(`${guard ? "架住" : ""}${move.name}，扣 ${damage} 点气血`);
       if (horseCharge && cover) {
-        f.life -= 18;
+        const burn = 18 + 8 * rank;
+        f.life -= burn;
         marks.push("马灯灼伤");
-        actions.push("马灯灼伤，另扣 18 点气血");
+        actions.push(`马灯灼伤，另扣 ${burn} 点气血`);
       }
       if (sweep && !steady) {
         f.footing++;

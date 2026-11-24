@@ -1,7 +1,7 @@
 import "./style.css";
 import { arts, bridgeRegion, breakthrough, courierRegion, heartDao, heartRealm, realms, regions, trialIds, trialRounds, trials, trialSand, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { equipment, knownGear, slots, traitText } from "./equipment.ts";
+import { bossEquipment, equipment, gearEffect, gearRank, knownGear, minionEquipment, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import type { Response } from "./tactics.ts";
 import { caseClues, encounters, preparationText } from "./tactics.ts";
@@ -11,15 +11,16 @@ import {
   accrueOffline, accrueSand, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, cultivationFor, decode, defeatSummary, equipArt, equippedArts, footingLimit, frame, engravingCost, engravingPower, engravings, gearRequirement, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
   patrolRemaining, previewOpening, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, unlocked, win,
 } from "./game.ts";
-import { applyPreset, challengeClues, horseCovered, replacedArt, startCaseFight, storePreset, watchWard } from "./game.ts";
+import { applyPreset, challengeClues, horseCovered, maxRematchRank, rematchSpec, replacedArt, settleRematch, startCaseFight, startRematch, storePreset, wardStrength } from "./game.ts";
 import type { Engraving, Fight, PresetSlot, Region, Save } from "./game.ts";
 
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
 const zoneArt = ["mountain", "ferry", "temple", "post-bridge", "post-courtyard", "post-watch"];
-const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name } as const;
+const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", rematch: "强敌再战", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name } as const;
 const isTrial = (value: string): value is TrialId => Object.hasOwn(trials, value);
 let tab: Tab = "patrol";
+let rematchRegion: Region = 0;
 let save = newSave(Date.now());
 let fight: Fight | null = null;
 let journal = false;
@@ -27,7 +28,7 @@ let openSlot: GearSlot | undefined;
 let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
-type BattleResult = { trialId?: TrialId; trialProgress?: number; mirrorLevel?: number; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; first?: boolean; drop?: boolean; daoReward?: number;
+type BattleResult = { trialId?: TrialId; trialProgress?: number; mirrorLevel?: number; rematchRank?: number; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; first?: boolean; drop?: boolean; daoReward?: number;
   recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number };
 let result: BattleResult | null = null;
 type PageLocation = { tab: Tab; journal: boolean; result: BattleResult | null; scroll: number };
@@ -40,7 +41,7 @@ function pageLocation(): PageLocation {
 
 function preparingChallenge() {
   const from = tab === "skills" ? backTrail[backTrail.length - 1]?.tab : tab;
-  return from === "mirror" || (from !== undefined && isTrial(from));
+  return from === "mirror" || from === "rematch" || (from !== undefined && isTrial(from));
 }
 
 function pageName(page: PageLocation) {
@@ -126,14 +127,14 @@ root.innerHTML = `
       <details><summary>想换个地方</summary><p>巡夜找小妖、看掉落。点场景里的案名看线索。首胜后可以直接前往下一地，想回已走过的地方可从斩妖录换路。</p></details>
       <details><summary>夜行与线索</summary><p>点「提灯夜行」出刀。第一条线索记下危险招路，第二条说明应对办法，境界够了就能挑战。再找第三条，可以在第一次用对策应变时多打一次伤害。点场景里的妖案看详情。胜过吊睛山君后，可开启「沿路巡夜」。</p></details>
       <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。拾得新装备，阿照会停下来。箭头标出换装后的刀伤或气血变化，「获得」「失去」列出会换掉的本领。选「穿戴」或「收入行囊」，处理完最后一件才会继续。点行装里的槽位，随时都能再换。每个槽位可穿戴一件，属性和回合效果会带入下一场大妖战。</p></details>
-      <details><summary>挑战与战报</summary><p>在「招式」可查看前六回合招谱。初遇山君，第 3 回合见它伏肩，就要提防虎啸。伏身避啸至多损失 4 点气血，迎啸进刀则多打 12 点刀伤。每战可临场应变两次，依原招出手会保留应变次数。重演时也会在险招前停手。熟悉招路后，可选「余下险招不停手」。败阵后可看每一回合的战报，免费重演。</p></details>
+      <details><summary>挑战与战报</summary><p>在「招式」可查看前六回合招谱。初遇山君，第 3 回合见它伏肩，就要提防虎啸。每战可临场应变两次，依原招出手会保留次数。熟悉招路后，可选「余下险招不停手」。败阵后可看战报，免费再试。</p></details>
       <details><summary>观化、学习与装备</summary><p>首次战胜山君会觉醒观化。悟得招谱后，可在战果或「招式」页修习。锻骨开武学位，舒筋开身法位，听息开神通位，心斋再开一个武学位。两门武学同一回合出手时，按槽位先后结算。点亮的回合就是出手的时机，精通会增强招式效果。</p></details>
       <details><summary>道行与破境</summary><p>每境十层，道行积满便升一层。修习只花可用道行。舒筋开启身法位，贯劲可在架住重击后反击，听息开启神通位。</p></details>
-      <details><summary>换路与重演</summary><p>在「斩妖录」换路，或重演已击败的大妖。河伯和娘娘各自最多第五胜悟得传承，败阵不计入。</p></details>
+      <details><summary>强敌再战与强化</summary><p>首胜后从「斩妖录」进入强敌再战。每个首领有三关，每胜一关永久提升该地兵刃、护具与首领佩饰。首次胜利也会补齐遗漏的装备和传承。开打前可查看招路和强化数值。</p></details>
       <details><summary>照妖镜与刻纹</summary><p>首胜借面娘娘后，从「斩妖录」进入照妖镜。前十一重是河伯妖影，第十二重起会遇见娘娘妖影。首次破重给淬纹砂，镜中也会按纪录积砂，最多计八小时。用砂温养刻纹，每次可带一条。</p></details>
       <details><summary>卷末异相</summary><p>平定借面娘娘后，斩妖录首页会收到两桩托付。接下前可看胜法、换行装。交锋时灯格记下进度，应变按钮会预示这次选择能点亮几格。每案初成可读后日谈并得 ${trialSand} 淬纹砂，再访可刷新最快回合。</p></details>
       <details><summary>配装与符火</summary><p>心斋可保存两套配装。各套同时记住装备、刻纹、架势和出招顺序。寄灯符在第 1、4、7… 回合贴符，挑灯诀紧接着在第 2、5、8… 回合引爆。神通位可带寄灯符或照影。</p></details>
-      <details><summary>离线结算</summary><p>沿路巡夜时，离开最多可得八小时道行。若还有新装备待看，这段时间不会积攒道行。到本地修行上限便收灯。扫清时显出大妖踪迹，可直接挑战。重演已扫清的大妖能找回漏掉的本地装备。</p></details>
+      <details><summary>离线结算</summary><p>沿路巡夜时，离开最多可得八小时道行。若还有新装备待看，这段时间不会积攒道行。到本地修行上限便收灯。扫清时显出大妖踪迹，可直接挑战。</p></details>
     </div>
   </dialog>`;
 
@@ -189,7 +190,7 @@ function patrolPanel(): string {
       : save.drops[result.region] ? "这段传承已记入巡簿。" : `再胜至多 ${remaining} 场，便能悟得这门传承。`;
     const nextRegion = result.region + 1;
     return title(result.won ? "战胜大妖" : "败阵", cleared.boss,
-      result.won ? (result.first ? cleared.cleared : "阿照在灯下重演了那一夜。") : escape(result.reason ?? "")) +
+      result.won ? cleared.cleared : escape(result.reason ?? "")) +
       (awakening ? '<p class="intro"><strong>天赋初醒 · 观化</strong><br>虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。</p>' : "") +
       (result.won ? `<p class="prize">${prize}</p>` : "") +
       (result.first && result.region === bridgeRegion ? `<p>${save.realm >= heartRealm ? "已进入心斋，可同时带两门武学。" : `驿桥已通。累计道行达到 ${heartDao}，便进入心斋、开启第二武学位。`}</p>` : "") +
@@ -198,10 +199,11 @@ function patrolPanel(): string {
       (awakening ? '<p class="meta">回山道后可开启沿路巡夜，达到本地上限就会收灯。</p>' : "") +
       '<div class="actions outcome-actions">' +
       (result.first && nextRegion < regions.length ? button(`region:${nextRegion}`, nextRegion === bridgeRegion ? "随陆婆过河" : `前往${regions[nextRegion].name}`, !!fight, true) : "") +
+      (result.won ? button(`rematch:${result.region}`, "强敌再战") : "") +
       (result.won && result.region === 2 ? button("tab:archive", "查看异相与照妖镜") : "") +
       (result.won && result.region >= bridgeRegion ? button("tab:skills", result.region === bridgeRegion ? "查看武学顺序" : "调整配装") : "") +
       (result.first && result.region === watchRegion ? button("tab:archive", "查看云栈钥匙", false, true) : "") +
-      (!result.won ? button("tab:skills", "调整招式", false, true) + button(`fight:${result.region}`, "重演", !ready || !!fight) : "") +
+      (!result.won ? button("tab:skills", "调整招式", false, true) + button(`fight:${result.region}`, "再试一次", !ready || !!fight) : "") +
       `</div><details data-remember="report"><summary>逐回合战报 · 第 ${result.round} 回合结束</summary>
       <p>阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
       <div class="battle-links">${Object.entries(result.links).map(([name, times]) => `<span>${escape(name)} ×${times}</span>`).join("")}</div>
@@ -221,7 +223,7 @@ function patrolPanel(): string {
   const open = canChallenge(save, id);
   const next = done ? regions[id + 1] : undefined;
   const actions = (next ? button(`region:${id + 1}`, id === 2 ? "随陆婆过河" : "前往" + next.name, !ready || !!fight, true) : "") +
-    (open ? button(`fight:${id}`, (done ? "重演" : "挑战") + location.boss, !ready || !!fight, !next) : "") +
+    (open ? button(done ? `rematch:${id}` : `fight:${id}`, done ? "查看强敌再战" : "挑战" + location.boss, !ready || !!fight, !next) : "") +
     (clues ? button("show-preview", "对照前六回合") : "") +
     (!done && patrolRemaining(save) && !save.autoPatrol ? button("home", clues === challengeClues && open ? "继续巡夜备战" : "回去巡夜") : "");
   return title(location.tag, location.title, done ? location.cleared : location.intro) +
@@ -348,32 +350,34 @@ function presetPanel() {
 
 function skillsPanel(): string {
   const controlsDisabled = !ready || !!fight?.boss;
-  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer);
+  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks);
   const source = backTrail[backTrail.length - 1]?.tab;
+  const rematch = source === "rematch" ? rematchSpec(save, rematchRegion) : undefined;
   const trialId = source && isTrial(source) ? source : undefined;
   const trial = trialId && trials[trialId];
   const mirrorLevel = source === "mirror" ? (result?.mirrorLevel && !result.won ? result.mirrorLevel : save.mirror.best + 1) : undefined;
   const reflection = mirrorLevel ? mirrorOpponent(mirrorLevel) : undefined;
-  const opponent = fight?.boss ? fight.region : trial?.region ?? reflection?.region ?? result?.region ?? save.region;
-  const intel = trial || reflection ? 3 : clueCount(save, opponent);
+  const opponent = rematch ? rematchRegion : fight?.boss ? fight.region : trial?.region ?? reflection?.region ?? result?.region ?? save.region;
+  const intel = trial || reflection || rematch ? 3 : clueCount(save, opponent);
   const unlearned = arts.filter((_, index) => save.drops[index] && !save.ranks[index]).length;
   const order = arts.map((_, i) => i as Region).filter(id => save.drops[id]);
   order.sort((a, b) => Number(save.ranks[a] > 0) - Number(save.ranks[b] > 0));
   const missing = arts.map((_, i) => i as Region).filter(id => save.victories[id] && !save.drops[id]);
-  const recovery = missing.length ? `<section class="missing-arts"><h3>可重演寻招</h3>${missing.map(id =>
-    `<div><span><b>${arts[id].name}</b> · 再胜至多 ${5 - save.victories[id]} 次可悟得</span>
-    ${button(`fight:${id}`, `重演${regions[id].boss}`, controlsDisabled || !!fight)}</div>`).join("")}</section>` : "";
-  const retry = trialId || mirrorLevel ? `<div class="rematch"><strong>${trial?.name ?? reflection?.name}</strong>${button(trialId ? `trial-fight:${trialId}` : `mirror-fight:${mirrorLevel}`, "按此配招出战", controlsDisabled || !!fight, true)}</div>`
-    : result && !result.won && !result.mirrorLevel && !result.trialId
-      ? `<div class="rematch"><strong>调整后重演</strong>${button(`fight:${result.region}`, `重演${regions[result.region].boss}`, controlsDisabled || !!fight, true)}</div>` : "";
+  const recovery = missing.length ? `<section class="missing-arts"><h3>可补悟的传承</h3>${missing.map(id =>
+    `<div><span><b>${arts[id].name}</b> · 强敌再战胜利可悟得</span>
+    ${button(`rematch:${id}`, `查看${regions[id].boss}的再战`, controlsDisabled || !!fight)}</div>`).join("")}</section>` : "";
+  const retry = rematch ? `<div class="rematch"><strong>${regions[rematchRegion].boss} · 第 ${rematch.rank} 关</strong>${button(`rematch-fight:${rematchRegion}`, "按此配招出战", controlsDisabled || !!fight, true)}</div>`
+    : trialId || mirrorLevel ? `<div class="rematch"><strong>${trial?.name ?? reflection?.name}</strong>${button(trialId ? `trial-fight:${trialId}` : `mirror-fight:${mirrorLevel}`, "按此配招出战", controlsDisabled || !!fight, true)}</div>`
+    : result && !result.won && !result.mirrorLevel && !result.trialId && !result.rematchRank
+      ? `<div class="rematch"><strong>调整后再试</strong>${button(`fight:${result.region}`, `挑战${regions[result.region].boss}`, controlsDisabled || !!fight, true)}</div>` : "";
   const stancePanel = `<section class="stance-panel"><div class="section-title"><h2>架势</h2><span>刀伤 ${stats.damage} · 气血 ${stats.life}</span></div>
     <div class="choices">${(["guard", "attack"] as const).map(stance =>
       `<button type="button" data-action="kit:stance:${stance}" aria-pressed="${save.kit.stance === stance}" ${controlsDisabled ? "disabled" : ""}>${stance === "guard" ? "守式" : "攻式"}</button>`).join("")}</div>
     <p class="meta">守式架住重击时承受 18% 伤害。攻式提升 25% 基础刀伤。</p></section>`;
   const preview = intel ? `<details data-remember="preview" id="round-preview"><summary>${trial?.name ?? (reflection && mirrorLevel ? `${reflection.name} · 第 ${integer(mirrorLevel)} 重` : regions[opponent].boss)} · 对照前六回合</summary>
-      ${trial || reflection ? "" : `<p>${caseClues[opponent].danger}</p>${intel >= challengeClues ? `<p>${caseClues[opponent].counter}</p>` : ""}`}
+      ${rematch ? `<p>${rematch.detail}</p>` : trial || reflection ? "" : `<p>${caseClues[opponent].danger}</p>${intel >= challengeClues ? `<p>${caseClues[opponent].counter}</p>` : ""}`}
       <ol class="match-rounds">${Array.from({ length: 6 }, (_, i) => {
-        const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1, trial?.wave ?? reflection?.riverWave);
+        const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1, rematch?.riverWave ?? trial?.wave ?? reflection?.riverWave);
         return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "普攻"}</span><span>${enemy}${opening ? " · 可应变" : ""}</span></li>`;
       }).join("")}</ol>
     </details>` : '<p class="meta">找到本地第一条线索后，可对照大妖的前六回合。</p>';
@@ -402,17 +406,22 @@ function gearHint(id: GearId) {
 }
 
 function outfitPanel() {
-  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer);
+  const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks);
   const rack = (Object.keys(slots) as GearSlot[]).map(slot => {
     const id = save.loadout[slot];
     const item = id && equipment[id];
     return `<button class="outfit-slot" type="button" data-action="slot:${slot}" aria-expanded="${openSlot === slot}">
-      ${itemIcon(slot, id)}<span><small>${slots[slot]}${item ? " · " + item.level + " 阶" : ""}</small><b>${item ? item.name : "空槽位"}</b></span></button>`;
+      ${itemIcon(slot, id)}<span><small>${slots[slot]}${item ? " · " + item.level + " 阶" : ""}</small><b>${id ? gearName(id) : "空槽位"}</b></span></button>`;
   }).join("");
   const moves = kitNames(save.kit);
   const header = `<header><strong>阿照的行装</strong><span>刀伤 ${stats.damage} · 气血 ${stats.life}</span></header>
     <div class="outfit-slots">${rack}</div>`;
   return header + (clueCount(save, 0) > 0 ? `<div class="outfit-moves"><span>${moves.join(" · ")}</span>${button("tab:skills", save.drops.some((known, i) => known && !save.ranks[i]) ? "有招待修习 ›" : "查看招谱 ›")}</div>` : "") + presetPanel();
+}
+
+function gearName(id: GearId) {
+  const rank = gearRank(id, save.rematchRanks);
+  return equipment[id].name + (rank ? ` +${rank}` : "");
 }
 
 function gearChanges(id: GearId) {
@@ -432,8 +441,8 @@ function lootCard(id: GearId, recovered = false) {
   const current = save.loadout[item.slot];
   const count = save.newGear.length;
   const after = count > 1 ? `还有 ${count - 1} 件待看` : !patrolRemaining(save) ? "此地小妖已扫清" : save.autoPatrol ? "选好后接着巡夜" : "选好后可再提灯";
-  return `<section class="loot-card" aria-label="新得装备"><header>${itemIcon(item.slot, id)}<div><small>${recovered ? "寻回本地装备" : "拾得"} · ${slots[item.slot]} · ${item.level} 阶</small><strong>${item.name}</strong></div></header>
-    <small>${current ? "原装备 · " + equipment[current].name : slots[item.slot] + "尚空"}</small>
+  return `<section class="loot-card" aria-label="新得装备"><header>${itemIcon(item.slot, id)}<div><small>${recovered ? "寻回本地装备" : "拾得"} · ${slots[item.slot]} · ${item.level} 阶</small><strong>${gearName(id)}</strong></div></header>
+    <small>${current ? "原装备 · " + gearName(current) : slots[item.slot] + "尚空"}</small>
     ${gearChanges(id)}<div class="loot-choices">${button("equip:" + id, "穿戴", false, true)}${button("collect:" + id, "收入行囊")}</div><small>${after}</small></section>`;
 }
 
@@ -442,9 +451,10 @@ function slotContents(slot: GearSlot) {
   const items = save.ownedGear.filter(id => equipment[id].slot === slot).sort((a,b) => equipment[b].level - equipment[a].level);
   const list = items.map(id => {
     const item = equipment[id];
-    const trait = traitText(id);
-    return `<li>${itemIcon(slot, id)}<div><b>${item.name}</b><small>${item.level} 阶${active === id ? " · 已穿戴" : ""}</small>
-      ${active === id ? `<p>${item.effect}</p>${trait ? `<small>${trait}</small>` : ""}${gearHint(id)}` : gearChanges(id)}</div>
+    const rank = gearRank(id, save.rematchRanks);
+    const trait = traitText(id, rank);
+    return `<li>${itemIcon(slot, id)}<div><b>${gearName(id)}</b><small>${item.level} 阶${active === id ? " · 已穿戴" : ""}</small>
+      ${active === id ? `<p>${gearEffect(id, rank)}</p>${trait ? `<small>${trait}</small>` : ""}${gearHint(id)}` : gearChanges(id)}</div>
       ${active === id ? button("unequip:" + id, "卸下") : button("equip:" + id, "穿戴")}</li>`;
   }).join("");
   return `<div class="outfit-picker"><small>${slotNotes[slot]}</small>${list ? `<ul>${list}</ul>` : `<p>${slot === "charm" ? "击败吊睛山君，取得第一枚佩饰。" : "夜行时，小妖有机会掉落这个槽位的装备。"}</p>`}</div>`;
@@ -467,11 +477,11 @@ function archivePanel(): string {
       const state = !access ? "未通行" : here ? "当前地点" : wins ? "已平息" : "可前往";
       const progress = !access ? `胜过${regions[i - 1].boss}后开启` :
         [swept ? "小妖已扫清" : `线索 ${clueCount(save, id)} / 3`,
-         wins ? (save.drops[id] ? "传承已悟得" : `至多再胜 ${5 - wins} 场可悟得传承`) : region.boss].join(" · ");
+         wins ? (save.drops[id] ? "传承已悟得" : "可在强敌再战补悟传承") : region.boss].join(" · ");
       return `<li class="route-stop" data-here="${here}" data-locked="${!access}">
         <div class="section-title"><strong>${region.name}</strong><span>${state}</span></div><p>${progress}</p>
         ${access ? `<div class="choices">${here ? button("home", "回到巡夜") : button(`region:${id}`, `前往${region.name}`, !ready || !!fight)}
-        ${wins ? button(`fight:${id}`, `重演${region.boss}`, !ready || !!fight) : ""}</div>` : ""}</li>`;
+        ${wins ? button(`rematch:${id}`, "查看再战", !ready || !!fight) : ""}</div>` : ""}</li>`;
     }).join("") + "</ol>";
   const nextCase = ([bridgeRegion, courierRegion, watchRegion] as const).find(id => !save.victories[id]) ?? watchRegion;
   const postCases = ([bridgeRegion, courierRegion, watchRegion] as const).filter(id => unlocked(save, id));
@@ -484,13 +494,48 @@ function archivePanel(): string {
     return `<section class="post-route"><img src="${assets + zoneArt[id]}.webp" alt=""><div><small>${here ? "当前地点" : won ? "已平息" : "待查案"}</small>
       <h3>${id === bridgeRegion ? "纸马驿 · 驿桥" : region.name}</h3><p>${won ? `${arts[id].name}已悟得` : `线索 ${clueCount(save, id)} / 3 · ${region.boss}`}</p><div class="choices">
       ${button(here ? "home" : `region:${id}`, label, !ready || !!fight, id === nextCase)}
-      ${canChallenge(save, id) ? button(`fight:${id}`, (won ? "重演" : "挑战") + region.boss, !ready || !!fight) : ""}</div></div></section>`;
+      ${won ? button(`rematch:${id}`, "查看再战", !ready || !!fight) : canChallenge(save, id) ? button(`fight:${id}`, "挑战" + region.boss, !ready || !!fight) : ""}</div></div></section>`;
   }).join("");
   const cloudGate = save.victories[watchRegion] ? '<p class="cloud-key"><strong>云栈钥匙已得</strong> · 回信送到后，山道已有灯候着。云栈将在下一卷开放。</p>' : "";
-  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>` + (unlockedEnd ?
+  const rebattle = save.victories[0] ? `<section class="mirror-entry"><div><h3>强敌再战</h3><p>挑战强化首领，提升当地兵刃、护具和佩饰。</p></div>
+    ${button("rematch", "选择首领", !ready || !!fight, true)}</section>` : "";
+  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>${rebattle}` + (unlockedEnd ?
     `<h3>卷二 · 纸马驿</h3>${postRoutes}${cloudGate}<h3>青芦卷末</h3><div class="after-roads">${destinations.map(road =>
       `<button type="button" data-action="tab:${road.tab}" class="after-road"><img alt="" src="${assets + road.art}.webp"><span><small>${road.label}</small><strong>${road.title}</strong><span>${road.detail}</span></span><b aria-hidden="true">›</b></button>`).join("")}</div>
-      <details data-remember="old-roads"><summary>首卷旧案 · 换路与重演</summary>${cases}</details>` : cases);
+      <details data-remember="old-roads"><summary>首卷旧案 · 换路与再战</summary>${cases}</details>` : cases);
+}
+
+function rematchPanel() {
+  const id = rematchRegion;
+  const spec = rematchSpec(save, id);
+  const rank = save.rematchRanks[id];
+  const last = result?.rematchRank && result.region === id ? result : undefined;
+  const boss = regions[id].boss;
+  const selectors = regions.map((region, index) => save.victories[index]
+    ? `<button type="button" data-action="rematch-select:${index}" aria-pressed="${id === index}">${region.boss}<small>强化 +${save.rematchRanks[index]} / ${maxRematchRank}</small></button>` : "").join("");
+  const rewards = [bossEquipment[id], ...minionEquipment[id]].map(gear => {
+    const next = spec ? spec.rank : rank;
+    const before = [gearEffect(gear, rank), traitText(gear, rank)].filter(Boolean);
+    const after = [gearEffect(gear, next), traitText(gear, next)].filter(Boolean);
+    return `<li>${itemIcon(equipment[gear].slot, gear)}<div><strong>${equipment[gear].name}</strong>
+      ${after.map((value, i) => `<small>${spec ? before[i] + " → " : ""}<b>${value}</b></small>`).join("")}</div></li>`;
+  }).join("");
+  return `<h2>强敌再战</h2><div class="rematch-list" aria-label="已击败的首领">${selectors}</div>
+    <div class="trial-layout"><section>
+      <div class="trial-scene"><img src="${assets + zoneArt[id]}.webp" alt=""><div>
+        <small>${regions[id].name}</small><h2>${boss}</h2></div></div>
+      ${last ? `<section class="mirror-outcome"><h3>${last.won ? "强化成功" : "败阵"}</h3>
+        <p>${last.won ? `该地装备已升至 +${last.rematchRank}，下次出战生效。` : escape(last.reason ?? "")}</p>
+        <details data-remember="rematch-report"><summary>逐回合战报</summary><ol class="log">${last.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : ""}
+      ${spec ? `<div class="trial-goal"><strong>第 ${spec.rank} 关</strong><p>${spec.detail}</p><small>气血 ${spec.hp} · 每次攻击基础伤害 +${spec.attack}</small></div>
+        <div class="actions">${button(`rematch-fight:${id}`, last && !last.won ? "再试此关" : "挑战第 " + spec.rank + " 关", !ready || !!fight, true)}</div>`
+        : '<p>本地装备已强化至 +3。</p>'}
+      ${last?.drop ? artCard(id, true) : ""}
+      <div class="mirror-outfit">${outfitPanel()}</div>
+    </section><section class="rematch-rewards">
+      <h3>${spec ? "通关后自动强化" : "当前装备效果"}</h3><ul>${rewards}</ul>
+      ${spec?.rank === 1 ? '<p class="meta">初胜同时找回漏掉的本地装备和传承。</p>' : ""}
+    </section></div>`;
 }
 
 function trialPanel(id: TrialId) {
@@ -567,7 +612,7 @@ function paintPanel() {
   currentTip = ready && !pending && !fight?.boss && (save.victories[0] || tab !== "patrol") ? nextTip(save, tab, result) : undefined;
   const body = pending ? title("存档待写入", "巡簿暂存", "刚才的结果已暂存。恢复写入后可继续巡夜。") + button("retry", "重试写入", false, true)
     : !ready && waiting !== "另一页正在巡夜，此页可查阅巡簿" ? title("青芦夜话", "巡簿", waiting)
-      : isTrial(tab) ? trialPanel(tab) : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel, mirror: mirrorPanel }[tab]();
+      : isTrial(tab) ? trialPanel(tab) : { patrol: patrolPanel, practice: practicePanel, skills: skillsPanel, archive: archivePanel, mirror: mirrorPanel, rematch: rematchPanel }[tab]();
   const inBook = !!pending || !ready || tab !== "patrol" || journal || !!result;
   const lead = !inBook && !fight?.boss ? clueTip(save) : undefined;
   const clueGuide = element("#clue-guide");
@@ -595,7 +640,7 @@ function paintPanel() {
       if (action) (outfit.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? outfit.querySelector<HTMLElement>(`[data-action="slot:${openSlot}"]`))?.focus({ preventScroll: true });
     }
   }
-  if (openSlot && (!outfit.hidden || tab === "mirror" || isTrial(tab)) && !fight?.boss && !pending) {
+  if (openSlot && (!outfit.hidden || tab === "mirror" || tab === "rematch" || isTrial(tab)) && !fight?.boss && !pending) {
     changedText("#pack-title", slots[openSlot]);
     const list = element("#pack-list");
     const markup = slotContents(openSlot);
@@ -645,7 +690,7 @@ function paintPanel() {
     item.hidden = !!fight?.boss || !(save.victories[0] || key === "patrol" || key === "skills" && clueCount(save, 0) > 0);
     if (key === "skills") item.textContent = save.drops.some((known, index) => known && !save.ranks[index]) ? "招式 · 待修习" : "招式";
     if (key === "patrol") item.textContent = save.newGear.length && inBook ? "巡夜 · 待整装" : "巡夜";
-    if (key === tab || key === "archive" && (tab === "mirror" || isTrial(tab))) item.setAttribute("aria-current", "page");
+    if (key === tab || key === "archive" && (tab === "mirror" || tab === "rematch" || isTrial(tab))) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   }
   if (focused && !root.contains(document.activeElement)) {
@@ -697,7 +742,7 @@ function paintPatrolControls() {
   const chapterEnd = done && save.region === watchRegion;
   challenge.hidden = !canChallenge(save, save.region) || !!fight?.boss;
   challenge.dataset.action = chapterEnd ? "tab:archive" : onward ? "region:" + (save.region + 1) : "fight:" + save.region;
-  changedText("#challenge", chapterEnd ? "翻看斩妖录" : onward ? save.region === 2 ? "随陆婆过河" : "前往" + regions[save.region + 1].name : (done ? "重演" : "挑战") + region.boss);
+  changedText("#challenge", chapterEnd ? "翻看斩妖录" : onward ? save.region === 2 ? "随陆婆过河" : "前往" + regions[save.region + 1].name : "挑战" + region.boss);
   challenge.disabled = locked || !!fight;
   hunt.hidden = !!fight?.boss || save.autoPatrol || swept;
   hunt.classList.toggle("secondary", !challenge.hidden);
@@ -806,9 +851,10 @@ function paintDuel() {
     <span>${f.footing}/${footingLimit} · ${f.footing >= footingLimit - 1 ? "再中横篙就会跌落驿桥" : "三次失足便会跌落驿桥"}</span></div>` : "";
   const lamps = trial && f.trial ? `<div class="trial-meter"><b>${trial.counter}</b><span aria-hidden="true">${"◆".repeat(f.trial.progress)}${"◇".repeat(trial.target - f.trial.progress)}</span><small>${f.trial.progress} / ${trial.target}</small></div>` : "";
   const horse = f.region === courierRegion ? `<div class="water-gauge"><b>马灯</b><span>${horseCovered(round, pendingChoice) ? "护身 · 普通刀伤减半" : "已落 · 可打实"}</span></div>` : "";
+  const maxWard = wardStrength(f.rematchRank);
   const ward = f.region === watchRegion ? `<div class="water-gauge" data-flood="${round % 3 === 0 && f.ward > 0}"><b>更印</b>
-    <meter aria-label="更印" min="0" max="${watchWard}" value="${f.ward}"></meter>
-    <span>${f.ward}/${watchWard} · 敲更前未破，震响扣 28 气血</span></div>` : "";
+    <meter aria-label="更印" min="0" max="${maxWard}" value="${f.ward}"></meter>
+    <span>${f.ward}/${maxWard} · 敲更前未破，震响扣 28 气血</span></div>` : "";
   const sigil = f.sigilThrough >= round ? `<div class="trial-meter"><b>寄灯符</b><span>可引爆 · 第 ${f.sigilThrough} 回合末消散</span></div>` : "";
   const preparation = f.preparation === "ready" && !f.waiting && !last ? `<p class="duel-moves">${preparationText(f.region)}</p>` : "";
   const cluePrompt = openingTip(save, f);
@@ -846,11 +892,11 @@ function paintStage() {
   }
   element("#windup").hidden = !fight?.windup;
   changedText("#windup", fight?.windup ?? "");
-  changedText(".stage .chapter", fight?.trial ? "异相 · " + trials[fight.trial.id].name : fight?.mirrorLevel ? `第 ${integer(fight.mirrorLevel)} 重` : region >= bridgeRegion ? regions[region].place : "青芦夜话");
+  changedText(".stage .chapter", fight?.rematchRank ? `强敌再战 · 第 ${fight.rematchRank} 关` : fight?.trial ? "异相 · " + trials[fight.trial.id].name : fight?.mirrorLevel ? `第 ${integer(fight.mirrorLevel)} 重` : region >= bridgeRegion ? regions[region].place : "青芦夜话");
   changedText("#place", fight?.mirrorLevel ? "照妖镜" : regions[region].name);
   changedText("#mode", pending || !ready || document.hidden ? "暂停" : fight?.boss ? "问妖" : save.newGear.length ? "驻足整装" : save.autoPatrol ? "巡夜中" : fight ? "寻妖中" : !patrolRemaining(save) ? "已扫清" : "待提灯");
   const human = element<HTMLProgressElement>("#life");
-  human.max = fight?.maxLife ?? combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer).life;
+  human.max = fight?.maxLife ?? combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks).life;
   human.value = Math.max(0, fight?.life ?? human.max);
   changedText("#life-text", `${human.value} / ${human.max}`);
   element("#enemy-hud").hidden = !fight?.boss;
@@ -912,8 +958,9 @@ function settleBoss(current: Fight) {
   const won = current.result === "won";
   const mirror = current.mirrorLevel ? settleMirror(draft, current, Date.now()) : undefined;
   const trial = current.trial;
+  const upgraded = current.rematchRank ? settleRematch(draft, current) : undefined;
   const sand = trial ? settleTrial(draft, current) : mirror?.reward;
-  const story = !mirror && !trial;
+  const story = !mirror && !trial && !current.rematchRank;
   const reason = won ? "" : defeatSummary(current);
   if (story) draft.report = won ? `阿照战胜了${current.name}。` : reason;
   const loot = won && story ? win(draft, current.region) : {};
@@ -926,9 +973,10 @@ function settleBoss(current: Fight) {
     if (archive) backTrail.push(archive);
     battleOrigin = null;
     window.scrollTo(0, 0);
-    result = { trialId: trial?.id, trialProgress: trial?.progress, mirrorLevel: current.mirrorLevel, sand, daoReward, region: current.region, won, report: current.log, reason,
+    result = { trialId: trial?.id, trialProgress: trial?.progress, rematchRank: current.rematchRank, mirrorLevel: current.mirrorLevel, sand, daoReward, region: current.region, won, report: current.log, reason,
+      drop: upgraded?.drop,
       links: current.links, round: current.round, life: Math.max(0, current.life), hp: Math.max(0, current.hp), ...loot };
-    tab = trial?.id ?? (mirror ? "mirror" : "patrol");
+    tab = current.rematchRank ? "rematch" : trial?.id ?? (mirror ? "mirror" : "patrol");
 
     resetPatrol();
   });
@@ -1113,10 +1161,22 @@ root.addEventListener("click", event => {
     faceChallenge(startMirrorFight(save, Number(value)));
   } else if (name === "trial-fight" && isTrial(value) && (tab === value || tab === "skills")) {
     faceChallenge(startTrial(save, value));
+  } else if ((name === "rematch" || name === "rematch-select") && ready && !pending && !fight?.boss) {
+    const chosen = value === undefined ? rematchRegion : id;
+    if (!save.victories[chosen]) return;
+    if (tab !== "rematch") backTrail.push(pageLocation());
+    if (tab !== "rematch" || chosen !== rematchRegion) result = null;
+    rematchRegion = chosen;
+    tab = "rematch";
+    journal = false;
+    paintPanel();
+    if (name === "rematch") window.scrollTo(0, 0);
+  } else if (name === "rematch-fight" && (tab === "rematch" || tab === "skills") && id === rematchRegion) {
+    faceChallenge(startRematch(save, id));
   } else if (name === "tab") {
     if ((value === "mirror" || isTrial(value)) && !mirrorUnlocked(save)) return;
     if (tab === value) return;
-    const fromDetail = journal || tab === "mirror" || isTrial(tab) || (tab === "patrol" && !!result);
+    const fromDetail = journal || tab === "mirror" || tab === "rematch" || isTrial(tab) || (tab === "patrol" && !!result);
     const fromNav = !!(event.target as HTMLElement).closest(".nav");
     const parent = backTrail[backTrail.length - 1];
     if (parent?.tab === value && !fromNav) {
@@ -1180,7 +1240,7 @@ root.addEventListener("click", event => {
         draft.region = id;
         if (!patrolRemaining(draft)) draft.autoPatrol = false;
         commit(draft, () => { backTrail.length = 0; resetPatrol(); returnTo(); });
-      } else if (name === "fight" && canChallenge(save, id) && !fight) {
+      } else if (name === "fight" && !save.victories[id] && canChallenge(save, id) && !fight) {
         battleOrigin = pageLocation();
         window.scrollTo(0, 0);
         result = null;

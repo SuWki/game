@@ -550,6 +550,13 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 #panel .trial-scene h2 { color:inherit; margin:2px 0 0; }
 .trial-goal { padding:10px 14px; background:#eee1c3; border-left:3px solid #905438; }
 .trial-goal p { margin:5px 0; }
+.rematch-list { display:flex; flex-wrap:wrap; gap:7px; padding:6px 0 14px; }
+.rematch-list button { min-height:44px; }
+.rematch-list small,.rematch-rewards small { display:block; line-height:1.6; }
+.rematch-rewards { min-width:0; }
+.rematch-rewards ul { padding:0; margin:0; list-style:none; }
+.rematch-rewards li { display:flex; align-items:center; gap:8px; padding:9px 0; border-bottom:1px solid #ccb894; }
+.rematch-rewards .item-art { flex:none; }
 .trial-meter { display:flex; align-items:center; gap:8px; color:#ffd390; }
 .trial-meter span { letter-spacing:3px; }
 .trial-preview { display:block; font-size:13px; color:#ffda9c; }

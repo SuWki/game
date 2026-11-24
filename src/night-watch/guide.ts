@@ -4,7 +4,7 @@ import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts,
 import type { Fight, Region, Save } from "./game.ts";
 import { caseClues, encounters, preparationText } from "./tactics.ts";
 
-export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | TrialId;
+export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | "rematch" | TrialId;
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
@@ -35,7 +35,7 @@ export function clueTip(save: Save, showRead = false) {
 }
 
 export function openingTip(save: Save, fight: Fight) {
-  if (!save.guide.enabled || !fight.waiting || fight.trial || fight.mirrorLevel) return;
+  if (!save.guide.enabled || !fight.waiting || fight.trial || fight.mirrorLevel || fight.rematchRank) return;
   if (fight.preparation === "ready") return preparationText(fight.region);
   if (fight.round < 3 && !save.victories[fight.region]) return caseClues[fight.region].counter;
 }
@@ -50,10 +50,10 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (tab === "patrol" && result && !result.won) return defeatTip(save, result.region);
   if (tab === "archive") {
     if (save.victories[2]) return { id: "archive-after-chapter", title: "卷末去处",
-      text: "随陆婆过河去纸马驿。想接青芦的托付、重演旧案或去照妖镜，也可从此处进入。" };
+      text: "随陆婆过河去纸马驿。也可以挑战强化后的首领，或去照妖镜。" };
     return save.victories[0] ? {
-      id: "archive", title: "换路与重演",
-      text: "标着「当前地点」的，就是阿照现在所在的地方。点地名旁的「前往」换路，点「重演」再会大妖。",
+      id: "archive", title: "换路与强敌再战",
+      text: "点地名旁的「前往」换路。「强敌再战」可以挑战强化后的大妖，提升当地装备。",
     } : undefined;
   }
   if (tab === "skills" && result && !result.won && !result.trialId && !result.mirrorLevel) return defeatTip(save, result.region);
@@ -66,7 +66,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     if (learned >= 0) return equipTip(learned as Region);
     if (save.ranks[5] && save.ranks[4] && !save.guide.dismissed.includes("preset-fire")) return {
       id: "preset-fire", title: "一轮贴符，下一轮引爆",
-      text: "寄灯符在第 1、4、7 回合贴符，挑灯诀紧接着引爆。把它们配好后，可在「两套配装」里和截招搭配各存一套。",
+      text: "寄灯符在第 1、4、7 回合贴符，挑灯诀紧接着引爆。把它们配好后，可在「两套配装」里和截断搭配各存一套。",
     };
     if (save.dao >= masteryCost && save.ranks.includes(1) && !save.guide.dismissed.includes("mastery")) {
       return {
@@ -115,8 +115,9 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     const next = save.region + 1;
     const won = save.victories[save.region] > 0;
     return { id: `swept-${save.region}-${won}`, title: "小妖已扫清",
-      text: won && next < regions.length ? `该往${regions[next].name}走了。` : won ? "旧案可重演，漏掉的装备也能找回。" : `${regions[save.region].boss}的踪迹已经找齐。`,
-      target: { tab: "patrol", action: won && next < regions.length ? `region:${next}` : `fight:${save.region}`, label: won && next < regions.length ? "前往" + regions[next].name : (won ? "重演" : "挑战") + regions[save.region].boss } };
+      text: won && next < regions.length ? `该往${regions[next].name}走了。` : won ? "强敌再战能强化旧装备，也能找回遗漏的本地掉落。" : `${regions[save.region].boss}的踪迹已经找齐。`,
+      target: won && next >= regions.length ? { tab: "archive", label: "打开斩妖录" } :
+        { tab: "patrol", action: won ? `region:${next}` : `fight:${save.region}`, label: won ? "前往" + regions[next].name : "挑战" + regions[save.region].boss } };
   }
   if (!save.victories[0]) {
     if (canChallenge(save, 0)) return {
@@ -153,7 +154,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[2]) {
     if (save.region === 1 && !save.kills[2]) return {
       id: "temple-road", title: "去白烛庙查案",
-      text: "胜过河伯，去庙街的路就通了。到庙街斩妖攒道行，进入听息并找到两条线索后便可挑战娘娘。",
+      text: "胜过河伯，去庙街的路就通了。到庙街斩妖攒道行，进入听息境并找到两条线索后便可挑战娘娘。",
       target: { tab: "patrol", action: "region:2", label: "前往白烛庙" },
     };
     if (save.realm === 3 && save.region === 2 && clueCount(save) < challengeClues) return insightTip();

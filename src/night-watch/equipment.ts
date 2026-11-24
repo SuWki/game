@@ -25,7 +25,7 @@ export const equipment = {
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
-// 佩饰按轮次直接生效；兵刃和护具另有可与招式组合的特性。
+// 佩饰按回合直接生效；兵刃和护具另有可与招式组合的特性。
 export const traits = {
   pineBlade: { trigger: "镇山喝截断敌招", effect: "喝伤", amount: 12 },
   reedBlade: { trigger: "听潮步发动时", effect: "刀伤", amount: 8 },
@@ -35,10 +35,15 @@ export const traits = {
   templeCoat: { trigger: "照影期间受击", effect: "减伤", amount: 4 },
 } as const;
 
-export function traitText(id: GearId) {
+export function traitPower(id: keyof typeof traits, rank = 0) {
+  return traits[id].amount + rank * (equipment[id].slot === "weapon" ? 2 : 1);
+}
+
+export function traitText(id: GearId, rank = 0) {
   if (!(id in traits)) return "";
-  const trait = traits[id as keyof typeof traits];
-  return `${trait.trigger} · ${trait.effect} +${trait.amount}`;
+  const key = id as keyof typeof traits;
+  const trait = traits[key];
+  return `${trait.trigger} · ${trait.effect} +${traitPower(key, rank)}`;
 }
 
 export type GearLoadout = Partial<Record<GearSlot, GearId>>;
@@ -47,6 +52,38 @@ export const minionEquipment = [
   ["hillCoat", "pineBlade"], ["ferryCoat", "reedBlade"], ["templeCoat", "templeBlade"], ["postCoat", "postBlade"],
   ["courierCoat", "courierBlade"], ["watchCoat", "watchBlade"],
 ] as const;
+
+export function gearRegion(id: GearId) {
+  return minionEquipment.findIndex((pair, i) => id === bossEquipment[i] || pair.some(item => item === id));
+}
+
+export function gearRank(id: GearId, ranks: readonly number[]) {
+  return ranks[gearRegion(id)] ?? 0;
+}
+
+export function gearDamage(id: GearId, rank: number) {
+  const item: Gear = equipment[id];
+  return item.slot === "weapon" ? (item.damage ?? 0) + rank * 3 : 0;
+}
+
+export function gearLife(id: GearId, rank: number) {
+  const item: Gear = equipment[id];
+  return item.slot === "armor" ? (item.life ?? 0) + rank * 9 : 0;
+}
+
+const charmBase = { tigerFang: 3, tideSeal: 4, mirrorPearl: 5, postSeal: 6, courierSeal: 8, watchSeal: 6 };
+export type CharmId = keyof typeof charmBase;
+export function charmPower(id: CharmId, rank: number) {
+  return charmBase[id] + rank * (id === "tideSeal" || id === "watchSeal" ? 2 : 3);
+}
+
+export function gearEffect(id: GearId, rank = 0) {
+  const item = equipment[id];
+  if (item.slot === "weapon") return `基础刀伤 +${gearDamage(id, rank)}`;
+  if (item.slot === "armor") return `气血上限 +${gearLife(id, rank)}`;
+  const charm = id as CharmId;
+  return item.effect.replace(/[+-]\d+/, symbol => symbol[0] + charmPower(charm, rank));
+}
 
 export function knownGear(id: unknown): id is GearId {
   return typeof id === "string" && Object.hasOwn(equipment, id);

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, gearRequirement, newSave, trainingRoute,
-  applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startCaseFight, startFight, startMirrorFight, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, rematchSpec, roundMoves, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
-import { equipment } from "../src/night-watch/equipment.ts";
+import { equipment, gearEffect } from "../src/night-watch/equipment.ts";
 import { clueTip, nextTip, openingTip } from "../src/night-watch/guide.ts";
 
 function stowThenPatrol(save, random) {
@@ -971,4 +971,78 @@ test("换装前可查回合词条缺哪一招，并区分寄灯符已经装备�
   assert.match(gearRequirement(s, "courierSeal"), /可在驿卒战借灯引爆/);
   equipArt(s, 5, true);
   assert.equal(gearRequirement(s, "courierSeal"), undefined);
+});
+
+test("旧档强敌再战从零开始，通关只领取一次强化并找回遗漏装备", () => {
+  const s = newSave(0);
+  assert.equal(startRematch(s, 0), undefined);
+  s.victories[0] = 5;
+  s.drops[0] = true;
+  s.ranks[0] = 1;
+  s.ownedGear.push("pineBlade", "tigerFang");
+  s.loadout = { weapon: "pineBlade", charm: "tigerFang" };
+  earnDao(s, 30);
+  equipArt(s, 0, true);
+  delete s.rematchRanks;
+  const old = decode(JSON.stringify(s), 0);
+  assert.equal(old.rematchRanks[0], 0);
+  const fight = startRematch(old, 0);
+  assert.equal(fight.hp, regions[0].hp + 42);
+  assert.equal(fight.preparation, undefined);
+  assert.equal(settleRematch(old, fight), undefined);
+  playRounds(fight, 20, { 3: "safe", 6: "safe" });
+  assert.equal(fight.result, "won");
+  assert.deepEqual(settleRematch(old, fight), { rank: 1, drop: false });
+  assert.equal(settleRematch(old, fight), undefined);
+  assert.deepEqual(old.newGear, ["hillCoat"]);
+  assert.equal(old.victories[0], 5);
+  const loaded = decode(JSON.stringify(old), 0);
+  assert.equal(loaded.rematchRanks[0], 1);
+  assert.equal(rematchSpec(loaded, 0).rank, 2);
+  const failed = startRematch(loaded, 0);
+  failed.result = "lost";
+  assert.equal(settleRematch(loaded, failed), undefined);
+  assert.equal(loaded.rematchRanks[0], 1);
+  loaded.rematchRanks[0] = 3;
+  assert.equal(startRematch(loaded, 0), undefined);
+});
+
+test("强化后的松纹刀和牙坠按真实数值生效，交锋锁定开场强化", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1, 1, 1, 1];
+  earnDao(s, 2500);
+  s.loadout = { weapon: "pineBlade", armor: "hillCoat", charm: "tigerFang" };
+  s.ranks[0] = 1;
+  equipArt(s, 0, true);
+  s.rematchRanks[0] = 3;
+  const f = startFight(s, 3, true);
+  const original = startFight({ ...s, rematchRanks: [0, 0, 0, 0, 0, 0] }, 3, true);
+  assert.equal(f.maxLife - original.maxLife, 27);
+  assert.equal(gearEffect("pineBlade", 3), "基础刀伤 +11");
+  assert.match(gearEffect("tigerFang", 3), /\+12$/);
+  assert.equal(compareGear(s, "watchBlade").after.damage - compareGear(s, "watchBlade").before.damage, 1);
+  s.rematchRanks[0] = 0;
+  playRounds(f, 3);
+  assert.match(f.log[2], /松纹刀应喝，喝伤 \+18.*山君牙坠，刀伤 \+12/);
+});
+
+test("河伯强化关按实际回浪时机结算，首次取胜补悟听潮步", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 0, 0, 0, 0];
+  earnDao(s, 340);
+  s.loadout = { weapon: "pineBlade", armor: "hillCoat", charm: "tideSeal" };
+  s.ranks[0] = 1;
+  equipArt(s, 0, true);
+  const f = startRematch(s, 1);
+  assert.equal(f.riverWave, 3);
+  playRounds(f, 20, { 2: "risk", 5: "risk" });
+  assert.equal(f.result, "won");
+  assert.deepEqual(settleRematch(s, f), { rank: 1, drop: true });
+  assert.equal(s.drops[1], true);
+  assert.deepEqual(s.newGear, ["tideSeal", "ferryCoat", "reedBlade"]);
+  const next = startRematch(s, 1);
+  assert.equal(next.riverWave, 2);
+  while (!next.waiting) tickFight(next);
+  assert.equal(previewOpening(next, "safe").water, 0);
+  assert.equal(previewOpening(next, "pass").water, 1);
 });
