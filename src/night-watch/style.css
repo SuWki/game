@@ -524,6 +524,9 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .mirror-entry { padding: 14px; background: #ebdfbf; border-left: 3px solid #814a35; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; justify-content:space-between; }
 .mirror-entry p,.engraving p { margin: 4px 0; }
 .mirror-engraving { border-top: 2px solid #9a8264; padding-top: 10px; }
+.mirror-engraving + .mirror-engraving { margin-top: 18px; }
+.reforge-card { scroll-margin-block: 80px; }
+.reforge-card h3 { margin: 0; }
 .engraving,.mirror-outcome { border:1px solid #af9873; padding:12px; margin: 8px 0; background:#f7eed9; }
 .engraving header { display:flex; justify-content:space-between; gap:8px; }
 .engraving button,.mirror-entry button,#mirror-practice button { min-height: 44px; }

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, forecastFight, gearRequirement, newSave, trainingRoute,
-  applyPreset, artDue, equipArt, planWindows, previewOpening, recordedClues, recordPatrolKill, rematchSpec, roundMoves, setBattlePlan, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  accrueOffline, accrueSand, answerOpening, canChallenge, canEarnSand, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, forecastFight, gearRequirement, loadoutStats, newSave, trainingRoute,
+  applyPreset, artDue, equipArt, planWindows, previewOpening, recordedClues, recordPatrolKill, reforgeGear, reforgeState, rematchSpec, roundMoves, setBattlePlan, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment, gearEffect } from "../src/night-watch/equipment.ts";
@@ -1147,4 +1147,177 @@ test("战前推演照实际规则触发装备和招式，镜战记录用开场�
   assert.equal(loaded.mirror.sand, 41);
   assert.match(loaded.mirror.recent.build, /松纹刀.*镇山喝.*断潮纹/);
   assert.doesNotMatch(loaded.mirror.recent.build, /斩芦刀/);
+});
+
+function duelFixture(dao, cleared) {
+  const save = newSave(0);
+  save.victories = regions.map((_, i) => Number(i < cleared));
+  save.kills = regions.map(region => region.thresholds[1]);
+  earnDao(save, dao);
+  return save;
+}
+
+function readyArts(save, arts, rank = 1) {
+  for (const art of arts) {
+    save.drops[art] = true;
+    save.ranks[art] = rank;
+    equipArt(save, art, true);
+  }
+}
+
+function automaticDuel(fight, pairs = []) {
+  assert.ok(fight);
+  assert.equal(setBattlePlan(fight, pairs.map(([round, choice]) => ({ round, choice }))), true);
+  return playRounds(fight, fight.limit);
+}
+
+test("六案首战有稳定所得的解法，山君负责上手，其余空装盲打会败阵", () => {
+  const route = [
+    [14, undefined, [], [[3, "safe"], [6, "safe"]]],
+    [204, "tigerFang", [0], [[2, "risk"], [5, "risk"]]],
+    [830, "tigerFang", [0], [[2, "safe"], [5, "safe"]]],
+    [1284, "tigerFang", [0], [[3, "risk"], [6, "risk"]]],
+    [1545, "postSeal", [0, 3], [[2, "safe"], [5, "safe"]]],
+    [2315, "courierSeal", [0, 3, 4], [[2, "risk"], [5, "risk"]]],
+  ];
+  for (const [region, [dao, charm, arts, orders]] of route.entries()) {
+    const save = duelFixture(dao, region);
+    const blind = automaticDuel(startCaseFight(save, region));
+    assert.equal(blind.result, region === 0 ? "won" : "lost", regions[region].boss);
+    if (region === 1) {
+      assert.equal(automaticDuel(startCaseFight(save, region), [[2, "safe"], [5, "safe"]]).result, "lost");
+    }
+    save.loadout = charm ? { weapon: "pineBlade", charm } : { weapon: "pineBlade" };
+    readyArts(save, arts);
+    assert.equal(automaticDuel(startCaseFight(save, region), orders).result, "won", regions[region].boss);
+  }
+});
+
+test("照妖镜前十二重可用首卷装备连续打通，提前回浪和娘娘换相需要调整", () => {
+  const save = duelFixture(1284, 3);
+  save.rematchRanks = [1, 1, 1, 0, 0, 0];
+  save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "tigerFang" };
+  readyArts(save, [0]);
+
+  for (let level = 1; level <= 12; level++) {
+    let plan = [[2, "risk"]];
+    if (level >= 3 && level <= 4) plan = [[2, "safe"], [5, "risk"]];
+    if (level === 5) {
+      const blind = automaticDuel(startMirrorFight(save, level));
+      assert.equal(blind.result, "lost");
+      assert.match(defeatSummary(blind), /水位涨满三格/);
+      readyArts(save, [1]);
+      save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tideSeal" };
+    }
+    if (level >= 5 && level <= 9) plan = [[1, "safe"], [4, "safe"]];
+    if (level === 10) {
+      save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "tigerFang" };
+      equipArt(save, 1, false);
+    }
+    if (level === 10 || level === 11) plan = [[2, "risk"], [5, "risk"]];
+    if (level === 12) {
+      const blind = automaticDuel(startMirrorFight(save, level));
+      assert.equal(blind.result, "lost");
+      assert.match(defeatSummary(blind), /纸面反噬/);
+      readyArts(save, [2]);
+      save.loadout = { weapon: "templeBlade", armor: "ferryCoat", charm: "mirrorPearl" };
+      plan = [];
+    }
+    const fight = automaticDuel(startMirrorFight(save, level), plan);
+    assert.equal(fight.result, "won", `第 ${level} 重`);
+    assert.ok(settleMirror(save, fight, 0).reward > 0);
+  }
+  assert.equal(save.mirror.best, 12);
+});
+
+test("重铸分别检查主线、再战、装备与砂，保留原词条和旧档强化", () => {
+  const oldSave = duelFixture(2500, 3);
+  delete oldSave.reforges;
+  oldSave.ownedGear = ["pineBlade", "ferryCoat"];
+  oldSave.loadout = { weapon: "pineBlade", armor: "ferryCoat" };
+  oldSave.mirror.best = 5;
+  oldSave.mirror.ranks = { edge: 8, step: 8 };
+  oldSave.mirror.sand = 17;
+  const save = decode(JSON.stringify(oldSave), 0);
+  assert.equal(reforgeState(save, "pineBlade"), "story");
+  assert.equal(canEarnSand(save), false);
+  save.victories[3] = 1;
+  save.victories[4] = 1;
+  assert.equal(reforgeState(save, "pineBlade"), "rematch");
+  save.rematchRanks[0] = save.rematchRanks[1] = 1;
+  assert.equal(reforgeGear(save, "pineBlade"), false);
+  assert.equal(save.mirror.sand, 17);
+  const before = loadoutStats(save);
+  const inProgress = startMirrorFight(save, 5);
+  assert.equal(canEarnSand(save), true);
+  assert.equal(accrueSand(save, 3600000), 3);
+  assert.equal(reforgeGear(save, "pineBlade"), true);
+  assert.equal(reforgeGear(save, "pineBlade"), false);
+  assert.equal(save.mirror.sand, 2);
+  assert.equal(loadoutStats(save).damage, before.damage + 3);
+  assert.equal(before.life, loadoutStats(save).life);
+  assert.deepEqual(inProgress.reforges, {});
+  save.mirror.sand = 22;
+  assert.equal(reforgeGear(save, "ferryCoat"), true);
+  assert.equal(loadoutStats(save).life, before.life + 9);
+  assert.equal(canEarnSand(save), false);
+  assert.equal(accrueSand(save, 7200000), 0);
+  const restored = decode(JSON.stringify(save), 7200000);
+  assert.deepEqual(restored.reforges, { pineBlade: true, ferryCoat: true });
+  assert.deepEqual(restored.rematchRanks, save.rematchRanks);
+  const fight = automaticDuel(startMirrorFight(restored, 5), [[1, "safe"], [4, "safe"]]);
+  settleMirror(restored, fight, 7200000);
+  assert.match(restored.mirror.recent.build, /松纹刀 \+1 · 已重铸.*渡水蓑 \+1 · 已重铸/);
+});
+
+test("同境界下重铸旧装能靠截断或闪避胜出，新装备仍有稳定数值", () => {
+  const save = duelFixture(2500, 6);
+  save.ownedGear = ["pineBlade", "ferryCoat", "watchBlade", "watchCoat"];
+  save.rematchRanks = [2, 1, 0, 0, 0, 0];
+  save.mirror.sand = 40;
+  save.mirror.best = 10;
+  save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "tideSeal" };
+  readyArts(save, [0, 1]);
+  assert.equal(reforgeGear(save, "pineBlade"), true);
+  assert.equal(reforgeGear(save, "ferryCoat"), true);
+  const highWave = [[2, "risk"], [5, "risk"]];
+  const p = automaticDuel(startMirrorFight(save, 10), highWave);
+  assert.ok(p.links["松纹刀 +16"]);
+  save.loadout.weapon = "watchBlade";
+  const w = automaticDuel(startMirrorFight(save, 10), highWave);
+  assert.deepEqual([p.result, p.round, w.result, w.round], ["won", 6, "won", 7]);
+  save.loadout.weapon = "pineBlade";
+  save.rematchRanks[0] = 1;
+  const tide = automaticDuel(startMirrorFight(save, 9), [[1, "safe"], [4, "safe"]]);
+  save.loadout.armor = "watchCoat";
+  const coat = automaticDuel(startMirrorFight(save, 9), [[1, "safe"], [4, "safe"]]);
+  assert.ok(tide.links["渡水蓑回血 +6"]);
+  assert.equal(tide.life - coat.life, 2);
+});
+
+test("守更再战高阶错过破印会封阵，神通连招和精通刀法都有胜路", () => {
+  const save = duelFixture(3400, 6);
+  save.rematchRanks = [1, 1, 0, 0, 0, 1];
+  save.ownedGear = ["pineBlade", "ferryCoat"];
+  save.mirror.sand = 40;
+  save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "courierSeal" };
+  assert.equal(reforgeGear(save, "pineBlade"), true);
+  assert.equal(reforgeGear(save, "ferryCoat"), true);
+  const blind = automaticDuel(startRematch(save, 5));
+  assert.equal(blind.round, 9);
+  assert.equal(blind.result, "lost");
+  assert.match(defeatSummary(blind), /三次敲更/);
+
+  readyArts(save, [0, 4, 5]);
+  const sigil = automaticDuel(startRematch(save, 5));
+  assert.equal(sigil.result, "won");
+  assert.ok(sigil.links["符火引爆"] > 0);
+
+  equipArt(save, 4, false);
+  save.loadout = { weapon: "courierBlade", armor: "ferryCoat", charm: "postSeal" };
+  save.rematchRanks[3] = save.rematchRanks[4] = 3;
+  readyArts(save, [0, 3], 2);
+  const blade = automaticDuel(startRematch(save, 5), [[2, "safe"], [5, "safe"]]);
+  assert.equal(blade.result, "won");
+  assert.equal(blade.links["符火引爆"], undefined);
 });

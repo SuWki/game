@@ -1,3 +1,5 @@
+import { bridgeRegion, courierRegion } from "./content.ts";
+
 export const slots = { weapon: "兵刃", armor: "护具", charm: "佩饰" } as const;
 export type GearSlot = keyof typeof slots;
 
@@ -25,6 +27,18 @@ export const equipment = {
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
+export const reforging = {
+  pineBlade: { chapter: bridgeRegion, cost: 18, bonus: 3 },
+  ferryCoat: { chapter: courierRegion, cost: 22, bonus: 9 },
+} as const;
+export type ReforgeId = keyof typeof reforging;
+export const reforgeIds = Object.keys(reforging) as ReforgeId[];
+export type GearReforges = Partial<Record<ReforgeId, true>>;
+
+export function isReforgeId(id: string): id is ReforgeId {
+  return Object.hasOwn(reforging, id);
+}
+
 // 佩饰按回合直接生效；兵刃和护具另有可与招式组合的特性。
 export const traits = {
   pineBlade: { trigger: "镇山喝截断敌招", effect: "喝伤", amount: 12 },
@@ -61,14 +75,18 @@ export function gearRank(id: GearId, ranks: readonly number[]) {
   return ranks[gearRegion(id)] ?? 0;
 }
 
-export function gearDamage(id: GearId, rank: number) {
-  const item: Gear = equipment[id];
-  return item.slot === "weapon" ? (item.damage ?? 0) + rank * 3 : 0;
+function reforgeBonus(id: GearId, reforges: GearReforges) {
+  return isReforgeId(id) && reforges[id] ? reforging[id].bonus : 0;
 }
 
-export function gearLife(id: GearId, rank: number) {
+export function gearDamage(id: GearId, rank: number, reforges: GearReforges = {}) {
   const item: Gear = equipment[id];
-  return item.slot === "armor" ? (item.life ?? 0) + rank * 9 : 0;
+  return item.slot === "weapon" ? (item.damage ?? 0) + rank * 3 + reforgeBonus(id, reforges) : 0;
+}
+
+export function gearLife(id: GearId, rank: number, reforges: GearReforges = {}) {
+  const item: Gear = equipment[id];
+  return item.slot === "armor" ? (item.life ?? 0) + rank * 9 + reforgeBonus(id, reforges) : 0;
 }
 
 const charmBase = { tigerFang: 3, tideSeal: 4, mirrorPearl: 5, postSeal: 6, courierSeal: 8, watchSeal: 6 };
@@ -77,12 +95,16 @@ export function charmPower(id: CharmId, rank: number) {
   return charmBase[id] + rank * (id === "tideSeal" || id === "watchSeal" ? 2 : 3);
 }
 
-export function gearEffect(id: GearId, rank = 0) {
+export function gearEffect(id: GearId, rank = 0, reforges: GearReforges = {}) {
   const item = equipment[id];
-  if (item.slot === "weapon") return `基础刀伤 +${gearDamage(id, rank)}`;
-  if (item.slot === "armor") return `气血上限 +${gearLife(id, rank)}`;
+  if (item.slot === "weapon") return `基础刀伤 +${gearDamage(id, rank, reforges)}`;
+  if (item.slot === "armor") return `气血上限 +${gearLife(id, rank, reforges)}`;
   const charm = id as CharmId;
   return item.effect.replace(/[+-]\d+/, symbol => symbol[0] + charmPower(charm, rank));
+}
+
+export function gearDisplayName(id: GearId, rank: number, reforges: GearReforges) {
+  return equipment[id].name + (rank ? ` +${rank}` : "") + (reforgeBonus(id, reforges) ? " · 已重铸" : "");
 }
 
 export function knownGear(id: unknown): id is GearId {

@@ -1,7 +1,7 @@
 import { arts, bridgeRegion, courierRegion, heartDao, heartRealm, mountainFirstReward, regions, trialIds, trialRounds, trials, trialSand, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { bossEquipment, charmPower, equipment, gearDamage, gearEffect, gearLife, gearRank, knownGear, minionEquipment, slots, traitPower, traitText } from "./equipment.ts";
-import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
+import { bossEquipment, charmPower, equipment, gearDamage, gearDisplayName, gearEffect, gearLife, gearRank, knownGear, minionEquipment, reforgeIds, reforging, slots, traitPower, traitText } from "./equipment.ts";
+import type { GearId, GearLoadout, GearReforges, GearSlot, ReforgeId } from "./equipment.ts";
 import { caseClues, decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
 
@@ -50,6 +50,7 @@ export type Save = {
   trialBest: Record<TrialId, number>;
   presets: [Preset | null, Preset | null];
   rematchRanks: PerRegion<number>;
+  reforges: GearReforges;
 };
 
 export const saveKey = "night-watch-v1";
@@ -61,6 +62,7 @@ export const mirrorRounds = 12;
 export const paperHitLimit = 2;
 export const footingLimit = 3;
 export const watchWard = 58;
+export const wardSealLimit = 3;
 export const maxRematchRank = 3;
 const rematchHealth = [0, 42, 92, 155];
 const rematchAttack = [0, 4, 9, 15];
@@ -95,14 +97,32 @@ export function sandRate(best: number) {
   return best > 0 ? Math.min(12, 2 + Math.floor((best - 1) / 3)) : 0;
 }
 
-export function canTemper(save: Save) {
-  return save.mirror.ranks.edge < maxEngravingRank || save.mirror.ranks.step < maxEngravingRank;
+export function reforgeState(save: Save, id: ReforgeId) {
+  if (save.reforges[id]) return "done";
+  if (!save.victories[reforging[id].chapter]) return "story";
+  if (!gearRank(id, save.rematchRanks)) return "rematch";
+  if (!save.ownedGear.includes(id)) return "gear";
+  return "ready";
+}
+
+export function reforgeGear(save: Save, id: ReforgeId) {
+  const cost = reforging[id].cost;
+  if (!mirrorUnlocked(save) || reforgeState(save, id) !== "ready" || save.mirror.sand < cost) return false;
+  save.mirror.sand -= cost;
+  save.reforges[id] = true;
+  return true;
+}
+
+export function canEarnSand(save: Save) {
+  const ranks = save.mirror.ranks;
+  return mirrorUnlocked(save) && (ranks.edge < maxEngravingRank || ranks.step < maxEngravingRank
+    || reforgeIds.some(id => reforgeState(save, id) === "ready"));
 }
 
 export function accrueSand(save: Save, now: number) {
   const mirror = save.mirror;
   const elapsed = Math.min(maxOffline, Math.max(0, now - mirror.time));
-  const total = canTemper(save) ? elapsed * (mirrorUnlocked(save) ? sandRate(mirror.best) : 0) + mirror.remainder : 0;
+  const total = canEarnSand(save) ? elapsed * sandRate(mirror.best) + mirror.remainder : 0;
   const earned = Math.floor(total / sandHour);
   mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, mirror.sand + earned);
   mirror.remainder = total % sandHour;
@@ -159,21 +179,25 @@ export function earnDao(save: Save, amount: number) {
   save.realm = cultivationFor(save).realm;
 }
 
-export function combatStats(realm: number, stance: Kit["stance"], loadout: GearLoadout = {}, layer = 1, upgrades: readonly number[] = []) {
+export function combatStats(realm: number, stance: Kit["stance"], loadout: GearLoadout = {}, layer = 1,
+  upgrades: readonly number[] = [], reforges: GearReforges = {}) {
   const { weapon, armor } = loadout;
-  const base = 12 + realm * 3 + (weapon ? gearDamage(weapon, gearRank(weapon, upgrades)) : 0);
+  const base = 12 + realm * 3 + (weapon ? gearDamage(weapon, gearRank(weapon, upgrades), reforges) : 0);
   return {
     damage: stance === "attack" ? Math.round(base * 1.25) : base,
-    life: 105 + layer - 1 + realm * 24 + (armor ? gearLife(armor, gearRank(armor, upgrades)) : 0),
+    life: 105 + layer - 1 + realm * 24 + (armor ? gearLife(armor, gearRank(armor, upgrades), reforges) : 0),
   };
+}
+
+export function loadoutStats(save: Save, loadout = save.loadout) {
+  return combatStats(save.realm, save.kit.stance, loadout, cultivationFor(save).layer, save.rematchRanks, save.reforges);
 }
 
 export function compareGear(save: Save, id: GearId) {
   const { slot } = equipment[id];
   const current = save.loadout[slot];
-  const layer = cultivationFor(save).layer;
-  const before = combatStats(save.realm, save.kit.stance, save.loadout, layer, save.rematchRanks);
-  const after = combatStats(save.realm, save.kit.stance, { ...save.loadout, [slot]: id }, layer, save.rematchRanks);
+  const before = loadoutStats(save);
+  const after = loadoutStats(save, { ...save.loadout, [slot]: id });
   const effect = (gear: GearId) => {
     const rank = gearRank(gear, save.rematchRanks);
     return equipment[gear].slot === "charm" ? gearEffect(gear, rank) : traitText(gear, rank);
@@ -207,7 +231,7 @@ export function newSave(now: number): Save {
     version: 4, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0],
     drops: [false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0], time: now,
     guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 }, presets: [null, null],
-    rematchRanks: [0, 0, 0, 0, 0, 0],
+    rematchRanks: [0, 0, 0, 0, 0, 0], reforges: {},
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
@@ -340,6 +364,10 @@ export function decode(raw: string | null, now: number): Save {
       save.rematchRanks[i] = progress[i];
       if (progress[i]) save.clues[i] = 3;
     }
+  }
+  save.reforges = {};
+  for (const id of reforgeIds) {
+    if (data.reforges?.[id] === true && reforgeState(save, id) === "ready") save.reforges[id] = true;
   }
   save.kit = cleanKit(data.kit, save);
   save.presets = [cleanPreset(data.presets?.[0], save), cleanPreset(data.presets?.[1], save)];
@@ -479,11 +507,12 @@ export type Fight = {
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
-  sigilThrough: number; ward: number;
+  sigilThrough: number; ward: number; wardStreak: number;
   preparation?: "ready" | "used";
   kit: Kit; realm: number; ranks: Save["ranks"];
   loadout: GearLoadout;
   gearUpgrades: Save["rematchRanks"];
+  reforges: GearReforges;
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
@@ -498,13 +527,14 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const data = regions[region];
   const actor = boss ? { name: data.boss, sprite: data.sprite } : data.foes[foeIndex % data.foes.length];
   const hp = boss ? data.hp : 1;
-  const life = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks).life;
+  const life = loadoutStats(save).life;
   const id = save.mirror.equipped;
   const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
     ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, paperHits: 0, footing: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
     kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, gearUpgrades: [...save.rematchRanks],
-    revealedThrough: 0, sigilThrough: 0, ward: 0, links: {},
+    reforges: { ...save.reforges },
+    revealedThrough: 0, sigilThrough: 0, ward: 0, wardStreak: 0, links: {},
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
@@ -527,7 +557,7 @@ export function rematchSpec(save: Save, region: Region) {
     `连斩纸面会反噬 ${paperBacklashDamage + 8 * rank} 点。挑灯或照影能找到真身。`,
     `横篙基础伤害额外 +${8 * rank}。第三次中招仍会落桥。`,
     `带着马灯撞中时，灼伤提高到 ${18 + 8 * rank} 点。冲灯前可压灯。`,
-    `更印提高至 ${wardStrength(rank)} 点。可揭去更印，或用符火烧掉。`,
+    `更印提高至 ${wardStrength(rank)} 点。${rank >= 2 ? "连续三次更印未破会封阵。敲更前揭印、引爆符火或打破更印，可清空封阵进度。" : "可揭去更印，或用符火烧掉。"}`,
   ][region];
   return { rank, hp: regions[region].hp + rematchHealth[rank], attack: rematchAttack[rank], detail, riverWave, prepared: recordedClues(save, region) === 3 } as const;
 }
@@ -579,7 +609,7 @@ export function settleTrial(save: Save, fight: Fight) {
   const previous = save.trialBest[trial.id];
   if (previous) return 0;
   save.trialBest[trial.id] = fight.round;
-  if (!canTemper(save)) return 0;
+  if (!canEarnSand(save)) return 0;
   save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + trialSand);
   return trialSand;
 }
@@ -614,10 +644,7 @@ export function mirrorPreparation(save: Save, region: 1 | 2) {
 }
 
 function mirrorAttempt(fight: Fight, level: number): MirrorAttempt {
-  const gear = Object.values(fight.loadout).map(id => {
-    const rank = gearRank(id, fight.gearUpgrades);
-    return equipment[id].name + (rank ? " +" + rank : "");
-  });
+  const gear = Object.values(fight.loadout).map(id => gearDisplayName(id, gearRank(id, fight.gearUpgrades), fight.reforges));
   const active = equippedArts(fight.kit);
   const moves = [...weaponArts(fight.kit), 1, 2, 4].filter(id => active[id]).map(id => arts[id].name);
   const build = [...gear, ...moves, fight.kit.stance === "guard" ? "守式" : "攻式",
@@ -634,7 +661,7 @@ export function settleMirror(save: Save, fight: Fight, now: number) {
   save.mirror.recent = mirrorAttempt(fight, level);
   if (fight.result !== "won" || level - 1 !== save.mirror.best) return { idle, reward: 0 };
   save.mirror.best = level;
-  const reward = canTemper(save) ? 12 + Math.min(24, (level - 1) * 2) : 0;
+  const reward = canEarnSand(save) ? 12 + Math.min(24, (level - 1) * 2) : 0;
   save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + reward);
   return { idle, reward };
 }
@@ -748,7 +775,11 @@ export function horseCovered(round: number, choice?: Response) {
 }
 
 export function wardStrength(rank = 0) {
-  return watchWard + 12 * rank;
+  return watchWard + 12 * rank + (rank >= 2 ? 18 : 0);
+}
+
+export function wardSealActive(fight: Fight) {
+  return fight.region === watchRegion && (fight.rematchRank ?? 0) >= 2;
 }
 
 function resolveRound(f: Fight) {
@@ -813,7 +844,7 @@ function resolveRound(f: Fight) {
     if (choice === "safe") f.ward = 0;
     if (choice === "risk" && f.sigilThrough >= round) ignite();
   }
-  const stats = combatStats(f.realm, f.kit.stance, f.loadout, 1, f.gearUpgrades);
+  const stats = combatStats(f.realm, f.kit.stance, f.loadout, 1, f.gearUpgrades, f.reforges);
   const reveal = f.kit.reveal && f.ranks[2] > 0 && artDue(round, 2);
   if (reveal) {
     marks.push("照影显形");
@@ -948,10 +979,18 @@ function resolveRound(f: Fight) {
     actions.push("水满覆舟，阿照落水败阵");
     marks.push("覆舟");
   } else if (f.hp > 0 && f.life > 0 && !interrupted) {
-    if (watching && round % 3 === 0 && f.ward > 0) {
-      f.life -= 28;
-      marks.push("更印震响");
-      actions.push("更印未破，震响扣 28 点气血");
+    if (watching && round % 3 === 0) {
+      f.wardStreak = f.ward > 0 ? f.wardStreak + 1 : 0;
+      if (f.ward > 0) {
+        f.life -= 28;
+        marks.push("更印震响");
+        actions.push("更印未破，震响扣 28 点气血");
+      }
+      if (wardSealActive(f) && f.wardStreak >= wardSealLimit) {
+        f.life = 0;
+        marks.push("更印封阵");
+        actions.push("连续三次未破更印，阿照被困在印阵中");
+      }
     }
     if (f.life <= 0) f.cue = "strike";
     else if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
@@ -1060,7 +1099,7 @@ export function forecastFight(fight: Fight, rounds = 6) {
     resolveRound(f);
     if (f.lastExchange) result.push(f.lastExchange);
   }
-  return { rounds: result, life: Math.max(0, f.life), hp: Math.max(0, f.hp), result: f.result };
+  return { rounds: result, life: Math.max(0, f.life), hp: Math.max(0, f.hp), result: f.result, wardStreak: f.wardStreak, water: f.water };
 }
 
 export function defeatSummary(fight: Fight) {
@@ -1069,6 +1108,7 @@ export function defeatSummary(fight: Fight) {
   const marks = fight.lastExchange?.marks ?? [];
   if (marks.includes("覆舟")) return "水位涨满三格，阿照落水败阵。";
   if (marks.includes("跌落驿桥")) return "第三次被横篙扫中，阿照跌落驿桥。";
+  if (marks.includes("更印封阵")) return "三次敲更时更印都还在。第 3、6、9… 回合前用符火、揭印或刀伤破印。";
   if (marks.includes("纸面反噬")) return `第 ${fight.round} 回合遭到纸面反噬，气血耗尽。`;
   if (marks.includes("更印震响")) return `第 ${fight.round} 回合更印未破，敲更后气血耗尽。`;
   return `第 ${fight.round} 回合气血耗尽。`;
