@@ -451,7 +451,13 @@ footer { color:#6c6554; }
 .skill-slot span { font-size: 12px; }
 .skill-slot strong { font-size: 15px; }
 .skill-slot[data-locked=true] { background: #e2d9c3; border-style: dashed; color: #665d50; }
-.skill-slot:hover,.skill-slot:focus-visible { border-color: #8e442e; background: #f3e5c2; }
+button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e; background: #f3e5c2; }
+.skill-slot[data-static] { border-style:dashed; color:#665d50; }
+.missing-arts { margin-top:14px; padding-top:8px; border-top:1px solid #b9a784; }
+.missing-arts h3 { margin:0 0 5px; }
+.missing-arts > div { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; margin:5px 0; }
+.missing-arts button,.practice-route button { min-height:44px; }
+.gear-hint { display:block; margin-top:5px; color:#694222; }
 .technique-list-title,.stance-panel { margin-top: 16px; }
 .technique-list-title { margin-bottom: 4px; }
 .technique { border: 1px solid #bca782; padding: 12px; margin: 8px 0; background: #f7eed9; scroll-margin: 12px; }
@@ -572,6 +578,7 @@ footer { color:#6c6554; }
 .stage:is([data-zone="post-watch"],[data-zone="post-courtyard"])[data-boss="true"] .enemy img { max-width:40vw; object-fit:contain; object-position:bottom; }
 .duel-head { align-items:center; }
 .duel-head > span { margin-left:auto; }
+.round-cap { font-size:13px; color:#ded9ca; }
 .duel-head button { min-height:38px; padding:4px 8px; margin:0; font-size:13px; }
 @media(max-width:680px) {
   .preset-slots { grid-template-columns:1fr; }

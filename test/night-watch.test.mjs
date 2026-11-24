@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
+  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, gearRequirement, newSave, trainingRoute,
   applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startCaseFight, startFight, startMirrorFight, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
@@ -487,6 +487,7 @@ test("正常渡口装忽视船缆会覆舟，割缆能过，镇山喝引浪能�
   assert.equal(flooded.result, "lost");
   assert.equal(flooded.round, 9);
   assert.match(flooded.lastThreat, /覆舟/);
+  assert.equal(defeatSummary(flooded), "水位涨满三格，阿照落水败阵。");
   assert.equal(duel("safe").result, "won");
   assert.equal(duel("safe").round, 14);
   save.loadout.weapon = "pineBlade";
@@ -943,4 +944,31 @@ test("首次险招显示妖案提示，带备战时提示点名实际触发的�
   const disabled = startCaseFight(s, 0);
   while (!disabled.waiting) tickFight(disabled);
   assert.equal(openingTip(s, disabled), undefined);
+});
+
+test("缺道行时优先给已解锁且额度足够的地点，分别识别未开路和额度耗尽", () => {
+  const s = newSave(0);
+  earnDao(s, 100);
+  assert.deepEqual(trainingRoute(s, 8), { region: 0, accessible: true });
+  assert.deepEqual(trainingRoute(s, 9), { region: 1, accessible: false });
+  s.victories[0] = 1;
+  assert.deepEqual(trainingRoute(s, 9), { region: 1, accessible: true });
+  assert.deepEqual(trainingRoute(s, 310), { region: 2, accessible: false });
+  earnDao(s, 3350);
+  assert.equal(trainingRoute(s, 1), undefined);
+});
+
+test("换装前可查回合词条缺哪一招，并区分寄灯符已经装备但尚无挑灯诀", () => {
+  const s = newSave(0);
+  assert.match(gearRequirement(s, "pineBlade"), /装备镇山喝/);
+  s.ranks[0] = 1;
+  equipArt(s, 0, true);
+  assert.equal(gearRequirement(s, "pineBlade"), undefined);
+  s.victories = [1, 1, 1, 1, 1, 1];
+  earnDao(s, 1500);
+  s.ranks[4] = s.ranks[5] = 1;
+  equipArt(s, 4, true);
+  assert.match(gearRequirement(s, "courierSeal"), /可在驿卒战借灯引爆/);
+  equipArt(s, 5, true);
+  assert.equal(gearRequirement(s, "courierSeal"), undefined);
 });

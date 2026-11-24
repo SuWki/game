@@ -171,6 +171,21 @@ export function compareGear(save: Save, id: GearId) {
   return { before, after, added: newEffect !== oldEffect ? newEffect : "", lost: oldEffect !== newEffect ? oldEffect : "" };
 }
 
+export function gearRequirement(save: Save, id: GearId) {
+  const active = equippedArts(save.kit);
+  const has = (art: Region) => active[art] && save.ranks[art] > 0;
+  if (id === "pineBlade" && !has(0)) return "装备镇山喝，截断敌招时才加喝伤。";
+  if (id === "reedBlade" && !has(1)) return "装备听潮步，出招时才加刀伤。";
+  if (id === "hillCoat" && save.kit.stance !== "guard") return "切到守式，架住重击时才减伤。";
+  if (id === "ferryCoat" && !has(1)) return save.realm >= 1
+    ? "退步可避河伯的第一道浪。装备听潮步可在更多交锋里触发回血。"
+    : "进入舒筋后可用退步，成功闪避才会回血。";
+  if ((id === "templeBlade" || id === "templeCoat") && !has(2)) return "装备照影，显形期间才触发。";
+  if (id === "postSeal" && !has(3)) return "装备折篙刀，才增加首斩伤害。";
+  if (id === "courierSeal" && !has(4)) return "装备寄灯符，引爆符印时才加火伤。";
+  if (id === "courierSeal" && !has(5)) return "可在驿卒战借灯引爆，其他交锋可配挑灯诀引爆。";
+}
+
 function newGuide(): GuideProgress {
   return { enabled: true, dismissed: [], defeats: [0, 0, 0, 0, 0, 0] };
 }
@@ -350,6 +365,15 @@ export function unlocked(save: Save, region: Region): boolean {
   return region === 0 || save.victories[region - 1] > 0;
 }
 
+export function trainingRoute(save: Save, needed: number) {
+  const current = save.region;
+  if (patrolRemaining(save, current) >= needed) return { region: current, accessible: true };
+  const choices = regions.map((_, i) => i as Region).filter(id => patrolRemaining(save, id) >= needed);
+  const open = choices.find(id => unlocked(save, id));
+  if (open !== undefined) return { region: open, accessible: true };
+  if (choices.length) return { region: choices[0], accessible: false };
+}
+
 export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm] as const;
 
 export const challengeClues = 2;
@@ -429,10 +453,10 @@ export type Fight = {
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
-  turningPoint?: string;
   lastExchange?: { round: number; life: number; hp: number; marks: string[] };
   links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
+  turningPoint?: string;
   result: "fighting" | "won" | "lost";
 };
 
@@ -859,9 +883,6 @@ function resolveRound(f: Fight) {
   for (const mark of marks) f.links[mark] = (f.links[mark] ?? 0) + 1;
   f.event = `第 ${round} 回合 · ${actions.join(" → ")}。`;
   f.log.push(f.event);
-  if (order && order.choice !== "pass" && (elapsed === 0 || (f.region === 1 || f.region === 2 || watching) && elapsed === 1)) {
-    f.turningPoint = elapsed === 0 ? f.event : `第 ${order.round} 回合${encounters[f.region][order.choice].name}。${f.event}`;
-  }
   if (trial?.id === "templeTrial" && backlash) {
     f.result = "lost";
     f.lastThreat = "纸面反噬吹熄了烛火。挑灯照出真身，或收刀等烛偏。";
@@ -886,6 +907,17 @@ export function previewOpening(fight: Fight, choice: Response) {
     ...(trial.region === watchRegion && { ward: trial.ward }),
     ...(trial.region === courierRegion && { cover: horseCovered(fight.round + 1, choice) }),
     backlashes: (trial.links["纸面反噬"] ?? 0) - (fight.links["纸面反噬"] ?? 0) };
+}
+
+export function defeatSummary(fight: Fight) {
+  if (fight.trial && fight.life > 0 && (fight.hp <= 0 || fight.round < fight.limit)) return fight.lastThreat;
+  if (fight.life > 0) return `回合已用尽，对手还剩 ${fight.hp} 点气血。`;
+  const marks = fight.lastExchange?.marks ?? [];
+  if (marks.includes("覆舟")) return "水位涨满三格，阿照落水败阵。";
+  if (marks.includes("跌落驿桥")) return "第三次被横篙扫中，阿照跌落驿桥。";
+  if (marks.includes("纸面反噬")) return `第 ${fight.round} 回合遭到纸面反噬，气血耗尽。`;
+  if (marks.includes("更印震响")) return `第 ${fight.round} 回合更印未破，敲更后气血耗尽。`;
+  return `第 ${fight.round} 回合气血耗尽。`;
 }
 
 export function tickFight(f: Fight) {
