@@ -45,6 +45,8 @@ export const maxOffline = 8 * 60 * 60 * 1000;
 export const maxRounds = 20;
 export const riverFloodLimit = 3;
 export const mirrorRounds = 12;
+export const paperHitLimit = 2;
+const paperBacklashDamage = 34;
 export const engravings = {
   edge: { name: "断潮纹", trigger: "成功截招后的下一刀", effect: "刀伤" },
   step: { name: "回息纹", trigger: "成功避击时", effect: "回气" },
@@ -326,7 +328,7 @@ const patterns: Move[][] = [
 
 export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
-  limit: number; mirrorLevel?: number; water: number; riverWave: 2 | 3;
+  limit: number; mirrorLevel?: number; water: number; paperHits: number; riverWave: 2 | 3;
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
@@ -350,7 +352,7 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const id = save.mirror.equipped;
   const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
-    ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
+    ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, paperHits: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
     kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, links: {},
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
@@ -361,14 +363,27 @@ export function mirrorWave(level: number): 2 | 3 {
   return Math.floor(level / 5) % 2 ? 2 : 3;
 }
 
+export function mirrorOpponent(level: number) {
+  const mask = level >= 12 && Math.floor((level - 12) / 3) % 2 === 0;
+  const growth = mask ? level - 12 : level - 1;
+  return {
+    region: mask ? 2 as const : 1 as const,
+    name: mask ? "娘娘妖影" : "河伯妖影",
+    riverWave: mirrorWave(level),
+    hp: Math.min(Number.MAX_SAFE_INTEGER, mask ? 215 + growth * 10 : 188 + growth * 10),
+    damageBonus: Math.floor(growth * 1.5),
+  };
+}
+
 export function startMirrorFight(save: Save, level: number) {
   if (!mirrorUnlocked(save) || !Number.isSafeInteger(level) || level < 1 || level - 1 > save.mirror.best) return;
-  const fight = startFight(save, 1, true);
-  fight.name = "河伯妖影";
+  const opponent = mirrorOpponent(level);
+  const fight = startFight(save, opponent.region, true);
+  fight.name = opponent.name;
   fight.limit = mirrorRounds;
   fight.mirrorLevel = level;
-  fight.riverWave = mirrorWave(level);
-  fight.maxHp = fight.hp = Math.min(Number.MAX_SAFE_INTEGER, 188 + (level - 1) * 10);
+  fight.riverWave = opponent.riverWave;
+  fight.maxHp = fight.hp = opponent.hp;
   return fight;
 }
 
@@ -507,6 +522,15 @@ function resolveRound(f: Fight) {
     const damage = hurt((stats.damage + engraved + bladeBonus + bonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
     f.hp -= damage;
     actions.push(`短刀伤 ${damage}`);
+    if (f.region === 2) {
+      f.paperHits = exposed ? 0 : f.paperHits + 1;
+      if (f.hp > 0 && f.paperHits === paperHitLimit) {
+        f.paperHits = 0;
+        f.life -= paperBacklashDamage;
+        marks.push("纸面反噬");
+        actions.push(`连斩纸面招来反噬，失血 ${paperBacklashDamage}`);
+      }
+    }
   }
   if (interrupted && f.engraving?.id === "edge") f.cutRound = round;
   if (f.hp > 0 && flood) {
@@ -514,7 +538,7 @@ function resolveRound(f: Fight) {
     f.cue = "strike";
     actions.push("水满覆舟，阿照落水败阵");
     marks.push("覆舟");
-  } else if (f.hp > 0 && !interrupted) {
+  } else if (f.hp > 0 && f.life > 0 && !interrupted) {
     if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       actions.push(`避过${move.name}`);
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
@@ -538,7 +562,7 @@ function resolveRound(f: Fight) {
         actions.push(choice === "safe" ? "缆断浪浅" : "浪涌船高");
       }
       const braced = f.region === 0 && elapsed === 0 && choice === "safe";
-      if (f.mirrorLevel) power = Math.min(Number.MAX_SAFE_INTEGER, power + Math.floor((f.mirrorLevel - 1) * 1.5));
+      if (f.mirrorLevel) power = Math.min(Number.MAX_SAFE_INTEGER, power + mirrorOpponent(f.mirrorLevel).damageBonus);
       const received = guard ? Math.ceil(power * 0.18) : power;
       const rawDamage = braced ? Math.min(received, 4) : received;
       let damage = rawDamage;
@@ -579,7 +603,8 @@ export function previewOpening(fight: Fight, choice: Response) {
   if (!answerOpening(trial, choice)) throw new Error("此刻没有待决的险招");
   const end = Math.min(trial.limit, trial.round + [1, 2, 3][trial.region]);
   while (trial.round < end && trial.result === "fighting") resolveRound(trial);
-  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water };
+  return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water, paperHits: trial.paperHits,
+    backlashes: (trial.links["纸面反噬"] ?? 0) - (fight.links["纸面反噬"] ?? 0) };
 }
 
 export function tickFight(f: Fight) {

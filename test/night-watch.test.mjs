@@ -61,7 +61,7 @@ test("河伯的回浪可被截断，基础配置也能走完首卷", () => {
   assert.equal(canChallenge(save, 2), true);
   save.kit.stance = "guard";
   save.kit.shout = "off";
-  assert.equal(fightToEnd(save, 2).result, "won");
+  assert.equal(playRounds(startFight(save, 2, true), 20, { 2: "safe", 5: "safe" }).result, "won");
 });
 
 test("巡夜依次产出线索和破境道行，击退山君后可以立刻学招，随后靠巡夜逐层升级", () => {
@@ -453,7 +453,8 @@ test("三地每项应变的余血预览与实际交锋一致，查看不会消�
       const real = structuredClone(fight);
       answerOpening(real, choice);
       playRounds(real, original.round + [1, 2, 3][region]);
-      assert.deepEqual(forecast, { life: Math.max(0, real.life), hp: Math.max(0, real.hp), round: real.round, result: real.result, water: real.water });
+      assert.deepEqual(forecast, { life: Math.max(0, real.life), hp: Math.max(0, real.hp), round: real.round, result: real.result, water: real.water, paperHits: real.paperHits,
+        backlashes: (real.links["纸面反噬"] ?? 0) - (original.links["纸面反噬"] ?? 0) });
     }
     assert.deepEqual(fight, original);
   }
@@ -562,4 +563,42 @@ test("刻纹实际出手，断潮留到下一刀，回息只在成功避击且�
   const step = playRounds(startFight(save, 1, true), 4, { 2: "safe" });
   assert.doesNotMatch(step.log[0], /回息纹/);
   assert.match(step.log[3], /避过第一道浪.*回息纹回气 3/);
+});
+
+test("白烛庙常见配装盲打会反噬败阵，挑灯或藏锋都能首胜", () => {
+  const save = newSave(0);
+  earnDao(save, 1030);
+  save.loadout = { weapon: "templeBlade", armor: "templeCoat", charm: "tigerFang" };
+  const blindly = fightToEnd(save, 2);
+  assert.equal(blindly.result, "lost");
+  assert.equal(blindly.round, 11);
+  assert.match(blindly.lastThreat, /纸面.*反噬/);
+  const lamp = playRounds(startFight(save, 2, true), 20, { 2: "safe", 5: "safe" });
+  assert.equal(lamp.result, "won");
+  assert.equal(lamp.round, 9);
+  const ambush = playRounds(startFight(save, 2, true), 20, { 2: "risk", 5: "risk" });
+  assert.equal(ambush.result, "won");
+  assert.match(ambush.log[2], /候得真身/);
+});
+
+test("第十二重遇到娘娘，照影能取代部分应变，镜战仍照原规则发放首破砂", () => {
+  const save = newSave(0);
+  earnDao(save, 1370);
+  save.victories = [1, 1, 1];
+  save.mirror.best = 11;
+  save.loadout = { weapon: "templeBlade", armor: "templeCoat", charm: "tigerFang" };
+  assert.equal(startMirrorFight(save, 11).region, 1);
+  const battle = startMirrorFight(save, 12);
+  assert.equal(battle.region, 2);
+  const blind = playRounds(battle, 12);
+  assert.equal(blind.result, "lost");
+  save.kit.reveal = true;
+  save.ranks[2] = 1;
+  const revealed = playRounds(startMirrorFight(save, 12), 12, { 5: "safe" });
+  assert.equal(revealed.result, "won");
+  assert.match(revealed.log[0], /照影显形/);
+  assert.equal(settleMirror(save, revealed, 0).reward, 34);
+  assert.equal(settleMirror(save, revealed, 0).reward, 0);
+  assert.equal(save.mirror.best, 12);
+  assert.deepEqual(save.victories, [1, 1, 1]);
 });

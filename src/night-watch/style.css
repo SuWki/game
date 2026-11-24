@@ -514,3 +514,5 @@ footer { color:#6c6554; }
 .water-gauge[data-flood="true"] meter::-webkit-meter-optimum-value { background:#dd9a68; }
 .water-preview { display:block; color:#d7dfd7; font-size:12px; }
 @media(max-width:680px) { .mirror-layout { grid-template-columns:1fr; } }
+
+.water-preview.danger { color:#ffca94; font-weight:600; }

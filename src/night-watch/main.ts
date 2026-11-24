@@ -7,7 +7,7 @@ import { encounters } from "./tactics.ts";
 import { nextTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
 import {
-  accrueOffline, accrueSand, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, decode, equippedArts, frame, engravingCost, engravingPower, engravings, masteryCost, maxEngravingRank, mirrorRounds, mirrorUnlocked, mirrorWave, newSave,
+  accrueOffline, accrueSand, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, decode, equippedArts, frame, engravingCost, engravingPower, engravings, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave,
   patrolRemaining, previewOpening, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, settleMirror, startFight, startMirrorFight, study, tickFight, tuneEngraving, unlocked, win,
 } from "./game.ts";
 import type { Engraving, Fight, Region, Save } from "./game.ts";
@@ -121,7 +121,7 @@ root.innerHTML = `
       <details><summary>观化、学习与装备</summary><p>首次战胜山君会觉醒观化。悟得招谱后，可在战果或「招式」页修习。武学、身法、神通各带一门，分别在锻骨、舒筋、听息开启。界面会写明当前能带几门。点亮的回合就是出手的时机，精通会增强招式效果。</p></details>
       <details><summary>道行与破境</summary><p>每境十层，道行积满便升一层。学招只花可用道行。舒筋开身法位，贯劲可在架住重击后反击，听息开神通位。</p></details>
       <details><summary>换路与重演</summary><p>在「斩妖录」切换巡夜地，或重演已击败的大妖。河伯和娘娘各自最多第五胜悟得传承，败阵不计入。</p></details>
-      <details><summary>照妖镜与刻纹</summary><p>首胜借面娘娘后，从「斩妖录」进入照妖镜。首次破重给淬纹砂，镜中也会按纪录积砂，最多计八小时。用砂温养刻纹，每次可带一条。</p></details>
+      <details><summary>照妖镜与刻纹</summary><p>首胜借面娘娘后，从「斩妖录」进入照妖镜。前十一重是河伯妖影，第十二重起会遇见娘娘妖影。首次破重给淬纹砂，镜中也会按纪录积砂，最多计八小时。用砂温养刻纹，每次可带一条。</p></details>
       <details><summary>离线结算</summary><p>沿路巡夜时，离开最多可得八小时道行。若还有新装备待看，这段时间不会积攒道行。到本地修行上限便收灯。扫清时显出大妖踪迹，可直接挑战。重演已扫清的大妖能找回漏掉的本地装备。</p></details>
     </div>
   </dialog>`;
@@ -287,8 +287,9 @@ function skillsPanel(): string {
   const controlsDisabled = !ready || !!fight?.boss;
   const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer);
   const mirrorSource = backTrail.find(page => page.tab === "mirror");
-  const mirrorLevel = result?.mirrorLevel ?? (mirrorSource ? save.mirror.best + 1 : undefined);
-  const opponent = fight?.boss ? fight.region : mirrorLevel ? 1 : result?.region ?? save.region;
+  const mirrorLevel = mirrorSource ? save.mirror.best + 1 : result?.mirrorLevel;
+  const reflection = mirrorLevel ? mirrorOpponent(mirrorLevel) : undefined;
+  const opponent = fight?.boss ? fight.region : reflection?.region ?? result?.region ?? save.region;
   const unlearned = arts.filter((_, index) => save.drops[index] && !save.ranks[index]).length;
   const order: Region[] = [0, 1, 2];
   const priority = (id: Region) => !save.drops[id] ? 2 : save.ranks[id] ? 1 : 0;
@@ -303,10 +304,10 @@ function skillsPanel(): string {
     <div class="choices">${(["guard", "attack"] as const).map(stance =>
       `<button type="button" data-action="kit:stance:${stance}" aria-pressed="${save.kit.stance === stance}" ${controlsDisabled ? "disabled" : ""}>${stance === "guard" ? "守式" : "攻式"}</button>`).join("")}</div>
     <p class="meta">守式架住重击时承受 18% 伤害。攻式提升 25% 基础刀伤。阿照每回合照常出刀。</p></section>
-    <details data-remember="preview" id="round-preview"><summary>${mirrorLevel ? `河伯妖影 · 第 ${integer(mirrorLevel)} 重` : regions[opponent].boss} · 对照前六回合</summary>
+    <details data-remember="preview" id="round-preview"><summary>${reflection && mirrorLevel ? `${reflection.name} · 第 ${integer(mirrorLevel)} 重` : regions[opponent].boss} · 对照前六回合</summary>
       ${opponent === 1 ? '<p>河伯回浪时汲水，水满三格便会覆舟。割缆可清空水位，配镇山喝引浪也能倒撞敌舟。</p>' : ""}
       <ol class="match-rounds">${Array.from({ length: 6 }, (_, i) => {
-        const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1, mirrorLevel ? mirrorWave(mirrorLevel) : 3);
+        const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1, reflection?.riverWave);
         return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "短刀"}</span><span>${enemy}${opening ? " · 可应变" : ""}</span></li>`;
       }).join("")}</ol>
     </details>`;
@@ -401,8 +402,12 @@ function archivePanel(): string {
 function mirrorPanel() {
   const { best, sand, ranks, equipped } = save.mirror;
   const next = best + 1;
-  const wave = mirrorWave(next);
-  const outcome = result?.mirrorLevel ? `<section class="mirror-outcome"><h3>第 ${integer(result.mirrorLevel)} 重 · ${result.won ? "击破妖影" : "败阵"}</h3>
+  const opponent = mirrorOpponent(next);
+  const wave = opponent.riverWave;
+  const rhythm = opponent.region === 2 ? "第 3、6、9… 回合见真身" : `第 ${wave}、${wave + 3}、${wave + 6}… 回合起回浪`;
+  const advice = opponent.region === 2 ? "连斩两次纸面会反噬。挑灯照面，或收刀等真身。"
+    : wave === 2 ? "回浪提前。听潮步能避浪，割缆可以断水。" : "河伯汲水三次会覆舟。割缆或引浪倒撞能清空水位。";
+  const outcome = result?.mirrorLevel ? `<section class="mirror-outcome"><h3>第 ${integer(result.mirrorLevel)} 重 · ${mirrorOpponent(result.mirrorLevel).name} · ${result.won ? "击破妖影" : "败阵"}</h3>
     <p>${result.won ? (result.sand ? `首破获得 ${integer(result.sand)} 淬纹砂` : "试招完成") : escape(result.reason ?? "")}</p>
     <details data-remember="mirror-report"><summary>交锋详情</summary><ol class="log">${result.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : "";
   const runes = (Object.keys(engravings) as Engraving[]).map(id => {
@@ -416,10 +421,10 @@ function mirrorPanel() {
       ${rank ? button(`engraving:equip:${id}`, equipped === id ? "卸下" : "装备") : ""}</div></section>`;
   }).join("");
   return `<div class="mirror-layout"><section><div class="section-title"><h2>照妖镜</h2><span>淬纹砂 <b>${integer(sand)}</b></span></div><p class="meta">${best ? `已破第 ${integer(best)} 重 · 每小时积攒 ${sandRate(best)} 砂` : "击破第一重后，镜中开始积砂。"}</p>
-    ${outcome}<article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · 河伯妖影</h3><p>最多 ${mirrorRounds} 回合 · 第 ${wave}、${wave + 3}、${wave + 6}… 回合起回浪</p></div>
+    ${outcome}<article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · ${opponent.name}</h3><p>最多 ${mirrorRounds} 回合 · ${rhythm}</p></div>
     ${button(`mirror-fight:${next}`, result?.mirrorLevel === next ? "再试此重" : "照见妖影", !ready || !!fight, true)}</article>
     ${best ? `<form id="mirror-practice"><label>试招重数 <input type="number" min="1" max="${best}" step="1" value="${best}" required name="level"></label><button type="submit" ${!ready || !!fight ? "disabled" : ""}>进入已破重数</button></form>` : ""}
-    <p class="meta">${wave === 2 ? "回浪提前。听潮步能避浪，割缆可以断水。" : "河伯汲水三次会覆舟。割缆或引浪倒撞能清空水位。"}</p>
+    <p class="meta">${advice}</p>
     <div class="mirror-outfit">${outfitPanel()}</div></section>
     <section class="mirror-engraving"><h2>刻纹</h2><p class="meta">一次可带一条，切换免费。离线最多积八小时。</p>${runes}</section></div>`;
 }
@@ -597,7 +602,7 @@ function openingCards(f: Fight) {
   const hints = [
     ["伏低，避开虎啸", "多砍 12 点，硬接虎啸", "依原架势接啸"],
     ["断缆清空水位，浪势减弱", hasShout ? "倒撞敌舟，清空水位" : "镇山喝赶不上，浪势加重", "船缆汲水，河伯回血"],
-    ["提灯三轮，刀刀见真身", "本轮收刀，下轮刀伤 +28", "依原招辨真身"],
+    ["提灯三轮，刀刀见真身", "本轮收刀，下轮刀伤 +28", "保留应变，照常出刀"],
   ][f.region];
   const labels = encounters[f.region];
   previewCards = (["safe", "risk", "pass"] as Response[]).map((choice, index) => {
@@ -605,7 +610,8 @@ function openingCards(f: Fight) {
     const name = choice === "pass" ? "依原招出手" : labels[choice].name;
     const timing = outcome.result === "won" ? "可斩杀" : outcome.result === "lost" ? (outcome.water >= riverFloodLimit ? "覆舟 · 会败阵" : "会败阵") : `第 ${outcome.round} 回合末`;
     return button("respond:" + choice, `<span class="choice-title"><strong>${name}</strong><small>${choice === "pass" ? "保留机会" : "应变 −1"}</small></span><span class="choice-effect">${hints[index]}</span>
-      ${forecastBar("阿照", f.life, outcome.life, f.maxLife)}${forecastBar("大妖", f.hp, outcome.hp, f.maxHp)}${f.region === 1 ? `<span class="water-preview">水位 ${f.water} → ${outcome.water}</span>` : ""}<small>${timing}</small>`);
+      ${forecastBar("阿照", f.life, outcome.life, f.maxLife)}${forecastBar("大妖", f.hp, outcome.hp, f.maxHp)}${f.region === 1 ? `<span class="water-preview">水位 ${f.water} → ${outcome.water}</span>`
+      : outcome.backlashes ? `<span class="water-preview danger">纸面反噬 ×${outcome.backlashes}</span>` : ""}<small>${timing}</small>`);
   }).join("");
   previewFight = f; previewRound = f.round;
   return previewCards;
@@ -633,9 +639,12 @@ function paintDuel() {
   const water = f.region === 1 ? `<div class="water-gauge" data-flood="${f.water >= riverFloodLimit - 1}"><b>水位</b>
     <meter aria-label="覆舟水位" min="0" max="${riverFloodLimit}" value="${f.water}">${f.water}/${riverFloodLimit}</meter>
     <span>${f.water}/${riverFloodLimit} · ${f.water >= riverFloodLimit - 1 ? "再汲一次就会覆舟" : "汲水三次便会覆舟"}</span></div>` : "";
-  const body = `<div class="duel-head"><strong>${headline}</strong><span>应变 ${f.focus} / 2</span></div>${track}${water}${nextMoves}` +
+  const paper = f.region === 2 ? `<div class="water-gauge" data-flood="${f.paperHits > 0}"><b>斩中纸面</b>
+    <meter aria-label="纸面反噬进度" min="0" max="${paperHitLimit}" value="${f.paperHits}"></meter>
+    <span>${f.paperHits}/${paperHitLimit} · ${f.paperHits ? "再斩一次纸面就会反噬" : "击中真身可消除累计"}</span></div>` : "";
+  const body = `<div class="duel-head"><strong>${headline}</strong><span>应变 ${f.focus} / 2</span></div>${track}${water}${paper}${nextMoves}` +
     (f.waiting ? `<div class="choice-caption">选一招 · 看双方余血</div><div class="duel-options">${openingCards(f)}</div>` :
-      (!last && f.region === 1 ? "<p>河伯靠船缆汲水。看他绷缆，再决定割缆还是借浪。</p>" : "") + lastLine) + toggle;
+      (!last && f.region === 1 ? "<p>河伯靠船缆汲水。看他绷缆，再决定割缆还是借浪。</p>" : !last && f.region === 2 ? "<p>留心烛火。挑灯可让真身现形，也可收刀等她自己露面。</p>" : "") + lastLine) + toggle;
   if (duelMarkup !== body) {
     duel.innerHTML = body;
     duelMarkup = body;
@@ -659,13 +668,14 @@ function paintStage() {
     if (worldProp.getAttribute("src") !== prop) worldProp.src = prop;
   }
   foe.hidden = !fight;
-  if (fight && foeImage.getAttribute("src") !== assets + fight.sprite + ".png") {
-    foeImage.src = assets + fight.sprite + ".png";
-    foeImage.alt = fight.name;
+  if (fight) {
+    if (foeImage.getAttribute("src") !== assets + fight.sprite + ".png") foeImage.src = assets + fight.sprite + ".png";
+    if (foeImage.alt !== fight.name) foeImage.alt = fight.name;
   }
   element("#windup").hidden = !fight?.windup;
   changedText("#windup", fight?.windup ?? "");
-  changedText("#place", fight?.mirrorLevel ? `照妖镜 · 第 ${integer(fight.mirrorLevel)} 重` : regions[region].name);
+  changedText(".stage .chapter", fight?.mirrorLevel ? `第 ${integer(fight.mirrorLevel)} 重` : "青芦夜话");
+  changedText("#place", fight?.mirrorLevel ? "照妖镜" : regions[region].name);
   changedText("#mode", pending || !ready || document.hidden ? "暂停" : fight?.boss ? "问妖" : save.newGear.length ? "驻足整装" : save.autoPatrol ? "巡夜中" : fight ? "寻妖中" : !patrolRemaining(save) ? "已扫清" : "待提灯");
   const human = element<HTMLProgressElement>("#life");
   human.max = fight?.maxLife ?? combatStats(save.realm, save.kit.stance, save.loadout, cultivation(save.lifetimeDao).layer).life;

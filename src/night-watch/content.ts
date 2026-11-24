@@ -37,7 +37,7 @@ export const regions = [
     cleared: "陆婆提笔写下「阿满」。石生把借来的灯一盏一盏送回各家。",
     clues: ["借名帖", "倒流的蜡", "缺一角的无字牌"], thresholds: [36, 84, 140],
     foes: [{ name: "纸灯童", sprite: "lantern" }, { name: "铜镜妖", sprite: "mirror" }],
-    boss: "借面娘娘", sprite: "mask", hp: 152,
+    boss: "借面娘娘", sprite: "mask", hp: 194,
     reward: 5, patrolInterval: 4000, chapter: "白烛还面",
   },
 ] as const;
