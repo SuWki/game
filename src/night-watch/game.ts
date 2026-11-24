@@ -469,6 +469,8 @@ const patterns: Move[][] = [
   [{ name: "立更印", damage: 12 }, { name: "提槌", damage: 13 }, { name: "敲更", damage: 29, heavy: true }],
 ];
 
+export type BattleOrder = { round: number; choice: Exclude<Response, "pass"> };
+
 export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
   limit: number; mirrorLevel?: number; water: number; paperHits: number; footing: number; riverWave: 2 | 3;
@@ -485,6 +487,7 @@ export type Fight = {
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
+  plan?: BattleOrder[];
   lastExchange?: { round: number; life: number; hp: number; marks: string[] };
   links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
@@ -618,7 +621,8 @@ function mirrorAttempt(fight: Fight, level: number): MirrorAttempt {
   const active = equippedArts(fight.kit);
   const moves = [...weaponArts(fight.kit), 1, 2, 4].filter(id => active[id]).map(id => arts[id].name);
   const build = [...gear, ...moves, fight.kit.stance === "guard" ? "守式" : "攻式",
-    ...(fight.engraving ? [engravings[fight.engraving.id].name + " +" + fight.engraving.power] : [])].join(" · ");
+    ...(fight.engraving ? [engravings[fight.engraving.id].name + " +" + fight.engraving.power] : []),
+    ...(fight.plan?.map(order => order.round + "回合" + encounters[fight.region][order.choice].name) ?? [])].join(" · ");
   return { level, round: fight.round, life: Math.max(0, fight.life), maxLife: fight.maxLife,
     hp: Math.max(0, fight.hp), won: fight.result === "won", build };
 }
@@ -708,6 +712,29 @@ export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2
   };
 }
 
+export function planWindows(fight: Fight) {
+  return Array.from({ length: fight.limit }, (_, i) => i + 1)
+    .filter(round => openingDue(fight.region, round, fight.riverWave));
+}
+
+export function planRiskRequirement(fight: Fight, round: number) {
+  const hasShout = fight.kit.shout !== "off" && fight.ranks[0] > 0;
+  if (fight.region === 1 && (!hasShout || !artDue(round + 1, 0))) return "下一回合需有镇山喝截浪";
+  if (fight.region === bridgeRegion && (!hasShout || !artDue(round, 0))) return "本回合需有镇山喝截断横篙";
+  if (fight.region === watchRegion && (!fight.kit.sigil || !fight.ranks[4])) return "需装备寄灯符";
+}
+
+export function setBattlePlan(fight: Fight, orders: BattleOrder[]) {
+  const windows = planWindows(fight);
+  if (!fight.boss || fight.round || fight.time || fight.result !== "fighting" || orders.length > fight.focus
+    || new Set(orders.map(order => order.round)).size !== orders.length
+    || orders.some(order => !windows.includes(order.round) || order.choice !== "safe" && order.choice !== "risk"
+      || order.choice === "risk" && planRiskRequirement(fight, order.round))) return false;
+  fight.consult = false;
+  fight.plan = orders.map(order => ({ ...order })).sort((left, right) => left.round - right.round);
+  return true;
+}
+
 export function answerOpening(f: Fight, choice: Response) {
   if (!f.waiting || f.result !== "fighting" || f.focus < 1) return false;
   f.order = { round: f.round + 1, choice };
@@ -730,6 +757,17 @@ function resolveRound(f: Fight) {
   const round = ++f.round;
   const move = moveFor(f.region, round, f.riverWave);
   const actions: string[] = [];
+  const planned = f.plan?.find(order => order.round === round);
+  if (planned && f.focus > 0) {
+    if (f.region === watchRegion && planned.choice === "risk" && f.sigilThrough < round) {
+      actions.push("没有可引爆的寄灯符，依原招出手");
+      marks.push("借灯引符未生效");
+    } else {
+      f.order = planned;
+      f.focus--;
+      marks.push(encounters[f.region][planned.choice].name);
+    }
+  }
   const rank = f.rematchRank ?? 0;
   const upgrade = (id: GearId) => gearRank(id, f.gearUpgrades);
   const order = f.order;

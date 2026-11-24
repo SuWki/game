@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, forecastFight, gearRequirement, newSave, trainingRoute,
-  applyPreset, artDue, equipArt, previewOpening, recordedClues, recordPatrolKill, rematchSpec, roundMoves, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  applyPreset, artDue, equipArt, planWindows, previewOpening, recordedClues, recordPatrolKill, rematchSpec, roundMoves, setBattlePlan, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment, gearEffect } from "../src/night-watch/equipment.ts";
-import { clueTip, nextTip, openingTip } from "../src/night-watch/guide.ts";
+import { clueTip, nextTip } from "../src/night-watch/guide.ts";
 
 function stowThenPatrol(save, random) {
   save.newGear = [];
@@ -932,19 +932,67 @@ test("线索指引随阶段出现，已读可持久化，境界达标会补上�
   assert.match(clueTip(s, true).text, /挑灯照面/);
 });
 
-test("首次险招显示妖案提示，带备战时提示点名实际触发的选择", () => {
+test("战前指定时机后无停顿执行，线索准备与前六回合推演使用同一次结算", () => {
   const s = newSave(0);
   s.kills[0] = 12;
+  s.kit.stance = "attack";
   const f = startCaseFight(s, 0);
-  assert.equal(openingTip(s, f), undefined);
-  while (!f.waiting) tickFight(f);
-  assert.match(openingTip(s, f), /伏身避啸.*8 点伤害/);
-  playRounds(f, 3, { 3: "safe" });
-  assert.equal(openingTip(s, f), undefined);
-  s.guide.enabled = false;
-  const disabled = startCaseFight(s, 0);
-  while (!disabled.waiting) tickFight(disabled);
-  assert.equal(openingTip(s, disabled), undefined);
+  const orders = [{ round: 3, choice: "safe" }, { round: 6, choice: "risk" }];
+  assert.equal(setBattlePlan(f, [{ round: 3, choice: "safe" }, { round: 3, choice: "risk" }]), false);
+  assert.equal(setBattlePlan(f, [{ round: 2, choice: "safe" }]), false);
+  assert.equal(setBattlePlan(f, orders), true);
+  const forecast = forecastFight(f);
+  assert.equal(f.round, 0);
+  assert.equal(f.focus, 2);
+  while (f.round < 6 && f.result === "fighting") {
+    tickFight(f);
+    assert.equal(f.waiting, false);
+  }
+  assert.deepEqual([f.life, Math.max(0, f.hp)], [forecast.life, forecast.hp]);
+  assert.equal(f.links["伏身避啸"], 1);
+  assert.equal(f.links["迎啸进刀"], 1);
+  assert.equal(f.links["灯油引虎"], 1);
+  assert.equal(setBattlePlan(f, []), false);
+});
+
+test("提前回浪试炼与普通河伯战有不同可排轮次，同档不割缆会败阵", () => {
+  const save = newSave(0);
+  save.victories = [1, 1, 1, 0, 0, 0];
+  earnDao(save, 1100);
+  const trial = startTrial(save, "ferryTrial");
+  assert.deepEqual(planWindows(trial).slice(0, 3), [1, 4, 7]);
+  assert.equal(setBattlePlan(trial, [{ round: 1, choice: "risk" }]), false);
+  assert.equal(setBattlePlan(trial, [{ round: 1, choice: "safe" }, { round: 4, choice: "safe" }]), true);
+  assert.equal(forecastFight(trial, trial.limit).result, "won");
+  const baseline = startTrial(save, "ferryTrial");
+  assert.equal(setBattlePlan(baseline, []), true);
+  assert.equal(forecastFight(baseline, baseline.limit).result, "lost");
+});
+
+test("舒筋渡口首战常规装会覆舟，预先割缆与截招能各自解题", () => {
+  const save = newSave(0);
+  save.victories[0] = 1;
+  save.kills[1] = regions[1].thresholds[1];
+  save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tigerFang" };
+  earnDao(save, 330);
+  const withoutPlan = startCaseFight(save, 1);
+  assert.equal(setBattlePlan(withoutPlan, []), true);
+  const loss = forecastFight(withoutPlan, withoutPlan.limit);
+  assert.equal(loss.result, "lost");
+  assert.ok(loss.rounds.at(-1).marks.includes("覆舟"));
+  const cutRope = startCaseFight(save, 1);
+  assert.equal(setBattlePlan(cutRope, [{ round: 2, choice: "safe" }, { round: 5, choice: "safe" }]), true);
+  const won = forecastFight(cutRope, cutRope.limit);
+  assert.equal(won.result, "won");
+
+  save.ranks[0] = 1;
+  save.loadout.weapon = "pineBlade";
+  equipArt(save, 0, true);
+  const useWave = startCaseFight(save, 1);
+  assert.equal(setBattlePlan(useWave, [{ round: 2, choice: "risk" }, { round: 5, choice: "risk" }]), true);
+  const fast = forecastFight(useWave, useWave.limit);
+  assert.equal(fast.result, "won");
+  assert.ok(fast.rounds.length < won.rounds.length);
 });
 
 test("缺道行时优先给已解锁且额度足够的地点，分别识别未开路和额度耗尽", () => {

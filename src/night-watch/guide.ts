@@ -1,8 +1,8 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, recordedClues } from "./game.ts";
-import type { Fight, Region, Save } from "./game.ts";
-import { caseClues, encounters, preparationText } from "./tactics.ts";
+import type { Region, Save } from "./game.ts";
+import { caseClues, encounters } from "./tactics.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | "rematch" | TrialId;
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
@@ -25,19 +25,13 @@ export function clueTip(save: Save, showRead = false) {
   };
   if (step === challengeClues) return {
     id, step, title: "第二条线索 · 找到应对",
-    text: `${unlock}险招起手时，可选「${response}」。第三条线索能强化这次应对。`, label: "查看应对办法",
+    text: `${unlock}可在战前把「${response}」排到险招回合。第三条线索能强化这次应对。`, label: "查看应对办法",
   };
   return {
     id, step, title: "第三条线索 · 应变已备好",
-    text: `首次选择「${response}」，额外打 ${caseClues[region].damage} 点伤害。${available ? "选招时看卡上的「线索准备」。" : unlock}`,
+    text: `首次执行「${response}」，额外打 ${caseClues[region].damage} 点伤害。${available ? "出战前可查看这次准备。" : unlock}`,
     label: "查看备战效果",
   };
-}
-
-export function openingTip(save: Save, fight: Fight) {
-  if (!save.guide.enabled || !fight.waiting || fight.trial) return;
-  if (fight.preparation === "ready") return preparationText(fight.region);
-  if (!fight.mirrorLevel && !fight.rematchRank && fight.round < 3 && !save.victories[fight.region]) return caseClues[fight.region].counter;
 }
 
 export function nextTip(save: Save, tab: Tab, result: Result | null): Tip | undefined {
@@ -122,8 +116,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[0]) {
     if (canChallenge(save, 0)) return {
       id: "first-boss", title: "初次问妖",
-      text: "现在就能挑战山君。想先试伏身避啸的效果，可以从妖案对照招路。继续巡夜找到第三条线索，还能备好灯油。",
-      target: { tab: "skills", action: "preview", label: "查看山君招谱" },
+      text: "点挑战山君，先把伏身避啸排在第 3 回合，再开始交锋。开战后阿照会照这个计划出手。",
+      target: { tab: "patrol", action: "fight:0", label: "挑战山君" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
       return { id: "first-gear", title: "拾到装备", text: "阿照停下来查看随身装备。想用就穿戴，想留着就收入行囊。",
@@ -198,14 +192,14 @@ function defeatTip(save: Save, region: Region): Tip {
     "打开交锋详情，找出回浪在哪一回合命中。招式页能对照敌我回合。",
     "接连斩中两次纸面会受到反噬。打开交锋详情，看看反噬发生在哪一回合。",
     "横篙命中三次会掉下桥。看第 3、6、9 回合的失足变化。",
-    "马灯还亮时，冲灯命中会灼伤。比较选招时预估的双方余血。",
+    "马灯还亮时，冲灯命中会灼伤。战前安排压灯，看看前六回合的余血差多少。",
     "驿卒会重复结更印。看战报里哪几回合出现震响，确认破印的时机。",
   ];
   const advice = [
     "用守式应战，虎啸原本要扣 36 点气血，架住后只扣 7 点。",
     "留心水位。到了两格，下一道回浪就可能覆舟。绷缆时割缆可以清空水位。",
     "烛偏时能打中真身。前一回合可收刀等候，或挑灯连续三回合见到真身。已修习照影时，也可提前显形。",
-    "先留两次应变，失足后选「借墩稳身」清空。也可以提前装备镇山喝，每三回合截断一次横篙。",
+    "把「借墩稳身」安排在第 6 或第 9 回合，清掉已经积累的失足。也可以装备镇山喝，每三回合截断横篙。",
     "试试守式。第 2、5 回合各压一次灯，可减伤并让本回合的刀打实。",
     "装备寄灯符和折篙刀。第 2、5 回合都选「借灯引符」，可以烧去更印并打出火伤。",
   ];

@@ -3,16 +3,15 @@ import { arts, bridgeRegion, breakthrough, courierRegion, heartDao, heartRealm, 
 import type { TrialId } from "./content.ts";
 import { bossEquipment, equipment, gearEffect, gearRank, knownGear, minionEquipment, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
-import type { Response } from "./tactics.ts";
 import { caseClues, encounters, preparationText } from "./tactics.ts";
-import { clueTip, nextTip, openingTip } from "./guide.ts";
+import { clueTip, nextTip } from "./guide.ts";
 import type { Tab, Tip } from "./guide.ts";
 import {
-  accrueOffline, accrueSand, answerOpening, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, cultivationFor, decode, defeatSummary, equipArt, equippedArts, footingLimit, frame, engravingCost, engravingPower, engravings, gearRequirement, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
-  patrolRemaining, previewOpening, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, unlocked, win,
+  accrueOffline, accrueSand, artDue, canChallenge, canPatrol, challengeRealms, clueCount, combatStats, compareGear, cultivation, cultivationFor, decode, defeatSummary, equipArt, equippedArts, footingLimit, frame, engravingCost, engravingPower, engravings, gearRequirement, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
+  patrolRemaining, planRiskRequirement, planWindows, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, setBattlePlan, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, tickFight, tuneEngraving, unlocked, win,
 } from "./game.ts";
 import { applyPreset, canTemper, challengeClues, forecastFight, horseCovered, maxRematchRank, mirrorPreparation, recordedClues, rematchSpec, replacedArt, settleRematch, startCaseFight, startRematch, storePreset, wardStrength } from "./game.ts";
-import type { Engraving, Fight, MirrorAttempt, PresetSlot, Region, Save } from "./game.ts";
+import type { BattleOrder, Engraving, Fight, MirrorAttempt, PresetSlot, Region, Save } from "./game.ts";
 
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
@@ -102,7 +101,7 @@ root.innerHTML = `
           <div id="enemy-hud" hidden><div class="gauge-name"><strong id="enemy-name"></strong><span id="hp-text"></span></div><progress id="hp" aria-label="妖物气血"></progress></div>
         </div>
       </section>
-      <section id="duel" class="duel" aria-label="大妖应变" hidden></section>
+      <section id="duel" class="duel" aria-label="大妖交锋" hidden></section>
 
       <div class="patrol-controls">
         <div class="task-note"><p id="objective"></p><progress id="clue-track" aria-label="下一条线索进度" hidden></progress><small id="rate"></small></div><div class="patrol-buttons"><button type="button" data-action="hunt">夜行</button>
@@ -123,6 +122,12 @@ root.innerHTML = `
     <footer><span id="status">正在载入</span></footer>
   </main>
   <dialog id="pack-sheet" class="paper" aria-labelledby="pack-title"><div class="guide-head"><h2 id="pack-title"></h2><form method="dialog"><button>收起</button></form></div><div id="pack-list"></div></dialog>
+  <dialog id="battle-sheet" class="paper" aria-labelledby="battle-title">
+    <div class="guide-head"><h2 id="battle-title"></h2><form method="dialog"><button>返回</button></form></div>
+    <form id="battle-plan"><div id="battle-plan-options"></div><div id="battle-plan-preview" aria-live="polite"></div>
+      <div class="actions"><button type="button" data-action="battle-loadout">调整配装</button><button type="submit" class="primary">开始交锋</button></div>
+    </form>
+  </dialog>
   <div id="flash" class="flash" role="status" hidden></div>
   <dialog id="help" class="paper help" aria-labelledby="help-title">
     <div class="guide-head"><h2 id="help-title">巡夜指引</h2><form method="dialog"><button type="submit">关闭</button></form></div>
@@ -132,7 +137,7 @@ root.innerHTML = `
       <details><summary>想换个地方</summary><p>巡夜找小妖、看掉落。点场景里的案名看线索。首胜后可以直接前往下一地，想回已走过的地方可从斩妖录换路。</p></details>
       <details><summary>夜行与线索</summary><p>点「提灯夜行」出刀。第一条线索记下危险招路，第二条说明应对办法，境界够了就能挑战。再找第三条，可以在第一次用对策应变时多打一次伤害。点场景里的妖案看详情。胜过吊睛山君后，可开启「沿路巡夜」。</p></details>
       <details><summary>掉落与装备</summary><p>小妖有机会掉落本地兵刃或护具，大妖首胜会给专属佩饰。拾得新装备，阿照会停下来。箭头标出换装后的刀伤或气血变化，「获得」「失去」列出会换掉的本领。选「穿戴」或「收入行囊」，处理完最后一件才会继续。点行装里的槽位，随时都能再换。每个槽位可穿戴一件，属性和回合效果会带入下一场大妖战。</p></details>
-      <details><summary>挑战与战报</summary><p>在「招式」可查看前六回合招谱。初遇山君，第 3 回合见它伏肩，就要提防虎啸。每战可临场应变两次，依原招出手会保留次数。熟悉招路后，可选「余下险招不停手」。败阵后可看战报，免费再试。</p></details>
+      <details><summary>挑战与战报</summary><p>开战前最多安排两次应对。初遇山君，可在第 3 回合安排伏身避啸。开战后，招式和应对按回合自动执行。败阵后可看战报，调整配装或应对回合，免费再试。</p></details>
       <details><summary>观化、学习与装备</summary><p>首次战胜山君会觉醒观化。悟得招谱后，可在战果或「招式」页修习。锻骨开武学位，舒筋开身法位，听息开神通位，心斋再开一个武学位。两门武学同一回合出手时，按槽位先后结算。点亮的回合就是出手的时机，精通会增强招式效果。</p></details>
       <details><summary>道行与破境</summary><p>每境十层，道行积满便升一层。修习只花可用道行。舒筋开启身法位，贯劲可在架住重击后反击，听息开启神通位。</p></details>
       <details><summary>强敌再战与强化</summary><p>首胜后从「斩妖录」进入强敌再战。每个首领有三关，每胜一关永久提升该地兵刃、护具与首领佩饰。首次胜利也会补齐遗漏的装备和传承。开打前可查看招路和强化数值。</p></details>
@@ -365,9 +370,11 @@ function skillsPanel(): string {
   const reflection = mirrorLevel ? mirrorOpponent(mirrorLevel) : undefined;
   const opponent = rematch ? rematchRegion : fight?.boss ? fight.region : trial?.region ?? reflection?.region ?? result?.region ?? save.region;
   const intel = trial || reflection || rematch ? 3 : Math.max(recordedClues(save, opponent), canChallenge(save, opponent) ? challengeClues : 0);
-  const simulation = intel ? forecastFight((rematch ? startRematch(save, opponent)
+  const scenario = intel ? (rematch ? startRematch(save, opponent)
     : mirrorLevel ? startMirrorFight(save, mirrorLevel) : trial && trialId ? startTrial(save, trialId) : undefined)
-    ?? startFight(save, opponent, true)) : undefined;
+    ?? startCaseFight(save, opponent) ?? startFight(save, opponent, true) : undefined;
+  if (scenario) setBattlePlan(scenario, suggestedOrders(scenario));
+  const simulation = scenario ? forecastFight(scenario) : undefined;
   const unlearned = arts.filter((_, index) => save.drops[index] && !save.ranks[index]).length;
   const order = arts.map((_, i) => i as Region).filter(id => save.drops[id]);
   order.sort((a, b) => Number(save.ranks[a] > 0) - Number(save.ranks[b] > 0));
@@ -377,27 +384,28 @@ function skillsPanel(): string {
     ${button(`rematch:${id}`, `查看${regions[id].boss}的再战`, controlsDisabled || !!fight)}</div>`).join("")}</section>` : "";
   const retry = rematch ? `<div class="rematch"><strong>${regions[rematchRegion].boss} · 第 ${rematch.rank} 关</strong>${button(`rematch-fight:${rematchRegion}`, "按此配招出战", controlsDisabled || !!fight, true)}</div>`
     : trial || mirrorLevel ? `<div class="rematch"><strong>${trial?.name ?? (reflection?.name + " · 第 " + integer(mirrorLevel ?? 0) + " 重")}</strong>${button(trial ? `trial-fight:${trialId}` : `mirror-fight:${mirrorLevel}`, "按此配招出战", controlsDisabled || !!fight, true)}</div>`
-    : result && !result.won && !result.mirrorLevel && !result.trialId && !result.rematchRank
-      ? `<div class="rematch"><strong>调整后再试</strong>${button(`fight:${result.region}`, `挑战${regions[result.region].boss}`, controlsDisabled || !!fight, true)}</div>` : "";
+    : !save.victories[opponent] && canChallenge(save, opponent)
+      ? `<div class="rematch"><strong>${regions[opponent].boss}</strong>${button(`fight:${opponent}`, "安排应对与出战", controlsDisabled || !!fight, true)}</div>` : "";
   const stancePanel = `<section class="stance-panel"><div class="section-title"><h2>架势</h2><span>刀伤 ${stats.damage} · 气血 ${stats.life}</span></div>
     <div class="choices">${(["guard", "attack"] as const).map(stance =>
       `<button type="button" data-action="kit:stance:${stance}" aria-pressed="${save.kit.stance === stance}" ${controlsDisabled ? "disabled" : ""}>${stance === "guard" ? "守式" : "攻式"}</button>`).join("")}</div>
     <p class="meta">守式架住重击时承受 18% 伤害。攻式提升 25% 基础刀伤。</p></section>`;
   const preview = intel ? `<details data-remember="preview" id="round-preview"><summary>${trial?.name ?? (reflection && mirrorLevel ? `${reflection.name} · 第 ${integer(mirrorLevel)} 重` : regions[opponent].boss)} · 对照前六回合</summary>
       ${rematch ? `<p>${rematch.detail}</p>` : trial || reflection ? "" : `<p>${caseClues[opponent].danger}</p>${intel >= challengeClues ? `<p>${caseClues[opponent].counter}</p>` : ""}`}
-      <p class="meta">按当前配装依原招出手推演。临场应变会改变结果。</p>
+      <p class="meta">按当前配装和已用过的应对计划推演。开战前可重新安排。</p>
       <ol class="match-rounds">${Array.from({ length: 6 }, (_, i) => {
         const { names, enemy, opening } = roundMoves(opponent, save.kit, i + 1, rematch?.riverWave ?? trial?.wave ?? reflection?.riverWave);
         const round = simulation?.rounds[i];
         const effect = round ? `<small class="round-effect">阿照气血 ${signed(round.life)} · 敌方气血 ${signed(round.hp)}${round.marks.length ? " · " + round.marks.map(escape).join("、") : ""}</small>` : "";
-        return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "普攻"}</span><span>${enemy}${opening ? " · 可应变" : ""}</span>${effect}</li>`;
+        return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "普攻"}</span><span>${enemy}${opening ? " · 可安排应对" : ""}</span>${effect}</li>`;
       }).join("")}</ol>
       ${simulation ? `<p class="meta">第 ${simulation.rounds.length} 回合末 · 阿照余 ${simulation.life} · 对手余 ${simulation.hp}${simulation.result === "lost" ? " · 会败阵" : simulation.result === "won" ? " · 可取胜" : ""}</p>` : ""}
     </details>` : '<p class="meta">找到本地第一条线索后，可对照大妖的前六回合。</p>';
   const library = `<div class="section-title technique-list-title"><h2>招谱</h2><span>可用道行 ${integer(save.dao)}${unlearned ? ` · ${unlearned} 门待修习` : ""}</span></div>` +
     (order.length ? order.map(id => artCard(id)).join("") : '<p class="meta">首胜吊睛山君，即可悟得镇山喝。</p>') + recovery +
     (currentTip && !/^(learn|equip|mastery)/.test(currentTip.id) ? guideCard(currentTip) : "");
-  return retry + skillRack() + presetPanel() + (unlearned && !retry ? library + preview + stancePanel : preview + stancePanel + library);
+  const outfit = retry ? `<section class="mirror-outfit">${outfitPanel(false)}</section>` : "";
+  return retry + outfit + skillRack() + presetPanel() + (unlearned && !retry ? library + preview + stancePanel : preview + stancePanel + library);
 }
 
 const iconOrder: GearId[] = ["pineBlade", "reedBlade", "templeBlade", "hillCoat", "ferryCoat", "templeCoat", "tigerFang", "tideSeal", "mirrorPearl"];
@@ -418,7 +426,7 @@ function gearHint(id: GearId) {
   return hint ? `<small class="gear-hint">${hint}</small>` : "";
 }
 
-function outfitPanel() {
+function outfitPanel(showMoves = true) {
   const stats = combatStats(save.realm, save.kit.stance, save.loadout, cultivationFor(save).layer, save.rematchRanks);
   const rack = (Object.keys(slots) as GearSlot[]).map(slot => {
     const id = save.loadout[slot];
@@ -429,6 +437,7 @@ function outfitPanel() {
   const moves = kitNames(save.kit);
   const header = `<header><strong>阿照的行装</strong><span>刀伤 ${stats.damage} · 气血 ${stats.life}</span></header>
     <div class="outfit-slots">${rack}</div>`;
+  if (!showMoves) return header;
   return header + (clueCount(save, 0) > 0 ? `<div class="outfit-moves"><span>${moves.join(" · ")}</span>${button("tab:skills", save.drops.some((known, i) => known && !save.ranks[i]) ? "有招待修习 ›" : "查看招谱 ›")}</div>` : "") + presetPanel();
 }
 
@@ -575,7 +584,7 @@ function mirrorComparison(current: MirrorAttempt, previous?: MirrorAttempt) {
   const rows = previous ? [previous, current] : [current];
   return `<div class="mirror-comparison">${rows.map((attempt, i) => `<div>
     <strong>${previous ? i === 0 ? "上次" : "本次" : "最近一战"} · ${attempt.won ? "取胜" : "败阵"} · 第 ${attempt.round} 回合</strong>
-    <p>阿照余 ${attempt.life} / ${attempt.maxLife} 气血 · 妖影余 ${attempt.hp} 气血</p><small>${escape(attempt.build)}</small></div>`).join("")}</div>${previous ? '<small>临场应变也会影响结果。</small>' : ""}`;
+    <p>阿照余 ${attempt.life} / ${attempt.maxLife} 气血 · 妖影余 ${attempt.hp} 气血</p><small>${escape(attempt.build)}</small></div>`).join("")}</div>`;
 }
 
 function mirrorPanel() {
@@ -628,7 +637,7 @@ function paintHelp() {
   toggle.disabled = !ready || !!pending;
   const tip = (tab === "patrol" && !result ? clueTip(save, true) : undefined)
     ?? nextTip({ ...save, guide: { ...save.guide, enabled: true, dismissed: [] } }, tab, result);
-  changedText("#guide-current", fight?.trial ? trials[fight.trial.id].goal : fight?.boss ? "敌招起手时看战场下方。可花一次应变，也可保留次数。" : isTrial(tab) ? trials[tab].hint : save.newGear.length ? "阿照停下来查看新拾的装备。穿在身上或收入行囊后，再继续巡夜。" : tip?.text ?? "点境界看道行，点行装槽位换装。");
+  changedText("#guide-current", fight?.trial ? trials[fight.trial.id].goal : fight?.boss ? "阿照会按战前安排出手。战果中可以查看哪一回合打断了敌招、触发了词条或败阵。" : isTrial(tab) ? trials[tab].hint : save.newGear.length ? "阿照停下来查看新拾的装备。穿在身上或收入行囊后，再继续巡夜。" : tip?.text ?? "点境界看道行，点行装槽位换装。");
 }
 
 function guideCard(tip: Tip) {
@@ -675,7 +684,7 @@ function paintPanel() {
       if (action) (outfit.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? outfit.querySelector<HTMLElement>(`[data-action="slot:${openSlot}"]`))?.focus({ preventScroll: true });
     }
   }
-  if (openSlot && (!outfit.hidden || tab === "mirror" || tab === "rematch" || isTrial(tab)) && !fight?.boss && !pending) {
+  if (openSlot && (!outfit.hidden || tab === "mirror" || tab === "rematch" || tab === "skills" || isTrial(tab)) && !fight?.boss && !pending) {
     changedText("#pack-title", slots[openSlot]);
     const list = element("#pack-list");
     const markup = slotContents(openSlot);
@@ -809,6 +818,78 @@ function showSlot(slot: GearSlot) {
   if (!packSheet.open) packSheet.showModal();
 }
 
+const battleSheet = element<HTMLDialogElement>("#battle-sheet");
+const battlePlanForm = element<HTMLFormElement>("#battle-plan");
+const recentPlans = new Map<string, BattleOrder[]>();
+let pendingBattle: (() => Fight | undefined) | undefined;
+battleSheet.addEventListener("close", () => { if (!battleSheet.open) pendingBattle = undefined; });
+battlePlanForm.addEventListener("change", paintBattlePlanPreview);
+
+function planKey(fight: Fight) {
+  return [fight.trial?.id ?? (fight.rematchRank ? "rematch" : fight.mirrorLevel ? "mirror" : "case"), fight.region, fight.riverWave].join("/");
+}
+
+function suggestedOrders(fight: Fight): BattleOrder[] {
+  const windows = planWindows(fight);
+  const firstTiger = fight.region === 0 && !fight.rematchRank && !save.victories[0];
+  const previous = recentPlans.get(planKey(fight))
+    ?? (firstTiger ? windows.slice(0, 2).map(round => ({ round, choice: "safe" as const })) : []);
+  return previous.filter(order => windows.includes(order.round)
+    && (order.choice === "safe" || !planRiskRequirement(fight, order.round)));
+}
+
+function readBattlePlan(): BattleOrder[] {
+  const values = new FormData(battlePlanForm);
+  return ["first", "second"].flatMap(name => {
+    const [round, choice] = String(values.get(name)).split(":");
+    return choice === "safe" || choice === "risk" ? [{ round: Number(round), choice }] : [];
+  });
+}
+
+function paintBattlePlanPreview() {
+  const encounter = pendingBattle?.();
+  if (!encounter) return;
+  const orders = readBattlePlan();
+  const valid = setBattlePlan(encounter, orders);
+  const submit = element<HTMLButtonElement>("#battle-plan button[type=submit]");
+  submit.disabled = !valid;
+  if (!valid) {
+    changedText("#battle-plan-preview", "每个回合只能安排一种应对，请错开两次应对。");
+    return;
+  }
+  const simulation = forecastFight(encounter);
+  const outcome = simulation.result === "won" ? " · 预计取胜" : simulation.result === "lost" ? " · 预计败阵" : "";
+  element("#battle-plan-preview").innerHTML = `<p>第 ${simulation.rounds.length} 回合末${outcome}</p>
+    <div class="plan-gauges">
+      <div><span>阿照 · ${simulation.life} / ${encounter.maxLife}</span><progress aria-label="阿照预计气血" value="${simulation.life}" max="${encounter.maxLife}"></progress></div>
+      <div><span>对手 · ${simulation.hp} / ${encounter.maxHp}</span><progress aria-label="对手预计气血" value="${simulation.hp}" max="${encounter.maxHp}"></progress></div>
+    </div>`;
+}
+
+function renderBattlePlan(encounter: Fight) {
+  changedText("#battle-title", "迎战" + encounter.name);
+  const windows = planWindows(encounter);
+  const { safe, risk } = encounters[encounter.region];
+  const previous = suggestedOrders(encounter);
+  const select = (index: number, name: string) => {
+    const selected = previous[index];
+    const option = (round: number, choice: BattleOrder["choice"]) => {
+      const reason = choice === "risk" ? planRiskRequirement(encounter, round) : undefined;
+      return `<option value="${round}:${choice}" ${reason ? "disabled" : ""} ${!reason && selected?.round === round && selected.choice === choice ? "selected" : ""}>第 ${round} 回合 · ${encounters[encounter.region][choice].name}${reason ? "（" + reason + "）" : ""}</option>`;
+    };
+    return `<label><span>应对 ${index + 1}</span><select name="${name}"><option value="">不安排</option>${windows.map(round => option(round, "safe") + option(round, "risk")).join("")}</select></label>`;
+  };
+  const advanceWave = encounter.region === 1 && encounter.riverWave === 2;
+  const danger = advanceWave ? "第 1、4、7… 回合绷缆，下一回合起回浪。三次汲水便会覆舟。" : caseClues[encounter.region].danger;
+  element("#battle-plan-options").innerHTML = `<p>${danger}</p>
+    <p class="meta">最多安排两次应对。开战后，招式和应对按回合自动执行。</p>
+    <dl class="plan-tactics"><div><dt>${safe.name}</dt><dd>${safe.effect}</dd></div><div><dt>${risk.name}</dt><dd>${risk.effect}</dd></div></dl>
+    ${encounter.preparation === "ready" ? `<p class="meta">${preparationText(encounter.region)}</p>` : ""}
+    ${encounter.trial ? `<p class="meta">${trials[encounter.trial.id].goal}</p>` : ""}
+    <div class="plan-orders">${select(0, "first")}${select(1, "second")}</div>`;
+  paintBattlePlanPreview();
+}
+
 function changedText(selector: string, value: string) {
   const node = element(selector);
   if (node.textContent !== value) node.textContent = value;
@@ -816,63 +897,25 @@ function changedText(selector: string, value: string) {
 
 const duel = element("#duel");
 let duelMarkup = "";
-let previewFight: Fight | null = null;
-let previewRound = -1;
-let previewCards = "";
-let quickBattle = false;
+let quickBattle = true;
 const signed = (value: number) => value === 0 ? "0" : (value > 0 ? "+" : "−") + Math.abs(value);
-function forecastBar(label: string, before: number, after: number, max: number) {
-  return `<span class="forecast-row"><span>${label}</span><i aria-hidden="true" class="forecast-track"><i style="width:${100 * Math.max(before, after) / max}%"></i><b style="width:${100 * Math.min(before, after) / max}%"></b></i><b>${before} → ${after}</b></span>`;
-}
-function openingCards(f: Fight) {
-  if (previewFight === f && previewRound === f.round) return previewCards;
-  const equippedShout = f.kit.shout !== "off" && f.ranks[0] > 0;
-  const riverShout = equippedShout && artDue(f.round + 2, 0);
-  const hints = [
-    ["伏低，闪避虎啸", "多砍 12 点，硬接虎啸", "依原架势接啸"],
-    ["断缆清空水位，浪势减弱", riverShout ? "倒撞敌舟，清空水位" : equippedShout ? "镇山喝赶不上这次回浪" : "需装备镇山喝截断回浪", "船缆汲水，河伯回血"],
-    ["提灯三回合，刀刀见真身", "本回合收刀，下一回合刀伤 +28", "保留应变，照常出刀"],
-    ["清除失足，横篙至多伤 8 点", equippedShout ? "截住横篙，普攻 +18" : "需装备镇山喝截断横篙", "保留应变，照常出刀"],
-    ["放倒马灯，冲灯至多扣 8", "放倒马灯，普攻 +20，吃满冲灯伤害", "刀伤减半，当心马灯灼伤"],
-    ["揭去更印，阻止震响", f.sigilThrough > f.round ? "引爆寄灯符，烧掉更印" : "还没有贴寄灯符", "先打破更印，留意敲更"],
-  ][f.region];
-  const labels = encounters[f.region];
-  previewCards = (["safe", "risk", "pass"] as Response[]).map((choice, index) => {
-    const outcome = previewOpening(f, choice);
-    const name = choice === "pass" ? "依原招出手" : labels[choice].name;
-    const timing = outcome.result === "won" ? "可斩杀" : outcome.result === "lost" ? (outcome.water >= riverFloodLimit ? "覆舟 · 会败阵" : "会败阵") : `第 ${outcome.round} 回合末`;
-    return button("respond:" + choice, `<span class="choice-title"><strong>${name}</strong><small>${choice === "pass" ? "保留应变" : "应变 −1"}</small></span><span class="choice-effect">${hints[index]}</span>
-      ${forecastBar("阿照", f.life, outcome.life, f.maxLife)}${forecastBar("大妖", f.hp, outcome.hp, f.maxHp)}${f.region === 1 ? `<span class="water-preview">水位 ${f.water} → ${outcome.water}</span>`
-      : outcome.backlashes ? `<span class="water-preview danger">纸面反噬 ×${outcome.backlashes}</span>` : ""}
-      ${outcome.footing !== undefined ? `<span class="water-preview">失足 ${f.footing} → ${outcome.footing}</span>` : ""}
-      ${outcome.ward !== undefined ? `<span class="water-preview">更印 ${f.ward} → ${outcome.ward}</span>` : ""}
-      ${outcome.cover !== undefined ? `<span class="water-preview">${outcome.cover ? "马灯仍在" : "马灯已倒"}</span>` : ""}
-      ${outcome.prepared ? `<span class="trial-preview clue-bonus">线索准备 · ${outcome.prepared} +${caseClues[f.region].damage}</span>` : ""}
-      ${f.trial ? `<span class="trial-preview">${trials[f.trial.id].counter} ${f.trial.progress} → ${outcome.trialProgress}</span>` : ""}<small>${timing}</small>`,
-      choice === "risk" && (f.region === 1 && !riverShout || f.region === bridgeRegion && !equippedShout || f.region === watchRegion && f.sigilThrough <= f.round));
-  }).join("");
-  previewFight = f; previewRound = f.round;
-  return previewCards;
-}
 
 function paintDuel() {
   const f = fight;
   duel.hidden = !f?.boss;
-  if (!f?.boss) { previewFight = null; return; }
+  if (!f?.boss) return;
   const encounter = encounters[f.region];
   const round = f.round + 1;
   const beats = [
     ["扑咬", "扫尾", "虎啸"], f.riverWave === 2 ? ["绷缆", "回浪", "挥篙"] : ["起浪", "绷缆", "回浪"], ["纸面", "借面", "烛偏见真身"], ["点篙", "击栏", "横篙"],
     ["举灯", "冲灯", "回蹄"], ["立更印", "提槌", "敲更"],
   ][f.region];
-  const tutorial = f.region === 0 && round <= 3 && !save.victories[0];
-  const toggle = !tutorial && !f.waiting && f.focus > 0 ? button("consult", f.consult ? "余下险招不停手" : "险招前停手") : "";
   const phase = (round - 1) % 3;
   const track = `<div class="boss-beats" aria-label="三回合招路">${beats.map((beat, i) => `<span ${i === phase ? 'aria-current="step"' : ""}>${beat}</span>`).join("<i>›</i>")}</div>`;
   const last = f.lastExchange;
   const lastLine = last ? `<div class="exchange"><b>第 ${last.round} 回合</b>　阿照 ${signed(last.life)}　大妖 ${signed(last.hp)}${last.marks.length ? `<div class="battle-links">${last.marks.map(mark => `<span>${escape(mark)}</span>`).join("")}</div>` : ""}</div>` : "";
-  const pendingChoice = f.order && f.order.round === round && !f.waiting ? f.order.choice : undefined;
-  const headline = f.waiting ? encounter.sign : pendingChoice ? (pendingChoice === "pass" ? "依原招出手" : encounter[pendingChoice].name) : "交锋";
+  const pendingChoice = f.plan?.find(order => order.round === round)?.choice;
+  const headline = pendingChoice ? encounter[pendingChoice].name : "交锋";
   const { names } = roundMoves(f.region, f.kit, round, f.riverWave);
   const nextMoves = names.length ? `<p class="duel-moves">本回合出手 · ${names.join(" · ")}</p>` : "";
   const water = f.region === 1 ? `<div class="water-gauge" data-flood="${f.water >= riverFloodLimit - 1}"><b>水位</b>
@@ -892,13 +935,8 @@ function paintDuel() {
     <meter aria-label="更印" min="0" max="${maxWard}" value="${f.ward}"></meter>
     <span>${f.ward}/${maxWard} · 敲更前未破，震响扣 28 气血</span></div>` : "";
   const sigil = f.sigilThrough >= round ? `<div class="trial-meter"><b>寄灯符</b><span>可引爆 · 第 ${f.sigilThrough} 回合末消散</span></div>` : "";
-  const preparation = f.preparation === "ready" && !f.waiting && !last ? `<p class="duel-moves">${preparationText(f.region)}</p>` : "";
-  const cluePrompt = openingTip(save, f);
-  const speed = save.victories[f.region] ? `<button type="button" data-action="battle-speed" aria-pressed="${quickBattle}" aria-label="加快交锋演出">战速 ×${quickBattle ? 2 : 1}</button>` : "";
-  const body = `<div class="duel-head"><strong>${headline}</strong><span class="round-cap">第 ${round} / ${f.limit} 回合 · 应变 ${f.focus} / 2</span>${speed}</div>${track}${lamps}${water}${paper}${footing}${horse}${ward}${sigil}${preparation}${nextMoves}` +
-    (f.waiting ? `<div class="choice-caption">选一招 · 预判双方气血</div>
-      ${cluePrompt ? `<p class="duel-clue">妖案提示 · ${cluePrompt}</p>` : ""}<div class="duel-options">${openingCards(f)}</div>` :
-      (!last && f.region === 1 ? "<p>河伯靠船缆汲水。看他绷缆，再决定割缆还是借浪。</p>" : !last && f.region === 2 ? "<p>留心烛火。挑灯可让真身现形，也可收刀等她自己露面。</p>" : "") + lastLine) + toggle;
+  const speed = `<button type="button" data-action="battle-speed" aria-pressed="${quickBattle}" aria-label="切换加速交锋">战速 ×${quickBattle ? 2 : 1}</button>`;
+  const body = `<div class="duel-head"><strong>${headline}</strong><span class="round-cap">第 ${round} / ${f.limit} 回合</span>${speed}</div>${track}${lamps}${water}${paper}${footing}${horse}${ward}${sigil}${nextMoves}${lastLine}`;
   if (duelMarkup !== body) {
     duel.innerHTML = body;
     duelMarkup = body;
@@ -1058,7 +1096,7 @@ function advance() {
   while (lag >= frame && !pending) {
     lag -= frame;
     if (!fight) {
-      if (result || preparingChallenge() || !save.autoPatrol || !canPatrol(save)) break;
+      if (result || battleSheet.open || preparingChallenge() || !save.autoPatrol || !canPatrol(save)) break;
       rest = Math.max(0, rest - frame);
       if (!rest) {
         fight = startFight(save, save.region, false, save.kills[save.region]);
@@ -1067,7 +1105,7 @@ function advance() {
     }
     if (!fight) continue;
     tickFight(fight);
-    if (quickBattle && fight.boss && save.victories[fight.region]) tickFight(fight);
+    if (quickBattle && fight.boss) tickFight(fight);
     if (fight.result !== "fighting") {
       if (fight.boss) settleBoss(fight);
       else finishPatrol(fight);
@@ -1076,13 +1114,21 @@ function advance() {
   paintStage();
 }
 
-function faceChallenge(encounter: Fight | undefined) {
+function faceChallenge(createFight: () => Fight | undefined) {
+  const encounter = createFight();
   if (!encounter || !ready || pending || fight) return;
   if (encounter.mirrorLevel) mirrorSelection = encounter.mirrorLevel;
+  pendingBattle = createFight;
+  renderBattlePlan(encounter);
+  battleSheet.showModal();
+}
+
+function beginBattle(encounter: Fight) {
   battleOrigin = pageLocation();
   result = null;
   journal = false;
   tab = "patrol";
+  resetPatrol();
   fight = encounter;
   window.scrollTo(0, 0);
   paintPanel();
@@ -1112,9 +1158,19 @@ function openClueView(step?: number) {
 root.addEventListener("submit", event => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
-  if (form.id === "mirror-practice") {
+  if (form === battlePlanForm) {
     event.preventDefault();
-    if (tab === "mirror") faceChallenge(startMirrorFight(save, Number(new FormData(form).get("level"))));
+    if (!battleSheet.open || !ready || pending || fight) return;
+    const encounter = pendingBattle?.();
+    const orders = readBattlePlan();
+    if (!encounter || !setBattlePlan(encounter, orders)) return;
+    recentPlans.set(planKey(encounter), orders);
+    battleSheet.close();
+    beginBattle(encounter);
+  } else if (form.id === "mirror-practice") {
+    event.preventDefault();
+    const level = Number(new FormData(form).get("level"));
+    if (tab === "mirror") faceChallenge(() => startMirrorFight(save, level));
   } else if (form.dataset.preset === "0" || form.dataset.preset === "1") {
     event.preventDefault();
     if (!ready || pending || fight?.boss) return;
@@ -1181,7 +1237,7 @@ root.addEventListener("click", event => {
     const anchor = art ?? (target.action === "preview" ? preview?.querySelector("summary")
       : [...root.querySelectorAll<HTMLButtonElement>("[data-action]")].find(item => item.dataset.action === target.action && item.getClientRects().length));
     if (anchor instanceof HTMLButtonElement && !anchor.disabled &&
-      (target.action === "auto-patrol" || target.action?.startsWith("region:") || target.action?.startsWith("slot:"))) {
+      (target.action === "auto-patrol" || target.action?.startsWith("region:") || target.action?.startsWith("slot:") || kind === "fight")) {
       anchor.click();
       return;
     }
@@ -1196,8 +1252,11 @@ root.addEventListener("click", event => {
     const card = panel.querySelector<HTMLElement>(`#art-${id}`);
     card?.scrollIntoView({ block: "nearest" });
     card?.focus({ preventScroll: true });
+  } else if (name === "battle-loadout" && battleSheet.open) {
+    battleSheet.close();
+    if (tab !== "skills") openClueView(1);
   } else if (name === "mirror-fight" && (tab === "mirror" || tab === "skills")) {
-    faceChallenge(startMirrorFight(save, Number(value)));
+    faceChallenge(() => startMirrorFight(save, Number(value)));
   } else if (name === "mirror-setup" && tab === "mirror" && ready && !pending && !fight) {
     const form = element<HTMLFormElement>("#mirror-practice");
     if (!form.reportValidity()) return;
@@ -1209,7 +1268,7 @@ root.addEventListener("click", event => {
     if (preview) preview.open = true;
     window.scrollTo(0, 0);
   } else if (name === "trial-fight" && isTrial(value) && (tab === value || tab === "skills")) {
-    faceChallenge(startTrial(save, value));
+    faceChallenge(() => startTrial(save, value));
   } else if ((name === "rematch" || name === "rematch-select") && ready && !pending && !fight?.boss) {
     const chosen = value === undefined ? rematchRegion : id;
     if (!save.victories[chosen]) return;
@@ -1221,7 +1280,7 @@ root.addEventListener("click", event => {
     paintPanel();
     if (name === "rematch") window.scrollTo(0, 0);
   } else if (name === "rematch-fight" && (tab === "rematch" || tab === "skills") && id === rematchRegion) {
-    faceChallenge(startRematch(save, id));
+    faceChallenge(() => startRematch(save, id));
   } else if (name === "tab") {
     if ((value === "mirror" || isTrial(value)) && !mirrorUnlocked(save)) return;
     if (tab === value) return;
@@ -1256,13 +1315,8 @@ root.addEventListener("click", event => {
     } else if (name === "guide-dismiss" && currentTip) {
       draft.guide.dismissed.push(currentTip.id);
       commit(draft);
-    } else if (name === "battle-speed" && fight?.boss && save.victories[fight.region]) {
+    } else if (name === "battle-speed" && fight?.boss) {
       quickBattle = !quickBattle;
-    } else if (name === "consult" && fight?.boss && fight.focus > 0) {
-      if (fight.waiting) answerOpening(fight, "pass");
-      fight.consult = !fight.consult;
-    } else if (name === "respond" && fight?.boss && (value === "safe" || value === "risk" || value === "pass")) {
-      answerOpening(fight, value);
     } else if (name === "retreat" && fight?.boss) {
       resetPatrol();
       returnTo(battleOrigin ?? undefined);
@@ -1290,14 +1344,7 @@ root.addEventListener("click", event => {
         if (!patrolRemaining(draft)) draft.autoPatrol = false;
         commit(draft, () => { backTrail.length = 0; resetPatrol(); returnTo(); });
       } else if (name === "fight" && !save.victories[id] && canChallenge(save, id) && !fight) {
-        battleOrigin = pageLocation();
-        window.scrollTo(0, 0);
-        result = null;
-        journal = false;
-        tab = "patrol";
-        resetPatrol();
-        fight = startCaseFight(save, id) ?? null;
-        paintPanel();
+        faceChallenge(() => startCaseFight(save, id));
       } else if (name === "learn-equip" && draft.ranks[id] === 0 && study(draft, id)) {
         equipArt(draft, id, true);
         commit(draft, () => notify(`已修习并装备${arts[id].name} · 第 ${arts[id].first} 回合出手`));
