@@ -569,7 +569,10 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .post-route button { min-height:44px; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy { right:12%; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy img { max-width:42vw; object-fit:contain; object-position:bottom; }
-.cloud-key { padding:10px 14px; border:1px solid #ac946d; background:#f4e8cd; }
+.round-effect { grid-column:2/-1; color:#5f5746; overflow-wrap:anywhere; }
+.mirror-comparison { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr)); gap:8px; margin:8px 0; }
+.mirror-comparison > div { min-width:0; padding:8px; border:1px solid #cbb794; background:#eee0c2; }
+.mirror-comparison p,.mirror-comparison small { font-size:13px; overflow-wrap:anywhere; }
 .preset-panel { margin:12px 0; border:1px solid #b9a17d; padding:8px 10px; background:#f4ead1; color:#493d2d; }
 .preset-panel summary { min-height:26px; cursor:pointer; font-weight:650; }
 .preset-quick { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:5px; }

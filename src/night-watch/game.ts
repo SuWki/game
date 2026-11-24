@@ -70,6 +70,7 @@ export const engravings = {
   step: { name: "回息纹", trigger: "成功闪避时", effect: "回气" },
 } as const;
 export type Engraving = keyof typeof engravings;
+export type MirrorAttempt = { level: number; round: number; life: number; maxLife: number; hp: number; won: boolean; build: string };
 type MirrorProgress = {
   best: number;
   sand: number;
@@ -77,6 +78,7 @@ type MirrorProgress = {
   remainder: number;
   ranks: Record<Engraving, number>;
   equipped?: Engraving;
+  recent?: MirrorAttempt;
 };
 export const maxEngravingRank = 8;
 const sandHour = 3600000;
@@ -93,10 +95,14 @@ export function sandRate(best: number) {
   return best > 0 ? Math.min(12, 2 + Math.floor((best - 1) / 3)) : 0;
 }
 
+export function canTemper(save: Save) {
+  return save.mirror.ranks.edge < maxEngravingRank || save.mirror.ranks.step < maxEngravingRank;
+}
+
 export function accrueSand(save: Save, now: number) {
   const mirror = save.mirror;
   const elapsed = Math.min(maxOffline, Math.max(0, now - mirror.time));
-  const total = elapsed * (mirrorUnlocked(save) ? sandRate(mirror.best) : 0) + mirror.remainder;
+  const total = canTemper(save) ? elapsed * (mirrorUnlocked(save) ? sandRate(mirror.best) : 0) + mirror.remainder : 0;
   const earned = Math.floor(total / sandHour);
   mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, mirror.sand + earned);
   mirror.remainder = total % sandHour;
@@ -319,12 +325,21 @@ export function decode(raw: string | null, now: number): Save {
   } else if ((mirror.equipped !== "edge" && mirror.equipped !== "step") || !mirror.ranks[mirror.equipped]) {
     delete mirror.equipped;
   }
+  const recent = data.mirror.recent;
+  if (recent && (!count(recent.level) || recent.level < 1 || recent.level - 1 > data.mirror.best
+    || !count(recent.round, mirrorRounds) || !count(recent.life) || !count(recent.maxLife) || recent.life > recent.maxLife
+    || !count(recent.hp) || typeof recent.won !== "boolean" || typeof recent.build !== "string" || recent.build.length > 180)) {
+    delete data.mirror.recent;
+  }
   data.realm = cultivationFor(data).realm;
   const save: Save = { ...data, version: 4 };
   const progress = data.rematchRanks;
   save.rematchRanks = [0, 0, 0, 0, 0, 0];
   for (let i = 0; i < regions.length; i++) {
-    if (save.victories[i] && count(progress?.[i], maxRematchRank)) save.rematchRanks[i] = progress[i];
+    if (save.victories[i] && count(progress?.[i], maxRematchRank)) {
+      save.rematchRanks[i] = progress[i];
+      if (progress[i]) save.clues[i] = 3;
+    }
   }
   save.kit = cleanKit(data.kit, save);
   save.presets = [cleanPreset(data.presets?.[0], save), cleanPreset(data.presets?.[1], save)];
@@ -348,9 +363,12 @@ function earnPatrolDao(save: Save, amount: number) {
   return earned;
 }
 
-export function clueCount(save: Save, region = save.region): number {
-  if (unlocked(save, region) && !patrolRemaining(save, region)) return 3;
+export function recordedClues(save: Save, region = save.region): number {
   return Math.max(save.clues[region], regions[region].thresholds.filter(threshold => save.kills[region] >= threshold).length);
+}
+
+export function clueCount(save: Save, region = save.region): number {
+  return unlocked(save, region) && !patrolRemaining(save, region) ? 3 : recordedClues(save, region);
 }
 
 export function canPatrol(save: Save) {
@@ -363,7 +381,7 @@ export function recordPatrolKill(save: Save, random = Math.random) {
   const reward = earnPatrolDao(save, regions[region].reward);
   const id = minionEquipment[region][save.kills[region] % 2];
   save.kills[region]++;
-  save.clues[region] = clueCount(save, region);
+  save.clues[region] = recordedClues(save, region);
   const firstGear = region === 0 && save.kills[0] === 2;
   const found = (firstGear || random() < 0.25) && !save.ownedGear.includes(id) ? id : undefined;
   if (found) {
@@ -492,7 +510,7 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
 export function startCaseFight(save: Save, region: Region) {
   if (!canChallenge(save, region)) return;
   const fight = startFight(save, region, true);
-  if (clueCount(save, region) === 3) fight.preparation = "ready";
+  if (recordedClues(save, region) === 3) fight.preparation = "ready";
   return fight;
 }
 
@@ -508,7 +526,7 @@ export function rematchSpec(save: Save, region: Region) {
     `带着马灯撞中时，灼伤提高到 ${18 + 8 * rank} 点。冲灯前可压灯。`,
     `更印提高至 ${wardStrength(rank)} 点。可揭去更印，或用符火烧掉。`,
   ][region];
-  return { rank, hp: regions[region].hp + rematchHealth[rank], attack: rematchAttack[rank], detail, riverWave } as const;
+  return { rank, hp: regions[region].hp + rematchHealth[rank], attack: rematchAttack[rank], detail, riverWave, prepared: recordedClues(save, region) === 3 } as const;
 }
 
 export function startRematch(save: Save, region: Region) {
@@ -516,6 +534,7 @@ export function startRematch(save: Save, region: Region) {
   if (!spec) return;
   const fight = startFight(save, region, true);
   fight.rematchRank = spec.rank;
+  if (spec.prepared) fight.preparation = "ready";
   fight.hp = fight.maxHp = spec.hp;
   fight.riverWave = spec.riverWave;
   return fight;
@@ -525,6 +544,7 @@ export function settleRematch(save: Save, fight: Fight) {
   const { rematchRank: rank, region } = fight;
   if (!rank || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
   save.rematchRanks[region] = rank;
+  save.clues[region] = 3;
   const drop = !save.drops[region];
   if (drop) save.drops[region] = true;
   for (const id of [bossEquipment[region], ...minionEquipment[region]]) {
@@ -540,7 +560,7 @@ export function mirrorWave(level: number): 2 | 3 {
 }
 
 export function startTrial(save: Save, id: TrialId) {
-  if (!mirrorUnlocked(save) || !Object.hasOwn(trials, id)) return;
+  if (!mirrorUnlocked(save) || !Object.hasOwn(trials, id) || save.trialBest[id]) return;
   const spec = trials[id];
   const fight = startFight(save, spec.region, true);
   fight.trial = { id, progress: 0 };
@@ -554,8 +574,9 @@ export function settleTrial(save: Save, fight: Fight) {
   const trial = fight.trial;
   if (!trial || fight.result !== "won" || !mirrorUnlocked(save) || trial.progress < trials[trial.id].target) return 0;
   const previous = save.trialBest[trial.id];
-  save.trialBest[trial.id] = previous ? Math.min(previous, fight.round) : fight.round;
   if (previous) return 0;
+  save.trialBest[trial.id] = fight.round;
+  if (!canTemper(save)) return 0;
   save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + trialSand);
   return trialSand;
 }
@@ -581,17 +602,35 @@ export function startMirrorFight(save: Save, level: number) {
   fight.mirrorLevel = level;
   fight.riverWave = opponent.riverWave;
   fight.maxHp = fight.hp = opponent.hp;
+  if (mirrorPreparation(save, opponent.region)) fight.preparation = "ready";
   return fight;
+}
+
+export function mirrorPreparation(save: Save, region: 1 | 2) {
+  return !!save.trialBest[region === 1 ? "ferryTrial" : "templeTrial"] && recordedClues(save, region) === 3;
+}
+
+function mirrorAttempt(fight: Fight, level: number): MirrorAttempt {
+  const gear = Object.values(fight.loadout).map(id => {
+    const rank = gearRank(id, fight.gearUpgrades);
+    return equipment[id].name + (rank ? " +" + rank : "");
+  });
+  const active = equippedArts(fight.kit);
+  const moves = [...weaponArts(fight.kit), 1, 2, 4].filter(id => active[id]).map(id => arts[id].name);
+  const build = [...gear, ...moves, fight.kit.stance === "guard" ? "守式" : "攻式",
+    ...(fight.engraving ? [engravings[fight.engraving.id].name + " +" + fight.engraving.power] : [])].join(" · ");
+  return { level, round: fight.round, life: Math.max(0, fight.life), maxLife: fight.maxLife,
+    hp: Math.max(0, fight.hp), won: fight.result === "won", build };
 }
 
 export function settleMirror(save: Save, fight: Fight, now: number) {
   const idle = accrueSand(save, now);
   const level = fight.mirrorLevel;
-  if (!mirrorUnlocked(save) || fight.result !== "won" || level === undefined || level - 1 !== save.mirror.best) {
-    return { idle, reward: 0 };
-  }
+  if (!mirrorUnlocked(save) || fight.result === "fighting" || level === undefined || level - 1 > save.mirror.best) return { idle, reward: 0 };
+  save.mirror.recent = mirrorAttempt(fight, level);
+  if (fight.result !== "won" || level - 1 !== save.mirror.best) return { idle, reward: 0 };
   save.mirror.best = level;
-  const reward = 12 + Math.min(24, (level - 1) * 2);
+  const reward = canTemper(save) ? 12 + Math.min(24, (level - 1) * 2) : 0;
   save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + reward);
   return { idle, reward };
 }
@@ -720,9 +759,11 @@ function resolveRound(f: Fight) {
       f.ward = 0;
       actions.push("符火烧去更印");
     }
-    const damage = (f.ranks[4] === 2 ? 38 : 26) + (f.loadout.charm === "courierSeal" ? charmPower("courierSeal", upgrade("courierSeal")) : 0);
+    const fuel = f.loadout.charm === "courierSeal" ? charmPower("courierSeal", upgrade("courierSeal")) : 0;
+    const damage = (f.ranks[4] === 2 ? 38 : 26) + fuel;
     f.hp -= damage;
     marks.push("符火引爆");
+    if (fuel) marks.push("纸马灯芯 +" + fuel);
     actions.push(`符火引爆，火伤 ${damage}`);
   };
   if (f.kit.sigil && f.ranks[4] > 0 && artDue(round, 4)) {
@@ -776,6 +817,7 @@ function resolveRound(f: Fight) {
     }
     if (art === 3) {
       const seal = f.loadout.charm === "postSeal" ? charmPower("postSeal", upgrade("postSeal")) : 0;
+      if (seal) marks.push("驿桥路引 +" + seal);
       const damage = deal(hurt(8 + seal));
       actions.push(`折篙刀伤 ${damage}${seal ? `（路引 +${seal}）` : ""}`);
       if (interrupted && f.hp > 0) {
@@ -970,6 +1012,17 @@ export function previewOpening(fight: Fight, choice: Response) {
     ...(trial.region === watchRegion && { ward: trial.ward }),
     ...(trial.region === courierRegion && { cover: horseCovered(fight.round + 1, choice) }),
     backlashes: (trial.links["纸面反噬"] ?? 0) - (fight.links["纸面反噬"] ?? 0) };
+}
+
+export function forecastFight(fight: Fight, rounds = 6) {
+  const f = structuredClone(fight);
+  f.order = undefined;
+  const result: NonNullable<Fight["lastExchange"]>[] = [];
+  for (let i = 0; i < rounds && f.result === "fighting"; i++) {
+    resolveRound(f);
+    if (f.lastExchange) result.push(f.lastExchange);
+  }
+  return { rounds: result, life: Math.max(0, f.life), hp: Math.max(0, f.hp), result: f.result };
 }
 
 export function defeatSummary(fight: Fight) {

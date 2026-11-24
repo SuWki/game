@@ -1,6 +1,6 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
+import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, recordedClues } from "./game.ts";
 import type { Fight, Region, Save } from "./game.ts";
 import { caseClues, encounters, preparationText } from "./tactics.ts";
 
@@ -12,7 +12,7 @@ export type Tip = { id: string; title: string; text: string; target?: Target };
 export function clueTip(save: Save, showRead = false) {
   const region = save.region;
   if (save.victories[region]) return;
-  const step = clueCount(save);
+  const step = recordedClues(save);
   if (!step || !showRead && !save.guide.enabled) return;
   const available = canChallenge(save, region);
   const id = `clue-${region}-${step}${step >= challengeClues && !available ? "-locked" : ""}`;
@@ -35,9 +35,9 @@ export function clueTip(save: Save, showRead = false) {
 }
 
 export function openingTip(save: Save, fight: Fight) {
-  if (!save.guide.enabled || !fight.waiting || fight.trial || fight.mirrorLevel || fight.rematchRank) return;
+  if (!save.guide.enabled || !fight.waiting || fight.trial) return;
   if (fight.preparation === "ready") return preparationText(fight.region);
-  if (fight.round < 3 && !save.victories[fight.region]) return caseClues[fight.region].counter;
+  if (!fight.mirrorLevel && !fight.rematchRank && fight.round < 3 && !save.victories[fight.region]) return caseClues[fight.region].counter;
 }
 
 export function nextTip(save: Save, tab: Tab, result: Result | null): Tip | undefined {

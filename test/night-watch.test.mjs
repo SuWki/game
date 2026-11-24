@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, gearRequirement, newSave, trainingRoute,
-  applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, rematchSpec, roundMoves, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, forecastFight, gearRequirement, newSave, trainingRoute,
+  applyPreset, artDue, equipArt, previewOpening, recordedClues, recordPatrolKill, rematchSpec, roundMoves, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment, gearEffect } from "../src/night-watch/equipment.ts";
@@ -365,7 +365,9 @@ test("巡夜最后一刀只给剩余额度，学招、换回旧地图及刷新�
     assert.equal(recordPatrolKill(save, () => 1).reward, 1);
     assert.equal(save.autoPatrol, false);
     assert.equal(clueCount(save), 3);
+    assert.equal(recordedClues(save), 0);
     assert.equal(canChallenge(save, region), true);
+    assert.equal(startCaseFight(save, region).preparation, undefined);
     save.drops[0] = true;
     study(save, 0);
     const restored = decode(JSON.stringify(save), 0);
@@ -630,8 +632,6 @@ test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水�
   assert.equal(f.trial.progress, 0);
   playRounds(f, 16, { 1: "safe", 4: "safe" });
   assert.deepEqual([f.result, f.round, f.trial.progress], ["won", 13, 2]);
-  assert.equal(settleTrial(s, f), 8);
-  assert.equal(settleTrial(s, f), 0);
   s.kit.step = "tide";
   s.ranks[1] = 2;
   s.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tigerFang" };
@@ -640,10 +640,11 @@ test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水�
   assert.equal(settleTrial(s, flood), 0);
   const quicker = playRounds(startTrial(s, "ferryTrial"), 16, { 4: "safe" });
   assert.equal(quicker.result, "won");
-  assert.equal(settleTrial(s, quicker), 0);
+  assert.equal(settleTrial(s, quicker), 8);
   assert.equal(s.trialBest.ferryTrial, quicker.round);
   assert.equal(settleTrial(s, f), 0);
   assert.equal(s.trialBest.ferryTrial, quicker.round);
+  assert.equal(startTrial(s, "ferryTrial"), undefined);
   assert.deepEqual([s.mirror.sand, s.mirror.best, s.lifetimeDao, s.victories], [8, 0, 1100, [1, 1, 1, 0, 0, 0]]);
 });
 
@@ -999,6 +1000,7 @@ test("旧档强敌再战从零开始，通关只领取一次强化并找回遗�
   const loaded = decode(JSON.stringify(old), 0);
   assert.equal(loaded.rematchRanks[0], 1);
   assert.equal(rematchSpec(loaded, 0).rank, 2);
+  assert.equal(startRematch(loaded, 0).preparation, "ready");
   const failed = startRematch(loaded, 0);
   failed.result = "lost";
   assert.equal(settleRematch(loaded, failed), undefined);
@@ -1045,4 +1047,56 @@ test("河伯强化关按实际回浪时机结算，首次取胜补悟听潮步",
   while (!next.waiting) tickFight(next);
   assert.equal(previewOpening(next, "safe").water, 0);
   assert.equal(previewOpening(next, "pass").water, 1);
+  assert.equal(previewOpening(next, "safe").prepared, "水底铃扰阵");
+});
+
+test("异相已完成且线索实查完毕时，只给本案对应的镜中妖影一次准备", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1, 0, 0, 0];
+  s.mirror.best = 12;
+  s.kills[1] = 100;
+  s.kills[2] = 140;
+  assert.equal(startMirrorFight(s, 5).preparation, undefined);
+  s.trialBest.ferryTrial = 9;
+  const battle = startMirrorFight(s, 5);
+  assert.equal(startMirrorFight(s, 12).preparation, undefined);
+  while (!battle.waiting) tickFight(battle);
+  assert.equal(previewOpening(battle, "safe").prepared, "水底铃扰阵");
+  playRounds(battle, 4, { 1: "safe" });
+  assert.equal(battle.links["水底铃扰阵"], 1);
+  playRounds(battle, 6, { 4: "safe" });
+  assert.equal(battle.links["水底铃扰阵"], 1);
+  s.kills[1] = 0;
+  earnDao(s, 1370);
+  assert.equal(startMirrorFight(s, 5).preparation, undefined);
+});
+
+test("战前推演照实际规则触发装备和招式，镜战记录用开场配装且满纹后停止发砂", () => {
+  const s = newSave(0);
+  s.victories = [1, 1, 1, 0, 0, 0];
+  s.mirror.ranks = { edge: 8, step: 8 };
+  s.mirror.equipped = "edge";
+  s.mirror.sand = 41;
+  earnDao(s, 1200);
+  s.ranks[0] = 1;
+  s.loadout = { weapon: "pineBlade" };
+  s.ownedGear = ["pineBlade", "reedBlade"];
+  equipArt(s, 0, true);
+  const f = startMirrorFight(s, 1);
+  const before = forecastFight(f);
+  assert.equal(f.round, 0);
+  assert.ok(before.rounds[2].marks.includes("松纹刀 +12"));
+  const identical = playRounds(structuredClone(f), 6);
+  assert.deepEqual(before.rounds[5], identical.lastExchange);
+  assert.deepEqual([before.life, before.hp], [identical.life, identical.hp]);
+  s.loadout.weapon = "reedBlade";
+  playRounds(f, 12, { 2: "safe", 5: "safe" });
+  assert.equal(f.result, "won");
+  assert.deepEqual(settleMirror(s, f, 3600000), { idle: 0, reward: 0 });
+  assert.equal(s.mirror.best, 1);
+  assert.equal(accrueSand(s, 7200000), 0);
+  const loaded = decode(JSON.stringify(s), 7200000);
+  assert.equal(loaded.mirror.sand, 41);
+  assert.match(loaded.mirror.recent.build, /松纹刀.*镇山喝.*断潮纹/);
+  assert.doesNotMatch(loaded.mirror.recent.build, /斩芦刀/);
 });
