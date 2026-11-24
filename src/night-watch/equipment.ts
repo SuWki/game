@@ -10,12 +10,18 @@ export const equipment = {
   ferryCoat: { name: "渡水蓑", slot: "armor", level: 2, effect: "气血上限 +22", life: 22 },
   templeBlade: { name: "烛影刀", slot: "weapon", level: 3, effect: "基础刀伤 +6", damage: 6 },
   templeCoat: { name: "护灯袍", slot: "armor", level: 3, effect: "气血上限 +34", life: 34 },
-  tigerFang: { name: "山君牙坠", slot: "charm", level: 1, effect: "第 3、6、9…轮普攻伤害 +3" },
-  tideSeal: { name: "河伯镇潮印", slot: "charm", level: 2, effect: "第 2、5、8…轮受到的伤害 -4，最低 1 点" },
-  mirrorPearl: { name: "借面珠", slot: "charm", level: 3, effect: "第 1、5、9…轮普攻伤害 +5" },
+  tigerFang: { name: "山君牙坠", slot: "charm", level: 1, effect: "第 3、6、9… 回合普攻伤害 +3" },
+  tideSeal: { name: "河伯镇潮印", slot: "charm", level: 2, effect: "第 2、5、8… 回合受到的伤害 -4，最低 1 点" },
+  mirrorPearl: { name: "借面珠", slot: "charm", level: 3, effect: "第 1、5、9… 回合普攻伤害 +5" },
   postBlade: { name: "青石刀", slot: "weapon", level: 4, effect: "基础刀伤 +8", damage: 8 },
   postCoat: { name: "驿衣", slot: "armor", level: 4, effect: "气血上限 +42", life: 42 },
-  postSeal: { name: "驿桥路引", slot: "charm", level: 4, effect: "第 3、6、9…轮折篙刀首斩伤害 +6" },
+  postSeal: { name: "驿桥路引", slot: "charm", level: 4, effect: "第 3、6、9… 回合折篙刀首斩伤害 +6" },
+  courierBlade: { name: "刻灯刀", slot: "weapon", level: 5, effect: "基础刀伤 +10", damage: 10 },
+  courierCoat: { name: "挡风衣", slot: "armor", level: 5, effect: "气血上限 +49", life: 49 },
+  courierSeal: { name: "纸马灯芯", slot: "charm", level: 5, effect: "引爆寄灯符时，火伤 +8" },
+  watchBlade: { name: "夜更刀", slot: "weapon", level: 6, effect: "基础刀伤 +12", damage: 12 },
+  watchCoat: { name: "巡驿甲", slot: "armor", level: 6, effect: "气血上限 +56", life: 56 },
+  watchSeal: { name: "守更牌", slot: "charm", level: 6, effect: "第 3、6、9… 回合受到的攻击伤害 -6，最低 1 点" },
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
@@ -25,7 +31,7 @@ export const traits = {
   reedBlade: { trigger: "听潮步发动时", effect: "刀伤", amount: 8 },
   templeBlade: { trigger: "照影持续时", effect: "刀伤", amount: 6 },
   hillCoat: { trigger: "守式挡下重击", effect: "减伤", amount: 3 },
-  ferryCoat: { trigger: "身法成功避击", effect: "回血", amount: 5 },
+  ferryCoat: { trigger: "身法成功闪避", effect: "回血", amount: 5 },
   templeCoat: { trigger: "照影期间受击", effect: "减伤", amount: 4 },
 } as const;
 
@@ -36,9 +42,10 @@ export function traitText(id: GearId) {
 }
 
 export type GearLoadout = Partial<Record<GearSlot, GearId>>;
-export const bossEquipment = ["tigerFang", "tideSeal", "mirrorPearl", "postSeal"] as const;
+export const bossEquipment = ["tigerFang", "tideSeal", "mirrorPearl", "postSeal", "courierSeal", "watchSeal"] as const;
 export const minionEquipment = [
   ["hillCoat", "pineBlade"], ["ferryCoat", "reedBlade"], ["templeCoat", "templeBlade"], ["postCoat", "postBlade"],
+  ["courierCoat", "courierBlade"], ["watchCoat", "watchBlade"],
 ] as const;
 
 export function knownGear(id: unknown): id is GearId {

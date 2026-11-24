@@ -547,10 +547,25 @@ footer { color:#6c6554; }
 .post-route button { min-height:44px; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy { right:12%; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy img { max-width:42vw; object-fit:contain; object-position:bottom; }
+.cloud-key { padding:10px 14px; border:1px solid #ac946d; background:#f4e8cd; }
+.preset-panel { margin:12px 0; border:1px solid #b9a17d; padding:8px 10px; background:#f4ead1; color:#493d2d; }
+.preset-panel summary { min-height:26px; cursor:pointer; font-weight:650; }
+.preset-quick { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:5px; }
+.preset-quick button { min-height:42px; overflow-wrap:anywhere; }
+.preset-quick button[aria-pressed=true] { border-color:#8c6748; background:#dcc9a5; color:#513525; }
+.preset-slots { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.preset-slot { min-width:0; padding:8px; border-top:1px solid #bdab8a; }
+.preset-slot label { display:grid; gap:3px; }
+.preset-slot input { width:100%; min-height:36px; padding:4px 7px; color:#493d2d; border:1px solid #ac946d; background:#fff7e6; font:inherit; }
+.preset-slot p { margin:6px 0; font-size:13px; line-height:1.5; }
+.preset-slot button { min-height:42px; }
+.stage:is([data-zone="post-watch"],[data-zone="post-courtyard"])[data-boss="true"] .enemy { right:13%; }
+.stage:is([data-zone="post-watch"],[data-zone="post-courtyard"])[data-boss="true"] .enemy img { max-width:40vw; object-fit:contain; object-position:bottom; }
 .duel-head { align-items:center; }
 .duel-head > span { margin-left:auto; }
 .duel-head button { min-height:38px; padding:4px 8px; margin:0; font-size:13px; }
 @media(max-width:680px) {
+  .preset-slots { grid-template-columns:1fr; }
   .skill-slots:has(.skill-slot:nth-child(4)) { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .post-route { grid-template-columns:1fr; }
   .post-route img { height:86px; min-height:0; }

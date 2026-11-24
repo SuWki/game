@@ -1,5 +1,7 @@
 export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋"] as const;
 export const bridgeRegion = 3;
+export const courierRegion = 4;
+export const watchRegion = 5;
 export const heartRealm = 4;
 export const heartDao = 1430;
 export const mountainFirstReward = 6;
@@ -12,7 +14,7 @@ export const trials = {
   },
   templeTrial: {
     name: "烛下还名", region: 2, hp: 220, wave: 3, target: 3, counter: "连中真身",
-    goal: "连续三轮出刀命中真身，斩退娘娘。全场须避开纸面反噬。", hint: "挑灯能照出连续三轮真身。若带照影，可借烛偏接上显形的轮次，把应变留给下一次换面。",
+    goal: "连续三回合出刀命中真身，斩退娘娘。全程不得触发纸面反噬。", hint: "挑灯能照出连续三回合真身。若带照影，可借烛偏接上显形的回合，把应变留给下一次换面。",
     opening: "最后三块木牌摆在灯下。石生求阿照守住这簇火，让失名的人一个个应声。",
     ending: "第三个名字落笔时，庙门外有人应了一声。石生把余蜡裹好，留作明年的灯。",
   },
@@ -22,17 +24,19 @@ export const trialIds = Object.keys(trials) as TrialId[];
 export const trialRounds = 16;
 export const trialSand = 8;
 export const breakthrough = [
-  { gift: "开身法位。基础退步在第 1、4、7… 回合避开第一道浪。", verse: "起如山鸟，落似老熊。" },
+  { gift: "开启身法位。基础退步本身就能在第 1、4、7… 回合闪避第一道浪。", verse: "起如山鸟，落似老熊。" },
   { gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。" },
-  { gift: "开神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。" },
-  { gift: "再开一个武学位。两门武学同轮出手时，可调换先后。", verse: "听见铃声落下，才知桥上风静。" },
+  { gift: "开启神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。" },
+  { gift: "再开启一个武学位。两门武学同回合出手时，可调换先后。", verse: "听见铃声落下，才知桥上风静。" },
 ] as const;
 
 export const arts = [
-  { name: "镇山喝", first: 3, every: 3, kind: "武学", cost: 30, description: "第 3、6、9… 回合出招，伤害 5，截断当轮可打断的重击。", mastery: "截招成功时追加 12 点伤害。", realm: 0 },
-  { name: "听潮步", first: 2, every: 3, kind: "身法", cost: 60, description: "第 2、5、8… 回合踏步，闪避当轮敌方攻击。", mastery: "踏步回合的普攻增伤 50%。", realm: 1 },
-  { name: "照影", first: 1, every: 4, kind: "神通", cost: 60, description: "第 1、5、9… 回合照影，当轮与下一轮破除假身。", mastery: "照影持续期间普攻增伤 25%。", realm: 3 },
-  { name: "折篙刀", first: 3, every: 3, kind: "武学", cost: 90, description: "第 3、6、9… 回合斩一刀，伤害 8。同轮先用镇山喝截招，便追斩 12 点。", mastery: "追斩伤害由 12 提升至 22。", realm: 3 },
+  { name: "镇山喝", first: 3, every: 3, kind: "武学", cost: 30, description: "第 3、6、9… 回合出招，伤害 5，截断当回合可打断的重击。", mastery: "截断成功时追加 12 点伤害。", realm: 0 },
+  { name: "听潮步", first: 2, every: 3, kind: "身法", cost: 60, description: "第 2、5、8… 回合踏步，闪避当回合敌方攻击。", mastery: "踏步回合的普攻伤害 +50%。", realm: 1 },
+  { name: "照影", first: 1, every: 4, kind: "神通", cost: 60, description: "第 1、5、9… 回合照影，当回合与下一回合破除假身。", mastery: "照影持续期间普攻伤害 +25%。", realm: 3 },
+  { name: "折篙刀", first: 3, every: 3, kind: "武学", cost: 90, description: "第 3、6、9… 回合斩一刀，伤害 8。同回合先用镇山喝截断，便追斩 12 点。", mastery: "追斩伤害由 12 提升至 22。", realm: 3 },
+  { name: "寄灯符", first: 1, every: 3, kind: "神通", cost: 110, description: "第 1、4、7… 回合贴符，维持到下一回合结束。挑灯诀命中即可引爆，火伤 26，也能烧去更印。", mastery: "符火伤害由 26 提升至 38。", realm: 4 },
+  { name: "挑灯诀", first: 2, every: 3, kind: "武学", cost: 130, description: "第 2、5、8… 回合出手，刀伤 10。击中带符的真身，可引爆符火。", mastery: "刀伤由 10 提升至 16。", realm: 4 },
 ] as const;
 
 export const regions = [
@@ -71,5 +75,23 @@ export const regions = [
     foes: [{ name: "纸蹄", sprite: "reed" }, { name: "缆绳鬼", sprite: "rat" }],
     boss: "驿桥篙鬼", sprite: "post-ghost", hp: 302,
     reward: 7, patrolInterval: 3200, chapter: "卷二 · 纸马驿",
+  },
+  {
+    name: "纸马院", patrolCap: 2840, place: "驿院", tag: "纸马驿内",
+    title: "一盏灯等着收信", intro: "檐下拴着一匹纸马，脖子上挂的灯一直朝北。陆婆说，那是替远行人指路的灯。如今它一见行人便奔过去，像是怕又错过了谁。",
+    cleared: "纸马低头，让阿照解下那盏灯。灯罩内侧写着归家的路，最后三字是一个久等的名字。",
+    clues: ["凌乱的纸蹄印", "灯架上的家书", "夹在缰绳里的地址"], thresholds: [10, 25, 44],
+    foes: [{ name: "飞笺", sprite: "lantern" }, { name: "纸缰", sprite: "reed" }],
+    boss: "送灯纸马", sprite: "courier-horse", hp: 312,
+    reward: 9, patrolInterval: 3200, chapter: "卷二 · 纸马驿",
+  },
+  {
+    name: "守更楼", patrolCap: 3450, place: "更楼", tag: "纸马驿北门",
+    title: "还差一声更响", intro: "驿墙下等信的人越来越多。守更驿卒每夜抱着旧更牌点名，那一袋家书从没被点到过。",
+    cleared: "阿照照着灯上的地址送完家书。最后一封被老人按在膝头读了许久。他从门后取下云栈钥匙，说山道上也有人等灯。",
+    clues: ["缺了一角的更牌", "北门驿簿", "一袋未送出的家书"], thresholds: [12, 30, 52],
+    foes: [{ name: "更铃影", sprite: "mirror" }, { name: "过门纸卒", sprite: "pine" }],
+    boss: "守更驿卒", sprite: "watch-guard", hp: 326,
+    reward: 11, patrolInterval: 3200, chapter: "卷二 · 纸马驿",
   },
 ] as const;

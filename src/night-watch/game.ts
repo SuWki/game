@@ -1,12 +1,13 @@
-import { arts, bridgeRegion, heartDao, heartRealm, mountainFirstReward, regions, trialIds, trialRounds, trials, trialSand } from "./content.ts";
+import { arts, bridgeRegion, courierRegion, heartDao, heartRealm, mountainFirstReward, regions, trialIds, trialRounds, trials, trialSand, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
 import { decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
 
-export type Region = 0 | 1 | 2 | 3;
-type PerRegion<T> = [T, T, T, T];
+export type Region = 0 | 1 | 2 | 3 | 4 | 5;
+type PerRegion<T> = [T, T, T, T, T, T];
+type WeaponArt = 0 | 3 | 5;
 export type Strategy = "off" | "ready" | "windup";
 export type Kit = {
   stance: "guard" | "attack";
@@ -15,14 +16,19 @@ export type Kit = {
   reveal: boolean;
   fold?: boolean;
   foldFirst?: boolean;
+  firstWeapon?: WeaponArt;
+  sigil?: boolean;
+  kindle?: boolean;
 };
+export type PresetSlot = 0 | 1;
+type Preset = { name: string; kit: Kit; loadout: GearLoadout; engraving?: Engraving };
 type GuideProgress = {
   enabled: boolean;
   dismissed: string[];
   defeats: PerRegion<number>;
 };
 export type Save = {
-  version: 3;
+  version: 4;
   region: Region;
   realm: number;
   dao: number;
@@ -42,6 +48,7 @@ export type Save = {
   report: string;
   mirror: MirrorProgress;
   trialBest: Record<TrialId, number>;
+  presets: [Preset | null, Preset | null];
 };
 
 export const saveKey = "night-watch-v1";
@@ -52,10 +59,11 @@ export const riverFloodLimit = 3;
 export const mirrorRounds = 12;
 export const paperHitLimit = 2;
 export const footingLimit = 3;
+export const watchWard = 58;
 const paperBacklashDamage = 34;
 export const engravings = {
-  edge: { name: "断潮纹", trigger: "成功截招后的下一刀", effect: "刀伤" },
-  step: { name: "回息纹", trigger: "成功避击时", effect: "回气" },
+  edge: { name: "断潮纹", trigger: "成功截断后的下一刀", effect: "刀伤" },
+  step: { name: "回息纹", trigger: "成功闪避时", effect: "回气" },
 } as const;
 export type Engraving = keyof typeof engravings;
 type MirrorProgress = {
@@ -164,18 +172,74 @@ export function compareGear(save: Save, id: GearId) {
 }
 
 function newGuide(): GuideProgress {
-  return { enabled: true, dismissed: [], defeats: [0, 0, 0, 0] };
+  return { enabled: true, dismissed: [], defeats: [0, 0, 0, 0, 0, 0] };
 }
 
 export function newSave(now: number): Save {
   return {
-    version: 3, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0, 0], clues: [0, 0, 0, 0], victories: [0, 0, 0, 0],
-    drops: [false, false, false, false], ranks: [0, 0, 0, 0], time: now,
-    guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 },
+    version: 4, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], kills: [0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0],
+    drops: [false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0], time: now,
+    guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 }, presets: [null, null],
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
   };
+}
+
+function cleanLoadout(stored: GearLoadout, owned: GearId[]): GearLoadout {
+  const loadout: GearLoadout = {};
+  for (const slot of Object.keys(slots) as GearSlot[]) {
+    const id = stored?.[slot];
+    if (knownGear(id) && equipment[id].slot === slot && owned.includes(id)) loadout[slot] = id;
+  }
+  return loadout;
+}
+
+function cleanKit(kit: Kit, save: Save): Kit {
+  const clean: Kit = {
+    stance: kit?.stance === "attack" ? "attack" : "guard",
+    shout: "off", step: "basic", reveal: false,
+  };
+  const draft = { ...save, kit: clean };
+  for (const art of weaponArts(kit ?? clean).filter(id => save.ranks[id] && save.realm >= arts[id].realm).slice(0, weaponCapacity(save.realm))) {
+    equipArt(draft, art, true);
+  }
+  if (kit?.step === "tide") equipArt(draft, 1, true);
+  if (kit?.sigil) equipArt(draft, 4, true);
+  else if (kit?.reveal) equipArt(draft, 2, true);
+  return clean;
+}
+
+function presetName(value: unknown) {
+  return typeof value === "string" ? Array.from(value.trim()).slice(0, 16).join("") : "";
+}
+
+function cleanPreset(preset: Preset | null, save: Save): Preset | null {
+  if (!preset?.kit || !presetName(preset.name)) return null;
+  const engraving = preset.engraving;
+  return {
+    name: presetName(preset.name), kit: cleanKit(preset.kit, save),
+    loadout: cleanLoadout(preset.loadout, save.ownedGear),
+    engraving: (engraving === "edge" || engraving === "step") && save.mirror.ranks[engraving] > 0 ? engraving : undefined,
+  };
+}
+
+export function storePreset(save: Save, slot: PresetSlot, name: string) {
+  const label = presetName(name);
+  if (save.realm < heartRealm || !label) return false;
+  save.presets[slot] = {
+    name: label, kit: { ...save.kit }, loadout: { ...save.loadout }, engraving: save.mirror.equipped,
+  };
+  return true;
+}
+
+export function applyPreset(save: Save, slot: PresetSlot) {
+  const preset = cleanPreset(save.presets[slot], save);
+  if (save.realm < heartRealm || !preset) return false;
+  save.kit = preset.kit;
+  save.loadout = preset.loadout;
+  save.mirror.equipped = preset.engraving;
+  return true;
 }
 
 export function decode(raw: string | null, now: number): Save {
@@ -183,12 +247,12 @@ export function decode(raw: string | null, now: number): Save {
   const data = JSON.parse(raw) as Omit<Save, "version"> & { version: number };
   const count = (n: unknown, max = Number.MAX_SAFE_INTEGER) =>
     typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= max;
-  const old = data?.version === 1 || data?.version === 2;
+  const size = [0, 3, 3, 4, regions.length][data?.version];
   const entries = (value: unknown, test: (item: unknown) => boolean) =>
-    Array.isArray(value) && value.length === (old ? 3 : 4) && value.every(test);
-  if ((!old && data?.version !== 3) || !count(data.region, old ? 2 : bridgeRegion) || !count(data.realm, old ? 3 : heartRealm) ||
-      !count(data.dao) || !count(data.time) || !entries(data.kills, item => count(item)) ||
-      !entries(data.victories, item => count(item)) ||
+    Array.isArray(value) && value.length === size && value.every(test);
+  if (!size || !count(data.region, size - 1) || !count(data.realm, size === 3 ? 3 : heartRealm) ||
+      !count(data.dao) || !count(data.time) || !entries(data.kills, countValue => count(countValue)) ||
+      !entries(data.victories, countValue => count(countValue)) ||
       !entries(data.drops, item => typeof item === "boolean") ||
       !entries(data.ranks, item => count(item, 2)) ||
       !["guard", "attack"].includes(data.kit?.stance) ||
@@ -197,36 +261,27 @@ export function decode(raw: string | null, now: number): Save {
       typeof data.report !== "string") {
     throw new Error("存档格式无法读取");
   }
-  if (data.kit.shout === "ready") data.kit.shout = "windup";
   const guide = data.guide;
   if (typeof guide?.enabled !== "boolean" || !Array.isArray(guide.dismissed) ||
       !guide.dismissed.every(id => typeof id === "string") || !entries(guide.defeats, item => count(item, 2))) {
     data.guide = newGuide();
-  } else if (old) guide.defeats[bridgeRegion] = 0;
+  }
   if (data.version === 1) {
     const earned = (region: Region, thresholds: readonly number[]) =>
       data.victories[region] > 0 ? 3 : thresholds.filter(target => data.kills[region] >= target).length;
-    data.clues = [earned(0, [2, 5, 10]), earned(1, [3, 8, 15]), earned(2, [3, 8, 15]), 0];
+    data.clues = [earned(0, [2, 5, 10]), earned(1, [3, 8, 15]), earned(2, [3, 8, 15]), 0, 0, 0];
   } else if (!entries(data.clues, item => count(item, 3))) {
     throw new Error("线索进度无法读取");
   }
-  if (old) {
-    data.kills[bridgeRegion] = 0;
-    data.victories[bridgeRegion] = 0;
-    data.ranks[bridgeRegion] = 0;
-    data.clues[bridgeRegion] = 0;
-    data.drops[bridgeRegion] = false;
+  for (let i = size; i < regions.length; i++) {
+    data.kills[i] = data.victories[i] = data.ranks[i] = data.clues[i] = data.guide.defeats[i] = 0;
+    data.drops[i] = false;
   }
   data.ownedGear = Array.isArray(data.ownedGear) ? [...new Set(data.ownedGear.filter(knownGear))] : [];
   for (const [region, id] of bossEquipment.entries()) {
     if (data.victories[region] > 0 && !data.ownedGear.includes(id)) data.ownedGear.push(id);
   }
-  const storedLoadout = data.loadout;
-  data.loadout = {};
-  for (const slot of Object.keys(slots) as GearSlot[]) {
-    const id = storedLoadout?.[slot];
-    if (knownGear(id) && equipment[id].slot === slot && data.ownedGear.includes(id)) data.loadout[slot] = id;
-  }
+  data.loadout = cleanLoadout(data.loadout, data.ownedGear);
   data.autoPatrol = data.victories[0] > 0 && data.autoPatrol === true;
   data.newGear = Array.isArray(data.newGear) ? [...new Set(data.newGear.filter(id => data.ownedGear.includes(id)))] : [];
   if (data.lifetimeDao === undefined) {
@@ -243,15 +298,16 @@ export function decode(raw: string | null, now: number): Save {
     delete mirror.equipped;
   }
   data.realm = cultivationFor(data).realm;
-  data.kit.fold = data.kit.fold === true && data.ranks[3] > 0 && (data.realm >= heartRealm || data.kit.shout === "off");
-  data.kit.foldFirst = data.kit.foldFirst === true && data.realm >= heartRealm;
+  const save: Save = { ...data, version: 4 };
+  save.kit = cleanKit(data.kit, save);
+  save.presets = [cleanPreset(data.presets?.[0], save), cleanPreset(data.presets?.[1], save)];
   const best = data.trialBest;
-  data.trialBest = { ferryTrial: 0, templeTrial: 0 };
+  save.trialBest = { ferryTrial: 0, templeTrial: 0 };
   for (const id of trialIds) {
-    if (count(best?.[id], trialRounds)) data.trialBest[id] = best[id];
+    if (count(best?.[id], trialRounds)) save.trialBest[id] = best[id];
   }
-  if (!patrolRemaining(data)) data.autoPatrol = false;
-  return { ...data, version: 3 };
+  if (!patrolRemaining(save)) save.autoPatrol = false;
+  return save;
 }
 
 export function patrolRemaining(save: Pick<Save, "lifetimeDao" | "region">, region = save.region) {
@@ -294,7 +350,7 @@ export function unlocked(save: Save, region: Region): boolean {
   return region === 0 || save.victories[region - 1] > 0;
 }
 
-export const challengeRealms = [0, 1, 3, 3] as const;
+export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm] as const;
 
 export function canChallenge(save: Save, region: Region): boolean {
   return unlocked(save, region) && clueCount(save, region) === 3 && save.realm >= challengeRealms[region];
@@ -324,7 +380,7 @@ export function win(save: Save, region: Region, random = Math.random) {
       save.newGear.unshift(id);
     }
   }
-  const drop = !save.drops[region] && (region === 0 || region === bridgeRegion || save.victories[region] >= 5 || random() < 0.25);
+  const drop = !save.drops[region] && (region === 0 || region >= bridgeRegion || save.victories[region] >= 5 || random() < 0.25);
   if (drop) save.drops[region] = true;
   if (!patrolRemaining(save)) save.autoPatrol = false;
   const recovered = !patrolRemaining(save, region) && minionEquipment[region].find(id => !save.ownedGear.includes(id));
@@ -353,6 +409,8 @@ const patterns: Move[][] = [
   [{ name: "第一道浪", damage: 15, wave: true }, { name: "挥篙", damage: 10 }, { name: "回浪", damage: 34, heavy: true, interruptible: true, backwash: true }],
   [{ name: "纸面", damage: 7 }, { name: "借面", damage: 15 }, { name: "烛偏", damage: 16, heavy: true }],
   [{ name: "点篙", damage: 11 }, { name: "击栏", damage: 14 }, { name: "横篙", damage: 48, heavy: true, interruptible: true }],
+  [{ name: "举灯", damage: 9 }, { name: "冲灯", damage: 36, heavy: true }, { name: "回蹄", damage: 14 }],
+  [{ name: "立更印", damage: 12 }, { name: "提槌", damage: 13 }, { name: "敲更", damage: 29, heavy: true }],
 ];
 
 export type Fight = {
@@ -362,6 +420,7 @@ export type Fight = {
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
+  sigilThrough: number; ward: number;
   kit: Kit; realm: number; ranks: Save["ranks"];
   loadout: GearLoadout;
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
@@ -383,7 +442,7 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
     ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, paperHits: 0, footing: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
-    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, links: {},
+    kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, revealedThrough: 0, sigilThrough: 0, ward: 0, links: {},
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
@@ -466,33 +525,58 @@ export function artDue(round: number, art: Region) {
 }
 
 export function equippedArts(kit: Kit) {
-  return [kit.shout !== "off", kit.step === "tide", kit.reveal, !!kit.fold] as const;
+  return [kit.shout === "windup" || kit.shout === "ready", kit.step === "tide", !!kit.reveal, !!kit.fold, !!kit.sigil, !!kit.kindle] as const;
 }
 
-export function weaponArts(kit: Kit): (0 | 3)[] {
-  const order = kit.foldFirst ? [3, 0] as const : [0, 3] as const;
+export function weaponArts(kit: Kit): WeaponArt[] {
   const equipped = equippedArts(kit);
-  return order.filter(id => equipped[id]);
+  const first = kit.firstWeapon ?? (kit.foldFirst ? 3 : 0);
+  return ([0, 3, 5] as WeaponArt[]).filter(id => equipped[id]).sort((a, b) => Number(b === first) - Number(a === first));
+}
+
+function setWeapon(kit: Kit, art: WeaponArt, equip: boolean) {
+  if (art === 0) kit.shout = equip ? "windup" : "off";
+  else if (art === 3) kit.fold = equip;
+  else kit.kindle = equip;
+}
+
+function weaponCapacity(realm: number) {
+  return realm >= heartRealm ? 2 : 1;
+}
+
+export function replacedArt(save: Save, art: Region) {
+  if (art === 2 && save.kit.sigil) return 4;
+  if (art === 4 && save.kit.reveal) return 2;
+  if (art === 0 || art === 3 || art === 5) {
+    const weapons = weaponArts(save.kit);
+    if (!weapons.includes(art) && weapons.length >= weaponCapacity(save.realm)) return weapons[weapons.length - 1];
+  }
 }
 
 export function equipArt(save: Save, art: Region, equip: boolean) {
   if (!save.ranks[art] || save.realm < arts[art].realm) return;
   const kit = save.kit;
-  if (art === 0) {
-    kit.shout = equip ? "windup" : "off";
-    if (equip && save.realm < heartRealm) kit.fold = false;
-  } else if (art === 1) kit.step = equip ? "tide" : "basic";
-  else if (art === 2) kit.reveal = equip;
-  else {
-    kit.fold = equip;
-    if (equip && save.realm < heartRealm) kit.shout = "off";
+  if (art === 1) kit.step = equip ? "tide" : "basic";
+  else if (art === 2) {
+    kit.reveal = equip;
+    if (equip) kit.sigil = false;
+  } else if (art === 4) {
+    kit.sigil = equip;
+    if (equip) kit.reveal = false;
+  } else {
+    const first = weaponArts(kit)[0];
+    const replaced = equip ? replacedArt(save, art) : undefined;
+    if (replaced === 0 || replaced === 3 || replaced === 5) setWeapon(kit, replaced, false);
+    setWeapon(kit, art, equip);
+    kit.firstWeapon = first !== undefined && equippedArts(kit)[first] ? first : weaponArts(kit)[0];
+    delete kit.foldFirst;
   }
 }
 
 export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2 | 3 = 3) {
   const equipped = equippedArts(kit);
   return {
-    names: ([2, 1, ...weaponArts(kit)] as Region[]).filter(id => equipped[id] && artDue(round, id)).map(id => arts[id].name),
+    names: ([2, 4, 1, ...weaponArts(kit)] as Region[]).filter(id => equipped[id] && artDue(round, id)).map(id => arts[id].name),
     enemy: moveFor(region, round, riverWave).name,
     opening: openingDue(region, round, riverWave),
   };
@@ -506,6 +590,10 @@ export function answerOpening(f: Fight, choice: Response) {
   return true;
 }
 
+export function horseCovered(round: number, choice?: Response) {
+  return round % 3 === 1 || round % 3 === 2 && (!choice || choice === "pass");
+}
+
 function resolveRound(f: Fight) {
   const startingLife = f.life, startingHp = f.hp;
   const marks: string[] = [];
@@ -516,23 +604,58 @@ function resolveRound(f: Fight) {
   const elapsed = order ? round - order.round : -1;
   const choice = order?.choice;
   if (order && elapsed === 0) {
-    actions.push(order.choice === "pass" ? "依原招出手，留下一次应变机会" : encounters[f.region][order.choice].name);
+    actions.push(order.choice === "pass" ? "依原招出手，留下一次应变" : encounters[f.region][order.choice].name);
+  }
+  const horseCharge = f.region === courierRegion && !!move.heavy;
+  const horseChoice = horseCharge && elapsed === 0 ? choice : undefined;
+  const cover = f.region === courierRegion && horseCovered(round, horseChoice);
+  const watching = f.region === watchRegion;
+  if (watching && round % 3 === 1) {
+    f.ward = watchWard;
+    actions.push(`更印凝成，吸收 ${watchWard} 伤害`);
+  }
+  const deal = (damage: number) => {
+    const blocked = Math.min(f.ward, damage);
+    f.ward -= blocked;
+    f.hp -= damage - blocked;
+    if (blocked) actions.push(`更印吸收 ${blocked}`);
+    return damage - blocked;
+  };
+  const ignite = () => {
+    f.sigilThrough = 0;
+    if (f.ward) {
+      f.ward = 0;
+      actions.push("符火烧去更印");
+    }
+    const damage = (f.ranks[4] === 2 ? 38 : 26) + (f.loadout.charm === "courierSeal" ? 8 : 0);
+    f.hp -= damage;
+    marks.push("符火引爆");
+    actions.push(`符火引爆，火伤 ${damage}`);
+  };
+  if (f.kit.sigil && f.ranks[4] > 0 && artDue(round, 4)) {
+    f.sigilThrough = round + 1;
+    marks.push("寄灯符已贴");
+    actions.push("寄灯符贴印两回合");
+  }
+  if (watching && elapsed === 0) {
+    if (choice === "safe") f.ward = 0;
+    if (choice === "risk" && f.sigilThrough >= round) ignite();
   }
   const stats = combatStats(f.realm, f.kit.stance, f.loadout);
   const reveal = f.kit.reveal && f.ranks[2] > 0 && artDue(round, 2);
   if (reveal) {
     marks.push("照影显形");
     f.revealedThrough = round + 1;
-    actions.push("照影显形两轮");
+    actions.push("照影显形两回合");
   }
   const lamp = f.region === 2 && choice === "safe" && elapsed >= 0 && elapsed <= 2;
   if (lamp && elapsed === 0) marks.push("挑灯照面");
   if (lamp) actions.push("灯下见真身");
   const exposed = lamp || f.region !== 2 || f.revealedThrough >= round || f.realm >= 3 && round % 3 === 0;
-  const hurt = (damage: number) => Math.max(1, Math.round(damage * (exposed ? 1 : 0.2)));
+  const hurt = (damage: number) => Math.max(1, Math.round(damage * (cover ? 0.5 : exposed ? 1 : 0.2)));
   const tide = f.kit.step === "tide" && f.ranks[1] > 0 && artDue(round, 1);
   if (tide) marks.push("听潮步起势");
-  if (tide) actions.push("听潮步避击");
+  if (tide) actions.push("听潮步闪避");
   const shout = f.kit.shout !== "off" && f.ranks[0] > 0 && artDue(round, 0);
   let interrupted = false;
   const cut = move.backwash && elapsed === 1 && choice === "safe";
@@ -553,28 +676,30 @@ function resolveRound(f: Fight) {
   }
   for (const art of weaponArts(f.kit)) {
     if (f.hp <= 0 || !f.ranks[art] || !artDue(round, art)) continue;
+    if (art === 5) {
+      actions.push(`挑灯诀刀伤 ${deal(hurt(f.ranks[5] === 2 ? 16 : 10))}`);
+      if (f.hp > 0 && exposed && f.sigilThrough >= round) ignite();
+      continue;
+    }
     if (art === 3) {
       const seal = f.loadout.charm === "postSeal" ? 6 : 0;
-      const damage = hurt(8 + seal);
-      f.hp -= damage;
+      const damage = deal(hurt(8 + seal));
       actions.push(`折篙刀伤 ${damage}${seal ? "（路引 +6）" : ""}`);
       if (interrupted && f.hp > 0) {
-        const follow = hurt(f.ranks[3] === 2 ? 22 : 12);
-        f.hp -= follow;
+        const follow = deal(hurt(f.ranks[3] === 2 ? 22 : 12));
         marks.push("折篙刀追斩");
-        actions.push(`趁截招追斩，伤 ${follow}`);
+        actions.push(`趁截断追斩，伤 ${follow}`);
       }
       continue;
     }
     interrupted = !!move.interruptible;
-    marks.push(interrupted ? "镇山喝截" + move.name : "镇山喝出手");
+    marks.push(interrupted ? "镇山喝截断" + move.name : "镇山喝出手");
     const extra = interrupted && f.ranks[0] === 2 ? 12 : 0;
     const echo = interrupted && f.loadout.weapon === "pineBlade" ? traits.pineBlade.amount : 0;
     if (echo) marks.push("松纹刀 +" + echo);
     if (echo) actions.push(`松纹刀应喝，喝伤 +${echo}`);
-    const damage = hurt(5 + extra + echo);
-    f.hp -= damage;
-    actions.push(`镇山喝${interrupted ? "截断" + move.name : "出手"}，伤 ${damage}`);
+    const damage = deal(hurt(5 + extra + echo));
+    actions.push(`镇山喝${interrupted ? "截断" + move.name : "出手"}，喝伤 ${damage}`);
     if (reversed) {
       f.hp -= 18;
       marks.push("回浪撞舟 +18");
@@ -609,18 +734,17 @@ function resolveRound(f: Fight) {
     if (bonus && charm) actions.push(`${equipment[charm].name}，刀伤 +${bonus}`);
     const ambush = f.region === 2 && choice === "risk" && elapsed === 1 && exposed;
     if (ambush) marks.push("候得真身 +28");
-    if (ambush) actions.push("候得真身，刀伤加 28");
+    if (ambush) actions.push("候得真身，刀伤 +28");
     const engraved = f.engraving?.id === "edge" && f.cutRound !== undefined && f.cutRound < round ? f.engraving.power : 0;
     if (engraved) {
       f.cutRound = undefined;
       actions.push(`断潮纹，刀伤 +${engraved}`);
       marks.push(`断潮纹 +${engraved}`);
     }
-    const rush = lunge && interrupted ? 18 : 0;
-    if (rush) marks.push("迎篙抢步 +18");
-    const damage = hurt((stats.damage + engraved + bladeBonus + bonus + rush + (charge ? 12 : ambush ? 28 : 0)) * flank * seal);
-    f.hp -= damage;
-    actions.push(`短刀伤 ${damage}`);
+    const rush = lunge && interrupted ? 18 : horseChoice === "risk" ? 20 : 0;
+    if (rush) marks.push(horseChoice === "risk" ? "迎灯进刀 +20" : "迎篙抢步 +18");
+    const damage = deal(hurt((stats.damage + engraved + bladeBonus + bonus + rush + (charge ? 12 : ambush ? 28 : 0)) * flank * seal));
+    actions.push(`普攻刀伤 ${damage}`);
     if (f.region === 2) {
       struckTrue = exposed;
       f.paperHits = exposed ? 0 : f.paperHits + 1;
@@ -629,7 +753,7 @@ function resolveRound(f: Fight) {
         f.life -= paperBacklashDamage;
         backlash = true;
         marks.push("纸面反噬");
-        actions.push(`连斩纸面招来反噬，失血 ${paperBacklashDamage}`);
+        actions.push(`连斩纸面招来反噬，扣 ${paperBacklashDamage} 点气血`);
       }
     }
   }
@@ -644,9 +768,15 @@ function resolveRound(f: Fight) {
     actions.push("水满覆舟，阿照落水败阵");
     marks.push("覆舟");
   } else if (f.hp > 0 && f.life > 0 && !interrupted) {
-    if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
+    if (watching && round % 3 === 0 && f.ward > 0) {
+      f.life -= 28;
+      marks.push("更印震响");
+      actions.push("更印未破，震响扣 28 点气血");
+    }
+    if (f.life <= 0) f.cue = "strike";
+    else if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       if (move.backwash) protectedLamp = true;
-      actions.push(`避过${move.name}`);
+      actions.push(`闪避过${move.name}`);
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
         const heal = Math.min(f.maxLife - f.life, traits.ferryCoat.amount);
         f.life += heal;
@@ -661,7 +791,7 @@ function resolveRound(f: Fight) {
       }
       f.cue = "guard";
     } else {
-      const guard = move.heavy && f.kit.stance === "guard" && !charge && !lunge;
+      const guard = move.heavy && f.kit.stance === "guard" && !charge && !lunge && horseChoice !== "risk";
       let power = move.damage;
       if (move.backwash && elapsed === 1 && choice && choice !== "pass") {
         power = choice === "safe" ? 12 : 46;
@@ -670,9 +800,9 @@ function resolveRound(f: Fight) {
       const braced = f.region === 0 && elapsed === 0 && choice === "safe";
       if (f.mirrorLevel) power = Math.min(Number.MAX_SAFE_INTEGER, power + mirrorOpponent(f.mirrorLevel).damageBonus);
       const received = guard ? Math.ceil(power * 0.18) : power;
-      const rawDamage = steady ? Math.min(received, 8) : braced ? Math.min(received, 4) : received;
+      const rawDamage = steady || horseChoice === "safe" ? Math.min(received, 8) : braced ? Math.min(received, 4) : received;
       let damage = rawDamage;
-      const reduce = (id: "hillCoat" | "templeCoat" | "tideSeal", amount: number) => {
+      const reduce = (id: "hillCoat" | "templeCoat" | "tideSeal" | "watchSeal", amount: number) => {
         const blocked = Math.min(amount, damage - 1);
         if (blocked > 0) actions.push(`${equipment[id].name}减伤 ${blocked}`);
         if (blocked) marks.push(equipment[id].name + "护身");
@@ -681,8 +811,14 @@ function resolveRound(f: Fight) {
       if (guard && f.loadout.armor === "hillCoat") reduce("hillCoat", traits.hillCoat.amount);
       if (f.revealedThrough >= round && f.loadout.armor === "templeCoat") reduce("templeCoat", traits.templeCoat.amount);
       if (round % 3 === 2 && f.loadout.charm === "tideSeal") reduce("tideSeal", 4);
+      if (round % 3 === 0 && f.loadout.charm === "watchSeal") reduce("watchSeal", 6);
       f.life -= damage;
-      actions.push(`${guard ? "架住" : ""}${move.name}，失血 ${damage}`);
+      actions.push(`${guard ? "架住" : ""}${move.name}，扣 ${damage} 点气血`);
+      if (horseCharge && cover) {
+        f.life -= 18;
+        marks.push("马灯灼伤");
+        actions.push("马灯灼伤，另扣 18 点气血");
+      }
       if (sweep && !steady) {
         f.footing++;
         actions.push(`被逼向桥边，失足 ${f.footing}/${footingLimit}`);
@@ -692,10 +828,9 @@ function resolveRound(f: Fight) {
           actions.push("跌落驿桥");
         }
       }
-      f.cue = guard || braced || steady ? "guard" : "strike";
+      f.cue = guard || braced ? "guard" : "strike";
       if (guard && f.life > 0 && f.realm >= 2) {
-        f.hp -= hurt(6);
-        actions.push(`反击伤 ${hurt(6)}`);
+        actions.push(`反击伤 ${deal(hurt(6))}`);
       }
     }
   }
@@ -708,8 +843,8 @@ function resolveRound(f: Fight) {
   for (const mark of marks) f.links[mark] = (f.links[mark] ?? 0) + 1;
   f.event = `第 ${round} 回合 · ${actions.join(" → ")}。`;
   f.log.push(f.event);
-  if (order && order.choice !== "pass" && (elapsed === 0 || (f.region === 1 || f.region === 2) && elapsed === 1)) {
-    f.turningPoint = elapsed === 0 ? f.event : `第 ${order.round} 回合${encounters[f.region][order.choice].name}。 ${f.event}`;
+  if (order && order.choice !== "pass" && (elapsed === 0 || (f.region === 1 || f.region === 2 || watching) && elapsed === 1)) {
+    f.turningPoint = elapsed === 0 ? f.event : `第 ${order.round} 回合${encounters[f.region][order.choice].name}。${f.event}`;
   }
   if (trial?.id === "templeTrial" && backlash) {
     f.result = "lost";
@@ -727,10 +862,12 @@ function resolveRound(f: Fight) {
 export function previewOpening(fight: Fight, choice: Response) {
   const trial = structuredClone(fight);
   if (!answerOpening(trial, choice)) throw new Error("此刻没有待决的险招");
-  const end = Math.min(trial.limit, trial.round + [1, 2, 3, 1][trial.region]);
+  const end = Math.min(trial.limit, trial.round + [1, 2, 3, 1, 1, 2][trial.region]);
   while (trial.round < end && trial.result === "fighting") resolveRound(trial);
   return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water, paperHits: trial.paperHits, ...(trial.trial && { trialProgress: trial.trial.progress }),
     ...(trial.region === bridgeRegion && { footing: trial.footing }),
+    ...(trial.region === watchRegion && { ward: trial.ward }),
+    ...(trial.region === courierRegion && { cover: horseCovered(fight.round + 1, choice) }),
     backlashes: (trial.links["纸面反噬"] ?? 0) - (fight.links["纸面反噬"] ?? 0) };
 }
 

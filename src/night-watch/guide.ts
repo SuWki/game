@@ -1,4 +1,4 @@
-import { arts, bridgeRegion, heartRealm, regions } from "./content.ts";
+import { arts, bridgeRegion, courierRegion, heartRealm, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { canChallenge, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
@@ -32,6 +32,10 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
     const brought = equippedArts(save.kit);
     const learned = save.ranks.findIndex((rank, i) => rank > 0 && !brought[i] && !save.guide.dismissed.includes(`equip-${i}`));
     if (learned >= 0) return equipTip(learned as Region);
+    if (save.ranks[5] && save.ranks[4] && !save.guide.dismissed.includes("preset-fire")) return {
+      id: "preset-fire", title: "一轮贴符，下一轮引爆",
+      text: "寄灯符在第 1、4、7 回合贴符，挑灯诀紧接着引爆。把它们配好后，可在「两套配装」里和截招搭配各存一套。",
+    };
     if (save.dao >= masteryCost && save.ranks.includes(1) && !save.guide.dismissed.includes("mastery")) {
       return {
         id: "mastery", title: "精通招式",
@@ -56,6 +60,14 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (tab !== "patrol") return;
 
   if (result?.drop && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
+  if (save.region === courierRegion && !save.victories[courierRegion] && canChallenge(save, courierRegion)) {
+    return { id: "courier-preview", title: "纸马的灯罩着它", text: "第二回合冲灯前，压灯可放倒马灯并减伤。迎灯进刀伤害更高，也会挨完整一撞。",
+      target: { tab: "skills", action: "preview", label: "查看纸马招路" } };
+  }
+  if (save.region === watchRegion && !save.victories[watchRegion] && canChallenge(save, watchRegion)) {
+    return { id: "watch-preview", title: "赶在敲更前破印", text: "带寄灯符出战。第二回合可「借灯引符」，趁第三回合敲更前烧去更印。",
+      target: { tab: "skills", action: "preview", label: "查看驿卒招路" } };
+  }
   if (save.victories[2] && !save.victories[bridgeRegion]) {
     if (save.region !== bridgeRegion) return {
       id: "post-road", title: "随陆婆过河", text: "芦花渡对岸是纸马驿。跟陆婆过河，去查桥下传来的半声铃。",
@@ -153,12 +165,16 @@ function defeatTip(save: Save, region: Region): Tip {
     "打开交锋详情，找出回浪在哪一回合命中。招式页能对照敌我回合。",
     "接连斩中两次纸面会受到反噬。打开交锋详情，看看反噬发生在哪一回合。",
     "横篙命中三次会掉下桥。看第 3、6、9 回合的失足变化。",
+    "马灯还亮时，冲灯命中会灼伤。比较选招时预估的双方余血。",
+    "驿卒会重复结更印。看战报里哪几回合出现震响，确认破印的时机。",
   ];
   const advice = [
     "用守式应战，虎啸原本要扣 36 点气血，架住后只扣 7 点。",
     "留心水位。到了两格，下一道回浪就可能覆舟。绷缆时割缆可以清空水位。",
     "烛偏时能打中真身。前一回合可收刀等候，或挑灯连续三回合见到真身。已修习照影时，也可提前显形。",
     "先留两次应变，失足后选「借墩稳身」清空。也可以提前装备镇山喝，每三回合截断一次横篙。",
+    "试试守式。第 2、5 回合各压一次灯，可减伤并让本回合的刀打实。",
+    "装备寄灯符和折篙刀。第 2、5 回合都选「借灯引符」，可以烧去更印并打出火伤。",
   ];
   return {
     id: `defeat-${region}-${precise ? 2 : 1}`, title: precise ? "再试一个解法" : "先看败在哪里",
