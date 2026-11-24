@@ -1,11 +1,11 @@
-import { floatFarmRequest, isShortRope, nextRopeContact, ropeVisit, ropeVisitPrice, salvageMarket, workshopOpen,
+import { counterBuyerQuotes, floatFarmRequest, isShortRope, nextRopeContact, ropeVisit, ropeVisitPrice, salvageMarket, workshopOpen,
   type Action, type Counter } from './counter.ts';
 import { laundryOrder, laundryPrice } from './career.ts';
 import { filterOffer } from './outing.ts';
-import { cratePartPrice, waterStartDay, type Item } from './scenario.ts';
+import { cratePartPrice, waterStartDay } from './scenario.ts';
 import { cargoKind, floatFarmOrder, shipSaleQuote, shipStop } from './ship.ts';
 
-export function tradeOutlook(state: Counter, item: Item) {
+export function tradeOutlook(state: Counter, item: Counter['inventory'][number]) {
   if (!state.ship || state.ship.closed || state.awaitingOpen) return;
   const shore = shipSaleQuote(state.day, item);
   const cargo = cargoKind(item.id);
@@ -27,6 +27,7 @@ export function tradeOutlook(state: Counter, item: Item) {
     cashOffers.push({ buyer: '货棚', price: cratePartPrice(item), action: { ...target, type: 'sellCrateGoods' } });
   }
   const cash = cashOffers.sort((a, b) => b.price - a.price)[0];
+  const counterQuote = counterBuyerQuotes(state, item)[0];
   let buyer: { name: string; price: number; when: string; reason: string; action?: Action; blocked?: boolean } | undefined;
   if (farm && state.day <= floatFarmOrder.last && (state.day < floatFarmOrder.first || farm.active)) {
     buyer = { name: '浮田维修班', price: floatFarmOrder.price, when: farm.active ? '今天可交' : `第 ${floatFarmOrder.first} 天起`,
@@ -49,6 +50,10 @@ export function tradeOutlook(state: Counter, item: Item) {
       reason: `洗两趟衣物，限收一枚至少余两次的滤芯。第 ${laundry.last} 天截止。${laundry.bookedOnBoat ? '已约在自有船验货。' : ''}`,
       action: eligible && laundry.active && !laundry.bookedOnBoat
         ? { ...target, type: 'career', task: 'laundry' } : undefined };
+  } else if (counterQuote) {
+    buyer = { name: counterQuote.buyer, price: counterQuote.price,
+      when: counterQuote.day === state.day ? '今天在柜台' : `第 ${counterQuote.day} 天到柜台`,
+      reason: counterQuote.limited ? '买家有收货名额，需在柜台交货。' : '船工来收备板，当场结钱。' };
   } else if (shore && cargo !== undefined && shore.nextBid > shore.bid) {
     const { next, nextDay } = shipStop(state.day);
     buyer = { name: next.name, price: shore.nextBid, when: `第 ${nextDay} 天靠泊`,

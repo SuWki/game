@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { counterNotes, counterSelection, openCounter, outingPlan, ropeVisit, settleVisit } from '../src/counter.ts';
+import { counterBuyerQuotes, counterNotes, counterSelection, openCounter, outingPlan, ropeVisit, settleVisit } from '../src/counter.ts';
 import { voyageOdds, voyageResult, voyageRoll } from '../src/outing.ts';
 import { cutQuote, pickStone, stoneOdds, stoneResult, trialCut } from '../src/jade.ts';
 import { board, crateInspection, cratePartPrice, currentVisit, harborPeriod, lantern, salvageCrate, salvageWindow, scheduledVisits, unpackCrate } from '../src/scenario.ts';
@@ -589,6 +589,30 @@ test('一位卖家可挑货，类别买家只收合格自有货且每次最多�
     trade(buyer.id, rope.item.id, fuse.item.id)).state);
   assert.deepEqual([sold.cash, sold.consignment, sold.inventory.map((item) => item.id)], [60, undefined, [wet.id, boardOffer.item.id]]);
   assert.equal(settleVisit(sold, trade(buyer.id, rope.item.id)).state, sold);
+});
+
+test('挑货预告与柜台用同一验收条件，卖掉缆绳仍可留板到第九天', () => {
+  const start = { ...openCounter(54), day: 6, economy: 'port', chapterTwoStarted: true, ship: { water: 3 } };
+  const seller = currentVisit(6, 0, 'port');
+  const [panel, rope, fuse] = counterSelection(start, seller).offers;
+  const select = (state, visit, items) => settleVisit(state, { type: 'tradeSelection', visitId: visit.id, itemIds: items }).state;
+  const quote = (state, entry) => counterBuyerQuotes(state, { ...entry.item, cost: entry.price });
+  assert.deepEqual(quote(start, panel).map(({ day, price }) => [day, price]), [[7, 55], [9, 72]]);
+  assert.deepEqual(quote(start, rope).map(({ day, price }) => [day, price]), [[7, 24]]);
+  assert.deepEqual(quote(start, fuse).map(({ day, price }) => [day, price]), [[7, 28]]);
+  assert.deepEqual(quote(start, { ...fuse, item: { ...fuse.item, condition: '外盒进潮，封签松脱' } }), []);
+  assert.match(counterNotes(start).find(({ id }) => id === 'board').text, /检修工收电路板 55 元.*防潮缆绳 24 元.*原封保险丝 28 元.*最多 2 件/);
+  const bought = select(start, seller, [panel.item.id, rope.item.id]);
+  const close = (state) => settleVisit(state, { type: 'close', day: state.day }).state;
+  const open = (state) => settleVisit(reloadState(state), { type: 'open', day: state.day }).state;
+  const seven = open(close(bought));
+  assert.equal(seven.cash, 1);
+  const buyer = currentVisit(7, 0, 'port');
+  const sold = reloadState(select(seven, buyer, [rope.item.id]));
+  assert.equal(sold.cash, 25);
+  assert.deepEqual(sold.inventory.map(({ id }) => id), [panel.item.id]);
+  assert.deepEqual(counterBuyerQuotes(sold, sold.inventory[0]).map(({ day, price }) => [day, price]), [[9, 72]]);
+  assert.equal(select(sold, buyer, [panel.item.id]), sold);
 });
 
 function reloadState(state) {

@@ -306,6 +306,12 @@ export function ownedImitation(state: Counter, item: Item) {
 
 export const counterBuyerLimit = 2;
 
+function sparePartPrice(item: Item) {
+  if (!harborGoods.some((good) => good.item.model === item.model && good.item.condition === item.condition)) return;
+  if (item.model === '船具') return 24;
+  if (item.model === '电料') return 28;
+}
+
 export function counterSelection(state: Counter, visit: Visit) {
   if (!state.ship) return;
   if (visit.kind === 'purchase' && (visit.id === 'day-6-board' || /^round-\d+-lead$/.test(visit.id))) {
@@ -316,14 +322,36 @@ export function counterSelection(state: Counter, visit: Visit) {
   }
   if (visit.kind !== 'sale' || (visit.id !== 'day-7-board' && !/^round-\d+-lead-buyer$/.test(visit.id))) return;
   const primary = saleOffer(state, visit);
-  const sparePrices = new Map([['船具', 24], ['电料', 28]]);
   const offers = state.inventory.flatMap((item) => {
     if (item.id === primary.item?.id) return [{ item, price: primary.price }];
-    const price = sparePrices.get(item.model);
-    return price !== undefined && harborGoods.some((good) => good.item.model === item.model && good.item.condition === item.condition)
-      ? [{ item, price }] : [];
+    const price = sparePartPrice(item);
+    return price === undefined ? [] : [{ item, price }];
   });
   return { buying: false, offers };
+}
+
+export function counterBuyerQuotes(state: Counter, item: InventoryItem) {
+  if (!state.ship || state.ship.closed) return [];
+  const inventory = state.inventory.some(({ id }) => id === item.id) ? state.inventory : [...state.inventory, item];
+  const quotes: { day: number; buyer: string; price: number; limited: boolean }[] = [];
+  // Group sales pay at the counter. Quotes for later days do not count as cash on hand.
+  const last = item.id === board.id && state.day <= 9 ? 9 : state.day + 1;
+  for (let day = state.day; day <= last; day++) {
+    const start = day === state.day ? state.visitIndex : 0;
+    for (let index = start; ; index++) {
+      const visit = currentVisit(day, index, state.economy, state.harborSchedule);
+      if (!visit) break;
+      if (visit.kind !== 'sale') continue;
+      if (visit.id === 'day-9-winch' && item.id === board.id) {
+        quotes.push({ day, buyer: visit.person, price: lateBoardPrice, limited: false });
+      } else {
+        const selection = counterSelection({ ...state, day, inventory }, visit);
+        const offer = selection?.offers.find(({ item: candidate }) => candidate.id === item.id);
+        if (offer) quotes.push({ day, buyer: visit.person, price: offer.price, limited: true });
+      }
+    }
+  }
+  return quotes;
 }
 
 function settleSelection(state: Counter, visit: Visit, itemIds: string[]) {
@@ -614,7 +642,14 @@ export function counterNotes(state: Counter) {
   }
   if (state.chapterTwoStarted) {
     notes.push({ id: state.economy === 'port' ? 'port' : 'water', day: 6, title: '港务告示', text: portBulletin(state) });
-    if (state.day > 6 || (state.day === 6 && !state.awaitingOpen)) {
+    if (state.ship && (state.day > 6 || (state.day === 6 && !state.awaitingOpen))) {
+      const visit = currentVisit(7, 0, state.economy, state.harborSchedule);
+      if (visit?.kind === 'sale') {
+        const [rope, fuse] = harborGoods;
+        notes.push({ id: 'board', day: 6, title: '检修收货单',
+          text: `第 7 天${visit.person}收电路板 ${visit.price} 元、防潮缆绳 ${sparePartPrice(rope.item)} 元、原封保险丝 ${sparePartPrice(fuse.item)} 元，合计最多 ${counterBuyerLimit} 件。第 9 天船工另收电路板 ${lateBoardPrice} 元。` });
+      }
+    } else if (state.day > 6 || (state.day === 6 && !state.awaitingOpen)) {
       notes.push({ id: 'board', day: 6, title: '旧电路板的买家字条', text: `第 7 天${state.economy === 'port' ? '检修工' : '钟表师'}出 55 元，第 9 天船工出 ${lateBoardPrice} 元。` });
     }
     if (state.day > 8 || (state.day === 8 && !state.awaitingOpen)) {

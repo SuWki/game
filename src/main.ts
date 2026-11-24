@@ -1,6 +1,6 @@
 import './style.css';
 import { berthFee, boardingWater, cargoGoods, cargoId, cargoKind, cargoQuote, crossingBudget, floatFarmOrder, shipSaleQuote, shipStop, waterPacks } from './ship';
-import { counterBuyerLimit, counterSelection, shipGap, shipProvisions } from './counter';
+import { counterBuyerLimit, counterBuyerQuotes, counterSelection, shipGap, shipProvisions } from './counter';
 import { tradeOutlook } from './trade-outlook';
 import { boatBuildMaterials, boatMaterials, boatWorks, careerVisit, laundryOrder, laundryPrice, materialJobPrice,
   materialKind, playerBoat, saltPen, shipNight, ticketExtension } from './career';
@@ -406,6 +406,7 @@ function addAction(label: string, action: Action, quiet = false, disabled = fals
 }
 
 function renderVisit(visit: Visit) {
+  const selection = counterSelection(state, visit);
   const tags = { purchase: '卖断', pawn: '典当', sale: '收购', redeem: '赎回', timerBuyer: '收购', waterReserve: '预订用水' };
   const ticket = visit.kind === 'redeem' ? heldTicket(state, visit) : undefined;
   const offer = visit.kind === 'sale' ? saleOffer(state, visit) : undefined;
@@ -435,6 +436,7 @@ function renderVisit(visit: Visit) {
   if (visit.kind === 'pawn') terms = `赎回额 ${visit.redeemPrice} 元 · 第 ${visit.dueDay} 天打烊前可赎`;
   const canSellBoard = visit.id === 'day-9-winch' && state.inventory.some((entry) => entry.id === board.id);
   if (offer && !offer.item) terms = canSellBoard ? `手上的电路板仍可卖 ${lateBoardPrice} 元。` : offer.issue;
+  if (offer && !offer.item && selection?.offers.length) terms = '其他合用的货也可以交，点「挑选可交的货」看报价。';
   if (visit.kind === 'redeem') terms = ticket ? `第 ${ticket.dueDay} 天到期 · 收款 ${ticket.redeemPrice} 元` : visit.missing;
   if (visit.kind === 'timerBuyer') terms = timer ? '柜台有一枚已归店的仿制 T8。' : '船工没找到店里能卖的计时器。';
   if (visit.kind === 'waterReserve') terms = `现在付 ${waterReservePrice} 元，抵第 ${visit.supplyDay} 天一日用水。` +
@@ -446,12 +448,16 @@ function renderVisit(visit: Visit) {
     ${item?.reference ? appraisalView(item) : ''}`;
 
   const visitId = visit.id;
-  const selection = counterSelection(state, visit);
   if (selection) {
     const open = document.createElement('button');
     open.textContent = selection.buying ? '挑货 · 可单件收购' : '挑选可交的货';
     open.onclick = () => showCounterSelection(visit, selection);
     actions.append(open);
+    const hint = document.createElement('p');
+    hint.className = 'terms';
+    hint.textContent = selection.buying ? `带来 ${selection.offers.length} 件货，可挑着买。逐件查看价格和下一位买家。`
+      : `也收合格船具和原封电料，最多 ${counterBuyerLimit} 件。`;
+    scene.querySelector('.visitor')?.append(hint);
   }
   if (visit.kind === 'purchase' || visit.kind === 'pawn') {
     for (const amount of visit.offers) {
@@ -510,6 +516,12 @@ function showCounterSelection(visit: Visit, selection: NonNullable<ReturnType<ty
   intro.textContent = selection.buying ? '货物可以分开买。选好后一起结账，客人带走其余货物。'
     : `收来客提到的主货，也收合格船具或封签完好的电料。本次最多收 ${counterBuyerLimit} 件。`;
   content.append(intro);
+  if (selection.buying) {
+    const note = document.createElement('p');
+    note.className = 'selection-market-note';
+    note.textContent = `次日买家最多收 ${counterBuyerLimit} 件。货款要等实际交货才到账。`;
+    content.append(note);
+  }
   const selected = new Set<string>();
   const total = document.createElement('p');
   total.className = 'selection-total';
@@ -536,6 +548,18 @@ function showCounterSelection(visit: Visit, selection: NonNullable<ReturnType<ty
     };
     const facts = document.createElement('span');
     facts.textContent = `${item.name} · ${item.condition} · ${price} 元`;
+    const later = counterBuyerQuotes(state, { ...item, cost: price }).filter((quote) => quote.day > state.day);
+    const nextOffer = later[0];
+    if (nextOffer) {
+      const hint = document.createElement('small');
+      hint.textContent = `第 ${nextOffer.day} 天 ${nextOffer.buyer}收 ${nextOffer.price} 元`;
+      if (selection.buying && later.length > 1) {
+        hint.textContent += ` · 第 ${later[1].day} 天 ${later[1].buyer}收 ${later[1].price} 元`;
+      } else if (!selection.buying && nextOffer.price > price) {
+        hint.textContent += ` · 留货可多收 ${nextOffer.price - price} 元`;
+      }
+      facts.append(hint);
+    }
     row.append(input, facts);
     content.append(row);
   }

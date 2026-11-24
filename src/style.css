@@ -265,7 +265,10 @@ dialog::backdrop { background: #110f16bd; }
 .ship-jumps { display: flex; flex-wrap: wrap; gap: 8px; }
 .selection-line { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 9px 4px; border-bottom: 1px solid #b8976d; }
 .selection-line input { width: 17px; height: 17px; accent-color: #765135; }
+.selection-line small { display: block; margin-top: 2px; color: #5b4535; }
+.selection-market-note { color: #5b4535; margin-top: 6px; }
 .selection-total { margin: 8px 0; font-weight: 700; }
+#selection-content > button:not(:disabled) { color: #fff0d2; }
 .boat-project { margin: 12px 0; padding: 12px; border: 1px solid #9f744c; background: #f5e5ca; }
 .boat-overview.harbor-good { margin: 0; padding-top: 0; border: 0; }
 .boat-overview h3 { font-size: 20px; }
