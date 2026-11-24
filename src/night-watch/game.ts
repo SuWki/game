@@ -2,7 +2,7 @@ import { arts, bridgeRegion, courierRegion, heartDao, heartRealm, mountainFirstR
 import type { TrialId } from "./content.ts";
 import { bossEquipment, equipment, knownGear, minionEquipment, slots, traits, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearSlot } from "./equipment.ts";
-import { decisionDue, encounters } from "./tactics.ts";
+import { caseClues, decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
 
 export type Region = 0 | 1 | 2 | 3 | 4 | 5;
@@ -352,8 +352,10 @@ export function unlocked(save: Save, region: Region): boolean {
 
 export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm] as const;
 
+export const challengeClues = 2;
 export function canChallenge(save: Save, region: Region): boolean {
-  return unlocked(save, region) && clueCount(save, region) === 3 && save.realm >= challengeRealms[region];
+  return unlocked(save, region) && (save.victories[region] > 0 || clueCount(save, region) >= challengeClues) &&
+    save.realm >= challengeRealms[region];
 }
 
 export function accrueOffline(save: Save, now: number) {
@@ -373,7 +375,7 @@ export function win(save: Save, region: Region, random = Math.random) {
   const first = save.victories[region]++ === 0;
   if (region === bridgeRegion && first) save.realm = cultivationFor(save).realm;
   if (first) {
-    if (region === 0) earnDao(save, mountainFirstReward);
+    if (region === 0) earnDao(save, Math.max(mountainFirstReward, arts[0].cost - save.dao));
     const id = bossEquipment[region];
     if (!save.ownedGear.includes(id)) {
       save.ownedGear.push(id);
@@ -421,6 +423,7 @@ export type Fight = {
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
   sigilThrough: number; ward: number;
+  preparation?: "ready" | "used";
   kit: Kit; realm: number; ranks: Save["ranks"];
   loadout: GearLoadout;
   cue: "idle" | "slash" | "stagger" | "guard" | "strike";
@@ -446,6 +449,13 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
     consult: boss, waiting: false, focus: 2,
     cue: "idle", windup: "", event: "", lastThreat: "", log: [], result: "fighting",
   };
+}
+
+export function startCaseFight(save: Save, region: Region) {
+  if (!canChallenge(save, region)) return;
+  const fight = startFight(save, region, true);
+  if (clueCount(save, region) === 3) fight.preparation = "ready";
+  return fight;
 }
 
 export function mirrorWave(level: number): 2 | 3 {
@@ -713,6 +723,12 @@ function resolveRound(f: Fight) {
     f.footing = 0;
     marks.push("借墩稳身");
   }
+  if (f.hp > 0 && f.preparation === "ready" && choice === "safe" && elapsed === (f.region === 1 ? 1 : 0)) {
+    const clue = caseClues[f.region];
+    f.preparation = "used";
+    marks.push(clue.aid);
+    actions.push(`${clue.aid}，额外伤害 ${deal(clue.damage)}`);
+  }
   const flood = f.water >= riverFloodLimit;
   f.cue = interrupted ? "stagger" : "slash";
   const holding = f.region === 2 && choice === "risk" && elapsed === 0;
@@ -865,6 +881,7 @@ export function previewOpening(fight: Fight, choice: Response) {
   const end = Math.min(trial.limit, trial.round + [1, 2, 3, 1, 1, 2][trial.region]);
   while (trial.round < end && trial.result === "fighting") resolveRound(trial);
   return { life: Math.max(0, trial.life), hp: Math.max(0, trial.hp), round: trial.round, result: trial.result, water: trial.water, paperHits: trial.paperHits, ...(trial.trial && { trialProgress: trial.trial.progress }),
+    ...(fight.preparation === "ready" && trial.preparation === "used" && { prepared: caseClues[fight.region].aid }),
     ...(trial.region === bridgeRegion && { footing: trial.footing }),
     ...(trial.region === watchRegion && { ward: trial.ward }),
     ...(trial.region === courierRegion && { cover: horseCovered(fight.round + 1, choice) }),

@@ -43,3 +43,41 @@ export function decisionDue(region: keyof typeof encounters & number, round: num
   const { first, every } = encounters[region];
   return round >= first && (round - first) % every === 0;
 }
+
+export const caseClues = [
+  {
+    danger: "第 3、6、9… 回合虎啸，攻式会吃满重击。",
+    counter: "伏身避啸至多扣 4 点气血。守式也能架住虎啸。",
+    aid: "灯油引虎", damage: 8,
+  },
+  {
+    danger: "第 2、5、8… 回合绷缆，下一回合起回浪。三次汲水便会覆舟。",
+    counter: "绷缆时割缆可清空水位。带镇山喝也可选引浪撞舟，截住回浪后借浪反伤。",
+    aid: "水底铃扰阵", damage: 14,
+  },
+  {
+    danger: "连续斩中两次纸面会反噬。第 3、6、9… 回合可凭听息认出真身。",
+    counter: "借面时挑灯可连照三回合，藏锋则把刀伤留到下一回合。",
+    aid: "旧名唤真", damage: 14,
+  },
+  {
+    danger: "第 3、6、9… 回合横篙。第三次中招会落桥。",
+    counter: "借墩稳身能清掉失足。镇山喝与横篙同回合，可以截招。",
+    aid: "借栏绊篙", damage: 14,
+  },
+  {
+    danger: "举灯时刀伤减半。第 2、5、8… 回合冲灯，顶着马灯中招还会灼伤。",
+    counter: "压灯卸势能打落马灯，冲灯至多扣 8 点气血。迎灯进刀则要吃满冲灯。",
+    aid: "顺缰绊蹄", damage: 16,
+  },
+  {
+    danger: "第 1、4、7… 回合重结更印。敲更时若更印仍在，会多扣 28 点气血。",
+    counter: "提槌时揭去更印。带寄灯符的人也可以借灯引符，烧印的同时打出火伤。",
+    aid: "照簿破势", damage: 16,
+  },
+] as const;
+
+export function preparationText(region: keyof typeof encounters & number) {
+  const clue = caseClues[region];
+  return `「${clue.aid}」· 首次${encounters[region].safe.name}后，额外造成 ${clue.damage} 点伤害。`;
+}

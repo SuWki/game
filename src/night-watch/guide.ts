@@ -1,6 +1,6 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { canChallenge, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
+import { canChallenge, challengeClues, clueCount, equippedArts, masteryCost, patrolRemaining } from "./game.ts";
 import type { Region, Save } from "./game.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | TrialId;
@@ -89,14 +89,14 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[0]) {
     if (canChallenge(save, 0)) return {
       id: "first-boss", title: "初次问妖",
-      text: "山君每三回合一啸。交锋时会停下来，等你决定怎么应对。想提前对照敌我回合，可先翻看「招式」页。",
+      text: "现在就能挑战山君。想先试伏身避啸的效果，可以从妖案对照招路。继续巡夜找到第三条线索，还能备好灯油。",
       target: { tab: "skills", action: "preview", label: "查看山君招谱" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
       return { id: "first-gear", title: "拾到装备", text: "阿照停下来查看随身装备。想用就穿戴，想留着就收入行囊。",
         target: { tab: "patrol", action: "slot:" + (save.ownedGear.includes("pineBlade") ? "weapon" : "armor"), label: "查看槽位" } };
     }
-    return { id: "click-patrol", title: "提灯夜行", text: "提灯上山。斩满十二只小妖，就能找到山君。",
+    return { id: "click-patrol", title: "提灯夜行", text: "提灯上山。斩到第三只会看见山君的招路，第七只后就能挑战。",
       target: { tab: "patrol", action: "hunt", label: "提灯夜行" } };
   }
   if (!save.victories[1]) {
@@ -121,10 +121,10 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[2]) {
     if (save.region === 1 && !save.kills[2]) return {
       id: "temple-road", title: "去白烛庙查案",
-      text: "胜过河伯，去庙街的路就通了。到庙街斩妖可攒下升入听息境所需的道行，线索齐后再去挑战娘娘。",
+      text: "胜过河伯，去庙街的路就通了。到庙街斩妖攒道行，进入听息并找到两条线索后便可挑战娘娘。",
       target: { tab: "patrol", action: "region:2", label: "前往白烛庙" },
     };
-    if (save.realm === 3 && save.region === 2 && clueCount(save) < 3) return insightTip();
+    if (save.realm === 3 && save.region === 2 && clueCount(save) < challengeClues) return insightTip();
   }
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, clueCount, combatStats, compareGear, cultivation, earnDao, decode, newSave,
-  applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  applyPreset, artDue, equipArt, previewOpening, recordPatrolKill, roundMoves, settleMirror, settleTrial, startCaseFight, startFight, startMirrorFight, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment } from "../src/night-watch/equipment.ts";
@@ -68,7 +68,7 @@ test("巡夜依次产出线索和破境道行，击退山君后可以立刻学�
   const save = newSave(100);
   for (let kill = 1; kill <= 12; kill++) {
     stowThenPatrol(save);
-    assert.equal(canChallenge(save, 0), kill === 12);
+    assert.equal(canChallenge(save, 0), kill >= 7);
     assert.equal(clueCount(save), [3, 7, 12].filter(target => kill >= target).length);
   }
   win(save, 0);
@@ -687,10 +687,11 @@ test("首卷旧档过桥查案，首胜确定给路引与折篙刀，心斋同�
   assert.deepEqual(s.clues, [3, 3, 3, 0, 0, 0]);
   assert.deepEqual([s.mirror.best, s.trialBest.ferryTrial], [12, 9]);
   s.region = 3;
-  for (let i = 0; i < 53; i++) stowThenPatrol(s, () => 1);
+  for (let i = 0; i < 29; i++) stowThenPatrol(s, () => 1);
   assert.equal(canChallenge(s, 3), false);
   stowThenPatrol(s, () => 1);
   assert.equal(canChallenge(s, 3), true);
+  for (let i = 30; i < 54; i++) stowThenPatrol(s, () => 1);
   assert.equal(s.lifetimeDao, 1414);
   assert.equal(s.realm, 3);
   assert.deepEqual(win(s, 3, () => 1), { first: true, drop: true });
@@ -758,7 +759,7 @@ test("纸马院和守更楼沿主线开放，确定性装备可首胜，符火�
   s.victories = [1, 1, 1, 1, 0, 0];
   s.region = 4;
   earnDao(s, 1900);
-  s.kills[4] = 43;
+  s.kills[4] = 24;
   assert.equal(canChallenge(s, 4), false);
   recordPatrolKill(s, () => 1);
   assert.equal(canChallenge(s, 4), true);
@@ -778,7 +779,7 @@ test("纸马院和守更楼沿主线开放，确定性装备可首胜，符火�
   assert.equal(study(s, 4), true);
   s.region = 5;
   s.kills[5] = 52;
-  earnDao(s, 471);
+  earnDao(s, 642);
   assert.equal(canChallenge(s, 5), true);
   assert.equal(fightToEnd(s, 5).result, "lost");
   const noFire = playRounds(startFight(s, 5, true), 20, { 2: "safe", 5: "safe" });
@@ -859,4 +860,46 @@ test("迁移四图旧档保留折篙刀顺序，两套配装在刷新后原样�
   assert.deepEqual(weaponArts(reloaded.kit), [3, 5]);
   assert.deepEqual([reloaded.kit.stance, reloaded.kit.sigil, reloaded.loadout.charm, reloaded.mirror.equipped], ["attack", true, "courierSeal", undefined]);
   assert.deepEqual([reloaded.mirror.best, reloaded.trialBest.ferryTrial], [7, 12]);
+});
+
+test("第二条线索可首战，早打山君也能立刻修习镇山喝", () => {
+  const save = newSave(0);
+  for (let i = 0; i < 6; i++) stowThenPatrol(save, () => 1);
+  assert.equal(clueCount(save), 1);
+  assert.equal(startCaseFight(save, 0), undefined);
+  stowThenPatrol(save, () => 1);
+  assert.equal(clueCount(save), 2);
+  const fight = playRounds(startCaseFight(save, 0), 20, { 3: "safe" });
+  assert.equal(fight.result, "won");
+  assert.equal(fight.preparation, undefined);
+  assert.equal(save.dao, 14);
+  win(save, 0);
+  assert.equal(save.dao, 30);
+  assert.equal(study(save, 0), true);
+  assert.equal(canChallenge(save, 0), true);
+  assert.equal(clueCount(save, 0), 2);
+});
+
+test("第三条线索在正篇首次割缆时追加伤害，预览不会消耗准备", () => {
+  const save = newSave(0);
+  save.victories = [1, 0, 0, 0, 0, 0];
+  save.kills[1] = 100;
+  earnDao(save, 330);
+  const f = startCaseFight(save, 1);
+  while (!f.waiting) tickFight(f);
+  const prepared = previewOpening(f, "safe");
+  assert.equal(f.preparation, "ready");
+  assert.equal(prepared.prepared, "水底铃扰阵");
+  assert.equal(previewOpening(f, "pass").prepared, undefined);
+  assert.equal(previewOpening(f, "risk").prepared, undefined);
+  const plain = playRounds(startFight(save, 1, true), 3, { 2: "safe" });
+  playRounds(f, 3, { 2: "safe" });
+  assert.deepEqual([f.hp, f.life, f.water], [prepared.hp, prepared.life, prepared.water]);
+  assert.equal(plain.hp - f.hp, 14);
+  assert.equal(f.preparation, "used");
+  playRounds(f, 6, { 5: "safe" });
+  assert.equal(f.links["水底铃扰阵"], 1);
+  save.victories[2] = 1;
+  assert.equal(startMirrorFight(save, 1).preparation, undefined);
+  assert.equal(startTrial(save, "ferryTrial").preparation, undefined);
 });

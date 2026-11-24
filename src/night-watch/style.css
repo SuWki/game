@@ -117,12 +117,9 @@ progress::-moz-progress-bar { background: #e3b365; }
 .clues li { display: flex; gap: 8px; color: #6d6558; }
 .clues .found { color: var(--ink); }
 .clues .found span { color: var(--red); }
-.kill-progress { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; color: #625748; font-size: 13px; }
-.kill-progress strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-.kill-progress progress { background: #d9c6a2; }
-.kill-progress progress::-webkit-progress-bar { background: #d9c6a2; }
-.kill-progress progress::-webkit-progress-value { background: var(--red); }
-.kill-progress progress::-moz-progress-bar { background: var(--red); }
+.evidence-list li { padding:8px 0; border-bottom:1px solid #d3c4a4; }
+.evidence-list small { margin-left:8px; color:#665640; }
+.evidence-list li p { margin:3px 0 0; line-height:1.5; }
 .paper .meta { color: #625748; font-size: 13px; margin: 7px 0 11px; }
 .paper .prize { color: var(--red); font-weight: 700; margin-bottom: 10px; }
 .guide-card { background: #e7d9b8; border-left: 3px solid #9b5b3d; padding: 8px 12px 12px; margin-bottom: 17px; }
