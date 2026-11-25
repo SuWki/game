@@ -1,4 +1,4 @@
-import { altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bookReadingDao, bridgeRegion, cliffRegion, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, lampPaper, mountainFirstReward, regions, ropeStep, skyRegion, stillDao, stillRealm, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm, windSurveyDao } from "./content.ts";
+import { altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bookReadingDao, bridgeRegion, cliffRegion, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, lampPaper, mountainFirstReward, regions, ropeStep, shiftedCandleFirst, skyRegion, stillDao, stillRealm, templeRepriseHp, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm, windSurveyDao } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { bossEquipment, charmPower, equipment, gearDamage, gearDisplayName, gearEffect, gearLife, gearRank, knownGear, minionEquipment, reforgeIds, reforging, slots, traitPower, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearReforges, GearSlot, ReforgeId } from "./equipment.ts";
@@ -59,6 +59,7 @@ export type Save = {
   presets: [Preset | null, Preset | null];
   rematchRanks: PerRegion<number>;
   reforges: GearReforges;
+  templeReprise?: TempleRepriseProgress;
 };
 
 export const saveKey = "night-watch-v1";
@@ -86,6 +87,8 @@ export type Engraving = keyof typeof engravings;
 type MirrorOutcome = { round: number; life: number; maxLife: number; hp: number; won: boolean; build: string };
 export type MirrorAttempt = MirrorOutcome & { level: number };
 export type AltarMirrorAttempt = MirrorOutcome & { pages: number };
+export type TempleRepriseAttempt = MirrorOutcome & { candleHits: number };
+type TempleRepriseProgress = { cleared: boolean; recent: TempleRepriseAttempt; previous?: TempleRepriseAttempt };
 type AltarMirrorProgress = { cleared: boolean; recent: AltarMirrorAttempt; previous?: AltarMirrorAttempt };
 type MirrorProgress = {
   best: number;
@@ -104,11 +107,15 @@ function newMirror(time: number): MirrorProgress {
   return { best: 0, sand: 0, time, remainder: 0, ranks: { edge: 0, step: 0 } };
 }
 
-export function mirrorUnlocked(save: Save) {
+export function mirrorUnlocked(save: Pick<Save, "victories">) {
   return save.victories[2] > 0;
 }
 
 export function altarMirrorUnlocked(save: Save) {
+  return mirrorUnlocked(save) && !!save.victories[altarRegion];
+}
+
+export function templeRepriseUnlocked(save: Pick<Save, "victories">) {
   return mirrorUnlocked(save) && !!save.victories[altarRegion];
 }
 
@@ -119,7 +126,9 @@ export function sandRate(best: number) {
 export function reforgeState(save: Save, id: ReforgeId) {
   if (save.reforges[id]) return "done";
   if (!save.victories[reforging[id].chapter]) return "story";
-  if (!gearRank(id, save.rematchRanks)) return "rematch";
+  if (id === "templeBlade") {
+    if (!save.templeReprise?.cleared) return "reprise";
+  } else if (!gearRank(id, save.rematchRanks)) return "rematch";
   if (!save.ownedGear.includes(id)) return "gear";
   return "ready";
 }
@@ -383,7 +392,7 @@ export function decode(raw: string | null, now: number): Save {
     delete mirror.equipped;
   }
   const recent = data.mirror.recent;
-  const validOutcome = (entry: MirrorOutcome) => entry && count(entry.round, mirrorRounds) && count(entry.life)
+  const validOutcome = (entry: MirrorOutcome, limit = mirrorRounds) => entry && count(entry.round, limit) && count(entry.life)
     && count(entry.maxLife) && entry.life <= entry.maxLife && count(entry.hp)
     && typeof entry.won === "boolean" && typeof entry.build === "string" && entry.build.length <= 180;
   if (recent && (!count(recent.level) || recent.level < 1 || recent.level - 1 > data.mirror.best || !validOutcome(recent))) {
@@ -396,6 +405,13 @@ export function decode(raw: string | null, now: number): Save {
     const previous = altar.previous && validAltar(altar.previous) ? altar.previous : undefined;
     data.mirror.altar = { recent: altar.recent, previous, cleared: altar.cleared === true || altar.recent.won || previous?.won === true };
   } else delete data.mirror.altar;
+  const reprise = data.templeReprise;
+  const validReprise = (entry: TempleRepriseAttempt) => validOutcome(entry, templeRepriseRounds) && entry.round > 0
+    && count(entry.candleHits, entry.round) && (!entry.won || entry.hp === 0 && entry.life > 0);
+  if (templeRepriseUnlocked(data) && reprise && validReprise(reprise.recent)) {
+    const previous = reprise.previous && validReprise(reprise.previous) ? reprise.previous : undefined;
+    data.templeReprise = { recent: reprise.recent, previous, cleared: reprise.cleared === true || reprise.recent.won || previous?.won === true };
+  } else delete data.templeReprise;
   data.windSurveyed = data.version >= 5 && data.windSurveyed === true && !!data.victories[watchRegion];
   data.booksCompared = data.version >= 7 && data.booksCompared === true && !!data.victories[skyRegion];
   const best = data.trialBest;
@@ -591,6 +607,9 @@ const altarMirrorMoves: Move[] = [
   { name: "合镜 · 妖术", damage: 86, heavy: true, spell: true }, { name: "异响", damage: 14 }, { name: "落下末页", damage: 0 },
   { name: "借铃", damage: 16 }, { name: "飞页", damage: 12 }, { name: "合镜 · 妖术", damage: 96, heavy: true, spell: true },
 ];
+const shiftedCandleMoves: Move[] = [
+  { name: "烛偏见真身", damage: 18 }, { name: "借面拨烛", damage: 27 }, { name: "催纸", damage: 48, heavy: true },
+];
 
 export type BattleOrder = { round: number; choice: Exclude<Response, "pass"> };
 
@@ -610,6 +629,7 @@ export type Fight = {
   lampMissedStation?: number;
   altarAnswers?: { progress: number };
   altarMirror?: { pages: number };
+  templeReprise?: true;
   trial?: { id: TrialId; progress: number };
   rematchRank?: number;
   rematchPractice?: boolean;
@@ -688,6 +708,16 @@ export function startRematch(save: Save, region: Region, practice = false) {
   if (spec.prepared) fight.preparation = "ready";
   fight.hp = fight.maxHp = spec.hp;
   fight.riverWave = spec.riverWave;
+  return fight;
+}
+
+export function startTempleReprise(save: Save) {
+  if (!templeRepriseUnlocked(save)) return;
+  const fight = startFight(save, 2, true);
+  fight.templeReprise = true;
+  fight.name = "错烛娘娘";
+  fight.hp = fight.maxHp = templeRepriseHp;
+  fight.limit = templeRepriseRounds;
   return fight;
 }
 
@@ -818,14 +848,40 @@ export function settleAltarMirror(save: Save, fight: Fight, now: number) {
   return { idle, reward };
 }
 
-function moveFor(region: Region, round: number, riverWave: 2 | 3 = 3, altarMirror = false) {
-  if (altarMirror) return altarMirrorMoves[Math.min(round, mirrorRounds) - 1];
+export function settleTempleReprise(save: Save, fight: Fight, now: number) {
+  if (!fight.templeReprise || fight.result === "fighting" || !templeRepriseUnlocked(save)) return;
+  accrueSand(save, now);
+  const old = save.templeReprise;
+  const first = fight.result === "won" && !old?.cleared;
+  save.templeReprise = {
+    cleared: first || !!old?.cleared, previous: old?.recent,
+    recent: { ...mirrorOutcome(fight), candleHits: fight.links["烛影刀显形加伤"] ?? 0 },
+  };
+  if (first && !save.ownedGear.includes("templeBlade")) {
+    save.ownedGear.push("templeBlade");
+    save.newGear.unshift("templeBlade");
+    return { first, recovered: "templeBlade" as const };
+  }
+  return { first };
+}
+
+type BattleTiming = "altar-mirror" | "shifted-candle";
+
+export function battleTiming(fight: Pick<Fight, "altarMirror" | "templeReprise">): BattleTiming | undefined {
+  if (fight.altarMirror) return "altar-mirror";
+  if (fight.templeReprise) return "shifted-candle";
+}
+
+function moveFor(region: Region, round: number, riverWave: 2 | 3 = 3, timing?: BattleTiming): Move {
+  if (timing === "altar-mirror") return altarMirrorMoves[Math.min(round, mirrorRounds) - 1];
   const index = (round - 1) % 3;
+  if (timing === "shifted-candle") return round === 1 ? { name: "烛火未偏", damage: 18 } : shiftedCandleMoves[index];
   const position = region === 1 && riverWave === 2 && index > 0 ? 3 - index : index;
   return patterns[region][position];
 }
 
-function openingDue(region: Region, round: number, riverWave: 2 | 3) {
+function openingDue(region: Region, round: number, riverWave: 2 | 3, timing?: BattleTiming) {
+  if (timing === "shifted-candle") return round % 3 === 0;
   if (region === hallRegion || region === altarRegion) return false;
   return region === 1 ? (round - 1) % 3 === riverWave - 2 : decisionDue(region, round);
 }
@@ -935,20 +991,20 @@ export function setInwardTide(save: Save, equip: boolean) {
   return true;
 }
 
-export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2 | 3 = 3, altarMirror = false) {
+export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2 | 3 = 3, timing?: BattleTiming) {
   const equipped = equippedArts(kit);
   const names: string[] = ([2, 4, 1, ropeStep, ...weaponArts(kit)] as ArtId[]).filter(id => equipped[id] && artDue(round, id)).map(id => arts[id].name);
   if (kit.lampFusion && artDue(round, 5)) names.unshift("照灯断影");
   return {
     names,
-    enemy: moveFor(region, round, riverWave, altarMirror).name,
-    opening: openingDue(region, round, riverWave),
+    enemy: moveFor(region, round, riverWave, timing).name,
+    opening: openingDue(region, round, riverWave, timing),
   };
 }
 
 export function planWindows(fight: Fight) {
   return Array.from({ length: fight.limit }, (_, i) => i + 1)
-    .filter(round => openingDue(fight.region, round, fight.riverWave));
+    .filter(round => openingDue(fight.region, round, fight.riverWave, battleTiming(fight)));
 }
 
 export function planRiskRequirement(fight: Fight, round: number) {
@@ -979,7 +1035,7 @@ export function enableCombatTactics(fight: Fight) {
 }
 
 function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | undefined {
-  if (!openingDue(fight.region, round, fight.riverWave)) return;
+  if (!openingDue(fight.region, round, fight.riverWave, battleTiming(fight))) return;
   const guard = fight.kit.stance === "guard";
   const hasTide = fight.kit.step === "tide" && fight.ranks[1] > 0;
   const hasShout = fight.kit.shout !== "off" && fight.ranks[0] > 0 && artDue(round, 0);
@@ -1054,14 +1110,14 @@ export function riverPursuitActive(fight: Fight) {
 }
 
 export function paperSealActive(fight: Fight) {
-  return fight.region === 2 && fight.rematchRank === 3;
+  return fight.region === 2 && (fight.rematchRank === 3 || !!fight.templeReprise);
 }
 
 function resolveRound(f: Fight) {
   const startingLife = f.life, startingHp = f.hp;
   const marks: string[] = [];
   const round = ++f.round;
-  const move = moveFor(f.region, round, f.riverWave, !!f.altarMirror);
+  const move = moveFor(f.region, round, f.riverWave, battleTiming(f));
   const trial = f.trial;
   const lampTrial = trial?.id === "lampTrial" ? trial : undefined;
   const altar = f.altarAnswers;
@@ -1204,7 +1260,8 @@ function resolveRound(f: Fight) {
   const lamp = f.region === 2 && choice === "safe" && elapsed >= 0 && elapsed <= 2;
   if (lamp && elapsed === 0) marks.push("挑灯照面");
   if (lamp) actions.push("灯下见真身");
-  const exposed = lamp || f.region !== 2 || f.revealedThrough >= round || f.realm >= 3 && round % 3 === 0;
+  const naturalReveal = f.templeReprise ? round >= shiftedCandleFirst && (round - shiftedCandleFirst) % 3 === 0 : round % 3 === 0;
+  const exposed = lamp || f.region !== 2 || f.revealedThrough >= round || f.realm >= 3 && naturalReveal;
   const sky = f.region === skyRegion;
   const nearCliff = sky && round % 3 === 2;
   const chasing = nearCliff && f.kit.step === "rope" && f.ranks[ropeStep] > 0 && artDue(round, ropeStep);
@@ -1308,6 +1365,7 @@ function resolveRound(f: Fight) {
     if (tide && f.loadout.weapon === "reedBlade") bladeBonus = traitPower("reedBlade", upgrade("reedBlade"));
     if (f.revealedThrough >= round && f.loadout.weapon === "templeBlade") bladeBonus = traitPower("templeBlade", upgrade("templeBlade"));
     if (bladeBonus && f.loadout.weapon) marks.push(equipment[f.loadout.weapon].name + " +" + bladeBonus);
+    if (bladeBonus && f.loadout.weapon === "templeBlade") marks.push("烛影刀显形加伤");
     if (bladeBonus && f.loadout.weapon) actions.push(`${equipment[f.loadout.weapon].name}，刀伤 +${bladeBonus}`);
     if (bonus && charm) marks.push(equipment[charm].name + " +" + bonus);
     if (bonus && charm) actions.push(`${equipment[charm].name}，刀伤 +${bonus}`);
@@ -1582,6 +1640,9 @@ export function forecastFight(fight: Fight, rounds = 6) {
 }
 
 export function defeatSummary(fight: Fight) {
+  if (fight.templeReprise && fight.lastExchange?.marks.includes("纸面封灯")) {
+    return `第 ${fight.round} 回合攒到第二道纸痕，灯被封住。用照影或照灯断影显形，再斩真身可以清掉纸痕。`;
+  }
   if (fight.altarMirror) {
     if (fight.lastExchange?.marks.includes("护纸合镜")) return fight.lastThreat;
     return `第 ${fight.round} 回合${fight.life <= 0 ? "气血耗尽" : "交锋结束"}，已破 ${fight.altarMirror.pages} / ${altarMirrorPages.length} 页，妖影余 ${fight.hp} 气血。`;
@@ -1636,8 +1697,9 @@ export function tickFight(f: Fight) {
   const phase = f.time % 1800;
   if (phase === 100) {
     f.cue = "idle";
-    f.windup = `第 ${f.round + 1} 回合 · ${moveFor(f.region, f.round + 1, f.riverWave, !!f.altarMirror).name}`;
-    if (f.consult && f.focus > 0 && openingDue(f.region, f.round + 1, f.riverWave)) f.waiting = true;
+    const timing = battleTiming(f);
+    f.windup = `第 ${f.round + 1} 回合 · ${moveFor(f.region, f.round + 1, f.riverWave, timing).name}`;
+    if (f.consult && f.focus > 0 && openingDue(f.region, f.round + 1, f.riverWave, timing)) f.waiting = true;
   }
   if (phase === 1000) {
     f.windup = "";

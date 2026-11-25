@@ -1,4 +1,4 @@
-import { bridgeRegion, courierRegion, skyRegion } from "./content.ts";
+import { altarRegion, bridgeRegion, courierRegion, skyRegion } from "./content.ts";
 
 export const slots = { weapon: "兵刃", armor: "护具", charm: "佩饰" } as const;
 export type GearSlot = keyof typeof slots;
@@ -31,6 +31,7 @@ export type GearId = keyof typeof equipment;
 export const reforging = {
   pineBlade: { chapter: bridgeRegion, cost: 18, bonus: 3 },
   ferryCoat: { chapter: courierRegion, cost: 22, bonus: 9 },
+  templeBlade: { chapter: altarRegion, cost: 22, bonus: 4 },
 } as const;
 export type ReforgeId = keyof typeof reforging;
 export const reforgeIds = Object.keys(reforging) as ReforgeId[];

@@ -25,6 +25,10 @@ const caseAdvice = [
 ] as const;
 
 export function battleBrief(fight: Fight) {
+  if (fight.templeReprise) return {
+    threat: "第 4、7、10… 回合烛偏见真身。累计两次斩中纸面就会封灯。",
+    hint: "照影或照灯断影可以更早显形。显形期间斩中真身会清掉纸痕，守式另能挑灯两次。",
+  };
   if (fight.altarMirror) return {
     threat: "十二回合内破三页。第二页第 6 回合覆上，第 7 回合末还在就会合镜。",
     hint: "第二页窗口错开了挑灯诀和照灯断影。可用镇山喝截铃锋接折篙刀，或用两轮刀伤直接破纸。",
@@ -53,6 +57,19 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.templeReprise) {
+    if (marks.includes("纸面封灯")) {
+      if (save.lampFusion && !fight.kit.lampFusion) return {
+        text: "照灯断影在第 2 回合显形，斩中真身就能清掉第一道纸痕。", label: "查看照灯断影", focus: "fusion",
+      };
+      if (!fight.kit.reveal && !fight.kit.lampFusion) return {
+        text: "自然见真身的第 4 回合来得太晚。带照影，在前两回合显形时清掉纸痕。", label: "查看照影", focus: "art:2",
+      };
+      return { text: "守式在第 3、6、9… 回合可补两次挑灯，接上显形之间的空当。", label: "调整架势", focus: "stance" };
+    }
+    if (fight.life > 0) return { text: "留意战报里的显形回合，换一把能多打实伤害的兵刃。", label: "比较兵刃", focus: "weapon" };
+    return { text: "催纸是重击，守式与护具能让阿照撑过下一轮显形。", label: "比较护具", focus: "armor" };
+  }
   if (fight.altarMirror) {
     if (fight.altarMirror.pages === 1 && marks.includes("护纸合镜")) return {
       text: "第二页只能赶第 6、7 回合。差少量伤害可切攻式。守式也可以用镇山喝截铃锋，再接折篙刀。",
