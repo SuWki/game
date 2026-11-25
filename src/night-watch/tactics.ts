@@ -36,6 +36,12 @@ export const encounters = [
     safe: { name: "揭去更印", effect: "移除更印，阻止下一回合的震响。" },
     risk: { name: "借灯引符", effect: "引爆现存的寄灯符，烧去更印并造成火伤。" },
   },
+  {
+    first: 2, every: 3, sign: "回风牵起灯穗",
+    read: "回风鸮即将掠栈。握紧横索可以站稳。",
+    safe: { name: "扶索稳身", effect: "掠栈打中时扶住横索，避免本轮踏空。" },
+    risk: { name: "依原招出手", effect: "掠栈打中且未扶索时会踏空。" },
+  },
 ] as const;
 
 export type Response = "safe" | "risk" | "pass";
@@ -75,9 +81,15 @@ export const caseClues = [
     counter: "提槌时揭去更印。带寄灯符的人也可以借灯引符，烧印的同时打出火伤。",
     aid: "照簿破势", damage: 16,
   },
+  {
+    danger: "第 2、5、8… 回合掠栈。被击中且没有扶索时踏空，下回合先扣落地伤。",
+    counter: "守式扶索两次，听潮步可闪避掠栈。镇山喝能截断下一回合的落爪。",
+    aid: "旧灯结扣", damage: 24,
+  },
 ] as const;
 
 export function preparationText(region: keyof typeof encounters & number) {
   const clue = caseClues[region];
+  if (region === 6) return `「${clue.aid}」· 首次落地少扣 ${clue.damage} 点气血。`;
   return `「${clue.aid}」· 首次${encounters[region].safe.name}后，额外造成 ${clue.damage} 点伤害。`;
 }

@@ -4,12 +4,12 @@ import type { GearId } from "./equipment.ts";
 import {
   applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, replacedArt, study, tickFight, tuneEngraving, weaponArts,
 } from "./game.ts";
-import type { Engraving, Fight, Kit, PresetSlot, Region, Save } from "./game.ts";
+import type { ArtId, Engraving, Fight, Kit, PresetSlot, Save } from "./game.ts";
 
 export type BuildChange =
   | { kind: "gear"; id: GearId }
   | { kind: "stance"; stance: Kit["stance"] }
-  | { kind: "art"; id: Region; learn: boolean }
+  | { kind: "art"; id: ArtId; learn: boolean }
   | { kind: "engraving"; id: Engraving }
   | { kind: "weapon-order" }
   | { kind: "preset"; slot: PresetSlot };
@@ -113,7 +113,7 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
   const gear = [...new Set(save.ownedGear)].filter(id => knownGear(id) && save.loadout[equipment[id].slot] !== id)
     .map(id => ({ kind: "gear", id }) as const);
   const moves = arts.flatMap((art, index) => {
-    const id = index as Region;
+    const id = index as ArtId;
     return !worn[id] && save.realm >= art.realm && (save.ranks[id] || save.drops[id] && save.dao >= art.cost)
       ? [{ kind: "art", id, learn: !save.ranks[id] } as const] : [];
   });

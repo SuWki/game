@@ -1,9 +1,14 @@
-export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋"] as const;
+export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋", "坐忘"] as const;
 export const bridgeRegion = 3;
 export const courierRegion = 4;
 export const watchRegion = 5;
+export const cliffRegion = 6;
 export const heartRealm = 4;
 export const heartDao = 1430;
+export const stillRealm = 5;
+export const stillDao = 3600;
+export const windDao = 4600;
+export const windSurveyDao = 720;
 export const mountainFirstReward = 6;
 export const trials = {
   ferryTrial: {
@@ -93,5 +98,14 @@ export const regions = [
     foes: [{ name: "更铃影", sprite: "mirror" }, { name: "过门纸卒", sprite: "pine" }],
     boss: "守更驿卒", sprite: "watch-guard", hp: 326,
     reward: 11, patrolInterval: 3200, chapter: "卷二 · 纸马驿",
+  },
+  {
+    name: "残栈", patrolCap: 4650, place: "下层栈道", tag: "云栈山门",
+    title: "灯朝断路亮", intro: "云栈钥匙拧开山门。栈道上的风灯全朝山外，隔着断索却有人喊：灯亮着，路该还通。",
+    cleared: "阿照把守灯人拉过最后一截断栈。他转正手里的风灯，山壁上映出一条向上的旧索路。",
+    clues: ["向山外翻的灯穗", "断索上新扎的扣", "旧灯下的结扣"], thresholds: [12, 25, 40],
+    foes: [{ name: "缠绳雀", sprite: "reed" }, { name: "竹灯精", sprite: "lantern" }],
+    boss: "回风鸮", sprite: "cliff-owl", hp: 418,
+    reward: 24, patrolInterval: 3200, chapter: "卷三 · 云栈",
   },
 ] as const;

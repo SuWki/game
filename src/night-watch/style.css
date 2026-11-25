@@ -46,6 +46,9 @@ h1 { font-family: "Songti SC", SimSun, serif; font-size: clamp(25px, 3.1vw, 43px
 .stage:is([data-zone="post-bridge"], [data-zone="post-courtyard"], [data-zone="post-watch"]) { --scene-ratio: 2; }
 .stage[data-zone="post-bridge"] { --ground-inset: .14; }
 .stage[data-zone="post-watch"] { --ground-inset: .15; }
+.stage[data-zone="cloud-cliff"] { --scene-ratio: 2; --ground-inset: .168; }
+.stage[data-zone="cloud-cliff"][data-boss=true] .enemy img { max-width: 39vw; object-fit: contain; object-position: bottom; }
+.stage[data-zone="cloud-cliff"][data-footing=slip] .player { animation: none; transform: translateY(12%) rotate(-9deg); }
 .scenery, .shade { position: absolute; inset: 0; pointer-events: none; }
 .scenery { background-size: 100% 100%; background-repeat: no-repeat; image-rendering: pixelated; }
 .shade { background: linear-gradient(#071119ce, transparent 24% 76%, #071119da 93%); }
