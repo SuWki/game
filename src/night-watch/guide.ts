@@ -1,4 +1,4 @@
-import { arts, bridgeRegion, cliffRegion, courierRegion, heartRealm, realms, regions, skyRegion, watchRegion } from "./content.ts";
+import { arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
@@ -20,6 +20,7 @@ const caseAdvice = [
   "寄灯符能借火破印。配挑灯诀可以持续引爆。",
   "守式扶索两次，听潮步可闪避掠栈。带镇山喝可在下一回合截断落爪。",
   "踏缆步追上贴崖的鹞影。守式自动压灯两次，镇山喝截断落巢后下一轮仍能打实。",
+  "守式自动护灯。寄灯符配挑灯诀能烧掉护纸。",
 ] as const;
 
 export function battleBrief(fight: Fight) {
@@ -32,6 +33,7 @@ export function battleBrief(fight: Fight) {
     wardSealActive(fight) ? "连续三次敲更时没破印，就会被封阵。" : "敲更时更印若还在，会震伤阿照。",
     "第 2、5、8… 回合掠栈。未避开也未扶索，就会在下一回合落地受伤。",
     "衔灯鹞升空时刀招只能擦伤。贴崖能追及，落巢能截断。",
+    "第 3、6、9… 回合催灯术。活过该轮且护住灯或破掉护纸，才记一次应答。",
   ][fight.region];
   const hint = riverPursuitActive(fight)
     ? `听潮步可以避浪，守式配镇潮印也可把回浪伤害压到 ${riverDrenchDamage} 以下，免于沾衣。`
@@ -45,6 +47,14 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.trial?.id === "lampTrial") {
+    if (fight.kit.stance !== "guard" && fight.trial.progress < 2) return {
+      text: "守式在催灯轮自动护灯。想继续用攻式，可以先用寄灯符配挑灯诀烧去护纸。",
+      label: "调整架势", focus: "stance",
+    };
+    return { text: "守更牌能压低催灯术伤害。也可以换上气血更高的护具，留出撑过两次催灯的余量。",
+      label: "比较护具", focus: "armor" };
+  }
   if (fight.region === skyRegion && fight.links["鹞影难及"] > 0) {
     if (fight.kit.step !== "rope") return {
       text: "踏缆步在第 2、5、8… 回合追上衔灯鹞，让同回合的刀招打实。", label: "查看踏缆步", focus: "art:6",
@@ -117,6 +127,7 @@ export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
 
 export function clueTip(save: Save, showRead = false) {
   const region = save.region;
+  if (region === hallRegion) return;
   if (save.victories[region]) return;
   const step = recordedClues(save);
   if (!step || !showRead && !save.guide.enabled) return;
@@ -192,7 +203,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   }
   if (tab !== "patrol") return;
 
-  if (result?.drop && result.region !== skyRegion && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
+  if (result?.drop && result.region !== skyRegion && result.region !== hallRegion && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
   if (save.region === courierRegion && !save.victories[courierRegion] && canChallenge(save, courierRegion)) {
     return { id: "courier-preview", title: "纸马的灯罩着它", text: "第二回合冲灯前，压灯可放倒马灯并减伤。迎灯进刀伤害更高，也会挨完整一撞。",
       target: { tab: "skills", action: "preview", label: "查看纸马招路" } };
@@ -303,6 +314,7 @@ function defeatTip(save: Save, region: Region): Tip {
     "驿卒会重复结更印。看战报里哪几回合出现震响，确认破印的时机。",
     "先看第几回合踏空，再看下一回合的落地伤。",
     "先看哪些回合刀招只能擦伤，哪些回合可以打实。",
+    "催灯前查看护纸是否打破，活过该回合才有应答。",
   ];
   const advice = [
     "用守式应战，虎啸原本要扣 36 点气血，架住后只扣 7 点。",
@@ -313,6 +325,7 @@ function defeatTip(save: Save, region: Region): Tip {
     "装备寄灯符，借火能烧去更印。学会挑灯诀后，符火可以持续引爆。",
     "听潮步能避掠栈。守式能扶索两次，镇山喝可截断落爪。",
     "第 2 回合可用踏缆步追及，第 3 回合可用镇山喝截断落巢。两者改变的回合不同。",
+    "守式自动护灯，攻式可以用符火破纸。",
   ];
   return {
     id: `defeat-${region}-${precise ? 2 : 1}`, title: precise ? "再试一个解法" : "先看败在哪里",

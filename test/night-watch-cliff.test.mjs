@@ -45,7 +45,7 @@ test("六图旧档开残栈，读回新档保留旧装备与养成", () => {
   old.victories[5] = 1;
   const migrated = decode(JSON.stringify(old), 101);
   assert.equal(unlocked(migrated, cliffRegion), true);
-  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0, 0]);
+  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0, 0, 0]);
   assert.deepEqual(migrated.newGear, old.newGear);
   assert.deepEqual(migrated.ranks, [...old.ranks, 0]);
   assert.deepEqual(migrated.loadout, old.loadout);
@@ -88,8 +88,10 @@ test("残栈 v5 首胜档补悟踏缆步，同一首胜开御风与天栈", () =
   assert.equal(unlocked(old, skyRegion), false);
 
   old.version = 5;
-  for (const key of ["kills", "clues", "victories", "rematchRanks", "drops", "ranks"]) old[key].pop();
-  old.guide.defeats.pop();
+  for (const key of ["kills", "clues", "victories", "rematchRanks"]) old[key] = old[key].slice(0, 7);
+  old.drops.pop();
+  old.ranks.pop();
+  old.guide.defeats = old.guide.defeats.slice(0, 7);
   old.victories[cliffRegion] = 1;
   const migrated = decode(JSON.stringify(old), 100);
   assert.equal(migrated.realm, windRealm);

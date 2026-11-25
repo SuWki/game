@@ -48,6 +48,12 @@ export const encounters = [
     safe: { name: "压灯引鹞", effect: "本回合将衔灯鹞引至刀锋所及处。" },
     risk: { name: "依原招出手", effect: "下一回合落巢时可近身。" },
   },
+  {
+    first: 3, every: 3, sign: "守灯影抬灯催答",
+    read: "催灯是妖术。守式能护灯，或在催灯前打破护纸。",
+    safe: { name: "守式护灯", effect: "守式活过催灯回合可记一次应答。" },
+    risk: { name: "先破护纸", effect: "护纸已破且活过催灯回合可记一次应答。" },
+  },
 ] as const;
 
 export type Response = "safe" | "risk" | "pass";
@@ -96,6 +102,11 @@ export const caseClues = [
     danger: "升空和贴崖时，近刀只能擦伤。第 3、6、9… 回合落巢，可以打实。",
     counter: "踏缆步可在贴崖时追近。守式可压灯两次，镇山喝截断落巢后下一轮还能近身。",
     aid: "拴灯引鹞", damage: 18,
+  },
+  {
+    danger: "第 3、6、9… 回合施放催灯术。这些回合才能记应答。",
+    counter: "守式自动护灯。寄灯符配挑灯诀可以烧去护纸，给应答留出空当。",
+    aid: "避风灯芯", damage: 12,
   },
 ] as const;
 

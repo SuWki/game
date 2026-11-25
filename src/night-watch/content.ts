@@ -1,15 +1,23 @@
-export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋", "坐忘", "御风"] as const;
+export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋", "坐忘", "御风", "真人", "逍遥"] as const;
 export const bridgeRegion = 3;
 export const courierRegion = 4;
 export const watchRegion = 5;
 export const cliffRegion = 6;
 export const skyRegion = 7;
+export const hallRegion = 8;
 export const heartRealm = 4;
 export const heartDao = 1430;
 export const stillRealm = 5;
 export const stillDao = 3600;
 export const windDao = 4600;
 export const windRealm = 6;
+export const trueRealm = 7;
+export const trueDao = 5800;
+export const freeRealm = 8;
+export const freeDao = 7200;
+export const bookReadingDao = 180;
+export const lampPaper = 120;
+export const trueSigilBonus = 18;
 export const ropeStep = 6;
 export const windSurveyDao = 720;
 export const mountainFirstReward = 6;
@@ -26,6 +34,13 @@ export const trials = {
     opening: "最后三块木牌摆在灯下。石生求阿照守住这簇火，让失名的人一个个应声。",
     ending: "第三个名字落笔时，庙门外有人应了一声。石生把余蜡裹好，留作明年的灯。",
   },
+  lampTrial: {
+    name: "内院守灯试炼", region: hallRegion, hp: 340, wave: 3, target: 2, counter: "应答",
+    goal: "十六回合内护住两次应答，再击退守灯影。",
+    hint: "第 3、6、9… 回合催灯。守式自动护灯，或先打破护纸，活过这轮便记一次应答。",
+    opening: "铃声代过了人的答话。阿照点亮内院的灯，等到灯下的人亲口作答。",
+    ending: "两声应答一前一后落定，内院的灯终于照见了人。阿照悟入逍遥，把两册巡簿一并收好。",
+  },
 } as const;
 export type TrialId = keyof typeof trials;
 export const trialIds = Object.keys(trials) as TrialId[];
@@ -38,6 +53,8 @@ export const breakthrough = [
   { gift: "再开启一个武学位。两门武学同回合出手时，可调换先后。", verse: "听见铃声落下，才知桥上风静。" },
   { gift: "可内化精通的听潮步，减轻一次落地伤。", verse: "坐忘形息，风来不惊。" },
   { gift: "可沿风灯所照的索路前往天栈。", verse: "循风过栈，见灯知路。" },
+  { gift: "一战内首次遇致命妖术可留 1 气血，下次施放寄灯符可添符火。", verse: "灯将灭而一息未绝。" },
+  { gift: "完成内院守灯试炼后，可带着两册巡簿前往主灯台。", verse: "灯下听人，身随心远。" },
 ] as const;
 
 export const arts = [
@@ -45,7 +62,7 @@ export const arts = [
   { name: "听潮步", first: 2, every: 3, kind: "身法", cost: 60, description: "第 2、5、8… 回合踏步，闪避当回合敌方攻击。", mastery: "踏步回合的普攻伤害 +50%。", realm: 1 },
   { name: "照影", first: 1, every: 4, kind: "神通", cost: 60, description: "第 1、5、9… 回合照影，当回合与下一回合破除假身。", mastery: "照影持续期间普攻伤害 +25%。", realm: 3 },
   { name: "折篙刀", first: 3, every: 3, kind: "武学", cost: 90, description: "第 3、6、9… 回合斩一刀，伤害 8。同回合先用镇山喝截断，便追斩 12 点。", mastery: "追斩伤害由 12 提升至 22。", realm: 3 },
-  { name: "寄灯符", first: 1, every: 3, kind: "神通", cost: 110, description: "第 1、4、7… 回合贴符，维持到下一回合结束。挑灯诀命中即可引爆，火伤 26，也能烧去更印。", mastery: "符火伤害由 26 提升至 38。", realm: 4 },
+  { name: "寄灯符", first: 1, every: 3, kind: "神通", cost: 110, description: "第 1、4、7… 回合贴符，维持到下一回合结束。挑灯诀命中即可引爆，火伤 26，能烧去更印和护纸。", mastery: "符火伤害由 26 提升至 38。", realm: 4 },
   { name: "挑灯诀", first: 2, every: 3, kind: "武学", cost: 130, description: "第 2、5、8… 回合出手，刀伤 10。击中带符的真身，可引爆符火。", mastery: "刀伤由 10 提升至 16。", realm: 4 },
   { name: "踏缆步", first: 2, every: 3, kind: "身法", cost: 160, description: "第 2、5、8… 回合踏索追近，可在贴崖时让刀招全额命中。", mastery: "成功追近时，本回合普攻刀伤 +10。", realm: 5 },
 ] as const;
@@ -122,5 +139,14 @@ export const regions = [
     foes: [{ name: "翻瓦鸦", sprite: "reed" }, { name: "夺灯萤", sprite: "lantern" }],
     boss: "衔灯鹞", sprite: "sky-hawk", hp: 460,
     reward: 30, patrolInterval: 3200, chapter: "卷三 · 云栈",
+  },
+  {
+    name: "总灯房外院", patrolCap: 6400, place: "总灯房", tag: "归山旧灯站",
+    title: "铃声替谁作答", intro: "两册巡簿摊在石阶上。阿照循着旧灯去查两处记载，耳边却总有一声铃替人应答。",
+    cleared: "石阶上的铃终于歇了。阿照把两册巡簿收起，转身望向尚未点齐的主灯台。",
+    clues: ["渡口只报了一船", "总簿代写全员抵达", "避风灯芯"], thresholds: [7, 16, 28],
+    foes: [{ name: "旧簿纸影", sprite: "mirror" }, { name: "檐铃精", sprite: "lantern" }],
+    boss: "守灯影", sprite: "lamp-keeper", hp: trials.lampTrial.hp,
+    reward: 36, patrolInterval: 3200, chapter: "卷四 · 归山",
   },
 ] as const;
