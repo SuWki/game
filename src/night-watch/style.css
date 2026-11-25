@@ -395,9 +395,21 @@ body { background: #e7e0cc; color: #36392f; }
 #pack-sheet .outfit-picker { padding: 0; background: transparent; }
 #battle-sheet { width: min(490px,calc(100% - 24px)); max-height: 85dvh; padding: 16px; color: var(--ink); }
 #battle-sheet::backdrop { background: #0e1d22a8; }
+.battle-verdict { padding: 10px 12px; margin: 8px 0; border-left: 3px solid #58715b; background: #e2e8d8; color: #273d2b; }
+.battle-verdict[data-verdict="lost"] { border-color: #985644; background: #edd9cb; color: #582b20; }
+.battle-verdict p { margin-top: 4px; font-size: .9rem; }
 #battle-brief > p { margin-top: 6px; }
 #battle-brief .battle-threat { padding-left: 9px; border-left: 3px solid #975c3f; }
 .battle-objective { font-size: .9rem; color: #5c442d; }
+.battle-forecast { margin-top: 8px; }
+#battle-builds { display: grid; gap: 7px; margin-top: 10px; }
+#battle-builds:empty { display: none; }
+.battle-build {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 6px 12px; padding: 9px 10px; background: #f2e4c7; border: 1px solid #c3a77e;
+}
+.battle-build p { margin-top: 3px; font-size: .88rem; }
+.battle-build-list .battle-build { margin-top: 7px; }
 #battle-preview { padding: 9px 10px; margin-top: 12px; background: #e9dabc; font-size: .88rem; color: #584535; }
 #battle-preview > p:not(:first-child) { margin-top: 6px; }
 .battle-preview-gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
@@ -405,7 +417,6 @@ body { background: #e7e0cc; color: #36392f; }
 .battle-preview-gauges progress::-webkit-progress-bar { background: #cabb9e; }
 .battle-preview-gauges progress::-webkit-progress-value { background: #5e7a62; }
 .battle-preview-gauges div + div progress::-webkit-progress-value { background: #a96551; }
-.battle-alert { color: #7d3425; font-weight: 600; }
 .stage[data-boss=true] { height: clamp(200px,34dvh,340px); }
 .theatre:has(.stage[data-boss=true]) .satchel { display:none; }
 .nav { position:static; background:transparent; border:0; border-bottom:1px solid #a39579; gap:0; padding:0; grid-row:1; color:#514832; }

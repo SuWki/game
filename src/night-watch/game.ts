@@ -59,6 +59,8 @@ export const maxOffline = 8 * 60 * 60 * 1000;
 export const maxRounds = 20;
 export const riverFloodLimit = 3;
 export const riverPursuitDamage = 22;
+export const riverPursuitLimit = 2;
+export const riverDrenchDamage = 6;
 export const mirrorRounds = 12;
 export const paperHitLimit = 2;
 export const footingLimit = 3;
@@ -503,9 +505,10 @@ export type BattleOrder = { round: number; choice: Exclude<Response, "pass"> };
 export type Fight = {
   region: Region; boss: boolean; name: string; sprite: string;
   limit: number; mirrorLevel?: number; water: number; paperHits: number; footing: number; riverWave: 2 | 3;
-  riverDrenched: boolean;
+  riverDrenched: boolean; riverPursuits: number;
   trial?: { id: TrialId; progress: number };
   rematchRank?: number;
+  rematchPractice?: boolean;
   engraving?: { id: Engraving; power: number }; cutRound?: number;
   maxHp: number; hp: number; maxLife: number; life: number;
   time: number; round: number; revealedThrough: number;
@@ -535,7 +538,7 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   const engraving = id && mirrorUnlocked(save) ? { id, power: engravingPower(id, save.mirror.ranks[id]) } : undefined;
   return {
     ...actor, region, boss, limit: maxRounds, riverWave: 3, water: 0, paperHits: 0, footing: 0, engraving, maxHp: hp, hp, maxLife: life, life, time: 0, round: 0,
-    riverDrenched: false,
+    riverDrenched: false, riverPursuits: 0,
     kit: { ...save.kit }, realm: save.realm, ranks: [...save.ranks], loadout: { ...save.loadout }, gearUpgrades: [...save.rematchRanks],
     reforges: { ...save.reforges },
     revealedThrough: 0, sigilThrough: 0, ward: 0, wardStreak: 0, links: {},
@@ -551,15 +554,17 @@ export function startCaseFight(save: Save, region: Region) {
   return fight;
 }
 
-export function rematchSpec(save: Save, region: Region) {
-  const rank = save.rematchRanks[region] + 1;
-  if (!save.victories[region] || rank > maxRematchRank) return;
+export function rematchSpec(save: Save, region: Region, practice = false) {
+  const progress = save.rematchRanks[region];
+  const rank = practice ? maxRematchRank : progress + 1;
+  if (!save.victories[region] || rank > maxRematchRank || practice && progress !== maxRematchRank) return;
   const riverWave = region === 1 && rank >= 2 ? 2 : 3;
   const detail = [
     `虎啸基础伤害额外 +${8 * rank}。守式能减伤，镇山喝能截断。`,
     `回浪在第 ${riverWave}、${riverWave + 3}、${riverWave + 6}… 回合。每次汲水最多回 ${24 + 8 * rank} 气血，割缆可清水位。${rank === 3
-      ? `没割缆且被回浪击中时会沾水，下一回合挥篙基础伤害 +${riverPursuitDamage}。听潮步能避开回浪，仍要留心汲水。` : ""}`,
-    `连斩纸面会反噬 ${paperBacklashDamage + 8 * rank} 点。挑灯或照影能找到真身。`,
+      ? `未割缆的回浪扣到 ${riverDrenchDamage} 气血会沾衣。下一轮追篙基础伤害 +${riverPursuitDamage}，第二次追篙命中会落水。闪避或把回浪伤害压低可免沾衣。` : ""}`,
+    rank === 3 ? `累计两次斩中纸面会封灯。挑灯能开出一段真身，照影显形时命中真身可以清掉纸痕。`
+      : `连斩纸面会反噬 ${paperBacklashDamage + 8 * rank} 点。挑灯或照影能找到真身。`,
     `横篙基础伤害额外 +${8 * rank}。第三次中招仍会落桥。`,
     `带着马灯撞中时，灼伤提高到 ${18 + 8 * rank} 点。冲灯前可压灯。`,
     `更印提高至 ${wardStrength(rank)} 点。${rank >= 2 ? "连续三次更印未破会封阵。敲更前揭印、引爆符火或打破更印，可清空封阵进度。" : "可揭去更印，或用符火烧掉。"}`,
@@ -567,11 +572,12 @@ export function rematchSpec(save: Save, region: Region) {
   return { rank, hp: regions[region].hp + rematchHealth[rank], attack: rematchAttack[rank], detail, riverWave, prepared: recordedClues(save, region) === 3 } as const;
 }
 
-export function startRematch(save: Save, region: Region) {
-  const spec = rematchSpec(save, region);
+export function startRematch(save: Save, region: Region, practice = false) {
+  const spec = rematchSpec(save, region, practice);
   if (!spec) return;
   const fight = startFight(save, region, true);
   fight.rematchRank = spec.rank;
+  if (practice) fight.rematchPractice = true;
   if (spec.prepared) fight.preparation = "ready";
   fight.hp = fight.maxHp = spec.hp;
   fight.riverWave = spec.riverWave;
@@ -580,7 +586,7 @@ export function startRematch(save: Save, region: Region) {
 
 export function settleRematch(save: Save, fight: Fight) {
   const { rematchRank: rank, region } = fight;
-  if (!rank || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
+  if (!rank || fight.rematchPractice || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
   save.rematchRanks[region] = rank;
   save.clues[region] = 3;
   const drop = !save.drops[region];
@@ -842,6 +848,10 @@ export function riverPursuitActive(fight: Fight) {
   return fight.region === 1 && fight.rematchRank === 3;
 }
 
+export function paperSealActive(fight: Fight) {
+  return fight.region === 2 && fight.rematchRank === 3;
+}
+
 function resolveRound(f: Fight) {
   const startingLife = f.life, startingHp = f.hp;
   const marks: string[] = [];
@@ -1026,14 +1036,28 @@ function resolveRound(f: Fight) {
     actions.push(`普攻刀伤 ${damage}`);
     if (f.region === 2) {
       struckTrue = exposed;
-      f.paperHits = exposed ? 0 : f.paperHits + 1;
-      if (f.hp > 0 && f.paperHits === paperHitLimit) {
+      const sealing = paperSealActive(f);
+      if (!exposed) f.paperHits++;
+      else if (!sealing || f.revealedThrough >= round) {
+        if (sealing && f.paperHits) {
+          marks.push("照影清纸痕");
+          actions.push("照影显形，斩真身清掉纸痕");
+        }
         f.paperHits = 0;
-        const damage = paperBacklashDamage + 8 * rank;
-        f.life -= damage;
-        backlash = true;
-        marks.push("纸面反噬");
-        actions.push(`连斩纸面招来反噬，扣 ${damage} 点气血`);
+      }
+      if (f.hp > 0 && f.paperHits === paperHitLimit) {
+        if (sealing) {
+          f.life = 0;
+          marks.push("纸面封灯");
+          actions.push("两道纸痕合拢，灯被纸面封住");
+        } else {
+          f.paperHits = 0;
+          const damage = paperBacklashDamage + 8 * rank;
+          f.life -= damage;
+          backlash = true;
+          marks.push("纸面反噬");
+          actions.push(`连斩纸面招来反噬，扣 ${damage} 点气血`);
+        }
       }
     }
   }
@@ -1110,10 +1134,15 @@ function resolveRound(f: Fight) {
       if (round % 3 === 0 && f.loadout.charm === "watchSeal") reduce("watchSeal", charmPower("watchSeal", upgrade("watchSeal")));
       f.life -= damage;
       actions.push(`${guard ? "架住" : ""}${move.name}，扣 ${damage} 点气血`);
-      if (pursuit && move.backwash && !cut) {
+      if (pursuit && move.backwash && !cut && damage >= riverDrenchDamage) {
         f.riverDrenched = true;
         marks.push("回浪沾衣");
         actions.push("回浪湿了衣衫，下一回合提防挥篙");
+      }
+      if (drenched && ++f.riverPursuits >= riverPursuitLimit) {
+        f.life = 0;
+        marks.push("追篙落水");
+        actions.push("第二次被湿衣追篙击中，阿照落水");
       }
       if (horseCharge && cover) {
         const burn = 18 + 8 * rank;
@@ -1181,7 +1210,8 @@ export function forecastFight(fight: Fight, rounds = 6) {
     if (f.lastExchange) result.push(f.lastExchange);
   }
   return { rounds: result, life: Math.max(0, f.life), hp: Math.max(0, f.hp), result: f.result,
-    wardStreak: f.wardStreak, water: f.water, riverDrenched: f.riverDrenched, tacticsUsed: fight.focus - f.focus };
+    wardStreak: f.wardStreak, water: f.water, riverDrenched: f.riverDrenched, riverPursuits: f.riverPursuits,
+    paperHits: f.paperHits, tacticsUsed: fight.focus - f.focus };
 }
 
 export function defeatSummary(fight: Fight) {
@@ -1189,12 +1219,14 @@ export function defeatSummary(fight: Fight) {
   if (fight.life > 0) return `回合已用尽，对手还剩 ${fight.hp} 点气血。`;
   const marks = fight.lastExchange?.marks ?? [];
   if (marks.includes("覆舟")) return "水位涨满三格，阿照落水败阵。";
+  if (marks.includes("追篙落水")) return `累计挨了两次湿衣追篙，阿照被打落水。避开回浪，或把回浪伤压到 ${riverDrenchDamage} 以下可以免沾衣。`;
   if (marks.includes("湿衣追篙")) return fight.autoTactics ? "回浪沾衣，下一回合被河伯追篙击倒。听潮步可以避浪，守式可在水位上涨后自动割缆。"
     : "回浪沾衣，下一回合被河伯追篙击倒。听潮步能避浪，也可在绷缆时提前割缆。";
   if (marks.includes("回浪沾衣")) return fight.autoTactics ? "阿照被回浪击倒。可带听潮步避浪，或换守式减轻重击。"
     : "阿照被回浪击倒。可带听潮步避浪，或提前割缆后用守式架住。";
   if (marks.includes("跌落驿桥")) return "第三次被横篙扫中，阿照跌落驿桥。";
   if (marks.includes("更印封阵")) return "三次敲更时更印都还在。第 3、6、9… 回合前用符火、揭印或刀伤破印。";
+  if (marks.includes("纸面封灯")) return "两道纸痕合拢，封住了灯。照影期间斩中真身能清掉纸痕，也可趁挑灯尽早击退娘娘。";
   if (marks.includes("纸面反噬")) return `第 ${fight.round} 回合遭到纸面反噬，气血耗尽。`;
   if (marks.includes("更印震响")) return `第 ${fight.round} 回合更印未破，敲更后气血耗尽。`;
   return `第 ${fight.round} 回合气血耗尽。`;

@@ -1119,7 +1119,7 @@ test("河伯再战第三关的回浪追篙可用听潮步化解，也能用守�
   const lost = playRounds(configured, configured.limit);
   assert.equal(lost.result, "lost");
   assert.equal(lost.round, 9);
-  assert.match(defeatSummary(lost), /追篙击倒.*听潮步/);
+  assert.match(defeatSummary(lost), /两次湿衣追篙.*落水/);
   assert.doesNotMatch(lost.log[4], /湿了衣衫/);
 
   equipArt(save, 1, true);
@@ -1139,7 +1139,7 @@ test("河伯再战第三关的回浪追篙可用听潮步化解，也能用守�
   assert.equal(sturdy.result, "won");
   assert.equal(sturdy.round, 16);
   assert.ok(sturdy.links["山行衣护身"] > 0);
-  assert.ok(sturdy.links["湿衣追篙"] > 0);
+  assert.equal(sturdy.links["湿衣追篙"], undefined);
 
   save.rematchRanks[1] = 1;
   assert.equal(forecastFight(startRematch(save, 1), 2).riverDrenched, false);

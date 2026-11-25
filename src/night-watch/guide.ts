@@ -1,6 +1,6 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, recordedClues, riverPursuitActive, wardSealActive } from "./game.ts";
+import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { Fight, Region, Save } from "./game.ts";
 import { caseClues } from "./tactics.ts";
 
@@ -23,13 +23,15 @@ const caseAdvice = [
 export function battleBrief(fight: Fight) {
   const threat = [
     "第 3、6、9… 回合，山君吹起虎啸。",
-    riverPursuitActive(fight) ? "未割缆的回浪会沾衣，下一回合还有追篙。" : "河伯汲水三次便会覆舟。",
-    "连续斩中两次纸面，会遭反噬。",
+    riverPursuitActive(fight) ? "挨两次湿衣追篙就会落水。" : "河伯汲水三次便会覆舟。",
+    paperSealActive(fight) ? "第二道纸痕会封灯，必须打进真身窗口。" : "连续斩中两次纸面，会遭反噬。",
     "第三次被横篙逼得失足，就会跌下驿桥。",
     "纸马提灯冲撞，马灯在时刀伤减半。",
     wardSealActive(fight) ? "连续三次敲更时没破印，就会被封阵。" : "敲更时更印若还在，会震伤阿照。",
   ][fight.region];
-  const hint = fight.region === 1 && fight.riverWave === 2
+  const hint = riverPursuitActive(fight)
+    ? `听潮步可以避浪，守式配镇潮印也可把回浪伤害压到 ${riverDrenchDamage} 以下，免于沾衣。`
+    : fight.region === 1 && fight.riverWave === 2
     ? "听潮步能避开提前到第 2 回合的回浪，水位由割缆处理。"
     : fight.region === 2 && !fight.kit.reveal && !fight.rematchRank && !fight.mirrorLevel && !fight.trial
       ? "用守式挑灯照见真身。快些收尾，可以少受一轮反噬。"
@@ -50,7 +52,7 @@ export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
     return { text: "装备寄灯符，阿照就能借火破印。配上挑灯诀，每次贴符后还能接着引爆。", label: "查看寄灯符", focus: "art:4" };
   }
   if (riverPursuitActive(fight) && !marks.includes("覆舟") && (fight.links["湿衣追篙"] || fight.riverDrenched)) {
-    return { text: "听潮步可避开回浪，配渡水蓑还能回气。也可用守式割缆，靠护具撑过其余几轮。", label: "查看听潮步", focus: "art:1" };
+    return { text: `听潮步可以避浪。守式配镇潮印把回浪伤害压到 ${riverDrenchDamage} 以下，也能免于沾衣。`, label: "查看听潮步", focus: "art:1" };
   }
   if (marks.includes("覆舟") || fight.trial?.id === "ferryTrial") {
     if (!fight.loadout.weapon && save.ownedGear.some(id => id === "pineBlade" || id === "reedBlade")) {
@@ -65,6 +67,11 @@ export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
     return fight.kit.stance === "guard"
       ? { text: "两次割缆换来的时间有限。比较兵刃的刀伤，在水位再涨满前收尾。", label: "比较兵刃", focus: "weapon" }
       : { text: "换守式，阿照会在水位开始上涨后尝试割缆。", label: "调整架势", focus: "stance" };
+  }
+  if (marks.includes("纸面封灯")) {
+    return fight.kit.reveal
+      ? { text: "提高真身窗口里的有效刀伤，赶在两道纸痕合拢前结束。守式可以挑灯多争取几轮。", label: "比较兵刃", focus: "weapon" }
+      : { text: "照影显形时斩中真身能清纸痕。也可以用守式挑灯，把刀伤打进亮灯的几轮。", label: "查看照影", focus: "art:2" };
   }
   if (marks.includes("纸面反噬") || fight.trial?.id === "templeTrial") {
     return save.drops[2] && !fight.kit.reveal
