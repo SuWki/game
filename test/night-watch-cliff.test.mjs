@@ -45,7 +45,7 @@ test("六图旧档开残栈，读回新档保留旧装备与养成", () => {
   old.victories[5] = 1;
   const migrated = decode(JSON.stringify(old), 101);
   assert.equal(unlocked(migrated, cliffRegion), true);
-  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0, 0, 0]);
+  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0, 0, 0, 0]);
   assert.deepEqual(migrated.newGear, old.newGear);
   assert.deepEqual(migrated.ranks, [...old.ranks, 0]);
   assert.deepEqual(migrated.loadout, old.loadout);

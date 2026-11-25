@@ -54,6 +54,12 @@ export const encounters = [
     safe: { name: "守式护灯", effect: "守式活过催灯回合可记一次应答。" },
     risk: { name: "先破护纸", effect: "护纸已破且活过催灯回合可记一次应答。" },
   },
+  {
+    first: 3, every: 3, sign: "旧铃正要替人作答",
+    read: "破掉覆簿纸并活过催灯，等下一站自己应声。",
+    safe: { name: "守式架住催灯", effect: "减轻妖术伤害，破纸后才能记应答。" },
+    risk: { name: "先破纸再等铃", effect: "符火、本命招或足够的刀伤都可破纸。" },
+  },
 ] as const;
 
 export type Response = "safe" | "risk" | "pass";
@@ -107,6 +113,11 @@ export const caseClues = [
     danger: "第 3、6、9… 回合施放催灯术。这些回合才能记应答。",
     counter: "守式自动护灯。寄灯符配挑灯诀可以烧去护纸，给应答留出空当。",
     aid: "避风灯芯", damage: 12,
+  },
+  {
+    danger: "第 3、6、9… 回合催灯。护纸还在时，守式能减伤，本站却无法应答。",
+    counter: "寄灯符配挑灯诀、照灯断影或足够的刀伤都能破纸。让三站各答一次，再击退守灯妖。",
+    aid: "旧纱护灯", damage: 16,
   },
 ] as const;
 

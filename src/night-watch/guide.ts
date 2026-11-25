@@ -1,4 +1,4 @@
-import { arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, watchRegion } from "./content.ts";
+import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
@@ -8,7 +8,7 @@ export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | "rem
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
-export type PrepFocus = "weapon" | "armor" | "stance" | `art:${ArtId}`;
+export type PrepFocus = "weapon" | "armor" | "stance" | "fusion" | `art:${ArtId}`;
 export type RecoveryTip = { text: string; label: string; focus: PrepFocus };
 
 const caseAdvice = [
@@ -21,6 +21,7 @@ const caseAdvice = [
   "守式扶索两次，听潮步可闪避掠栈。带镇山喝可在下一回合截断落爪。",
   "踏缆步追上贴崖的鹞影。守式自动压灯两次，镇山喝截断落巢后下一轮仍能打实。",
   "守式自动护灯。寄灯符配挑灯诀能烧掉护纸。",
+  "守式能减伤。每次催灯前还要破覆簿纸，才会有人应答。",
 ] as const;
 
 export function battleBrief(fight: Fight) {
@@ -34,6 +35,7 @@ export function battleBrief(fight: Fight) {
     "第 2、5、8… 回合掠栈。未避开也未扶索，就会在下一回合落地受伤。",
     "衔灯鹞升空时刀招只能擦伤。贴崖能追及，落巢能截断。",
     "第 3、6、9… 回合催灯术。活过该轮且护住灯或破掉护纸，才记一次应答。",
+    "催灯前破覆簿纸，活过催灯轮。三站答齐、击退守灯妖才算取胜。",
   ][fight.region];
   const hint = riverPursuitActive(fight)
     ? `听潮步可以避浪，守式配镇潮印也可把回浪伤害压到 ${riverDrenchDamage} 以下，免于沾衣。`
@@ -47,6 +49,14 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.altarAnswers) {
+    if (fight.altarAnswers.progress < 3 && !fight.kit.lampFusion && !(fight.kit.sigil && fight.kit.kindle)) {
+      return save.lampFusion
+        ? { text: "照灯断影会在第 2、5、8… 回合破纸，赶在催灯前照见需要应答的人。", label: "查看照灯断影", focus: "fusion" }
+        : { text: "寄灯符配挑灯诀可以在催灯前烧去覆簿纸。守式帮你留出承伤余量。", label: "查看寄灯符", focus: "art:4" };
+    }
+    return { text: "用守式和守更牌压低催灯术伤害，留出气血等下一站应答。", label: "调整架势", focus: "stance" };
+  }
   if (fight.trial?.id === "lampTrial") {
     if (fight.kit.stance !== "guard" && fight.trial.progress < 2) return {
       text: "守式在催灯轮自动护灯。想继续用攻式，可以先用寄灯符配挑灯诀烧去护纸。",
@@ -174,7 +184,8 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
       !save.guide.dismissed.includes(`learn-${i}`));
     if (unlearned >= 0) return learnTip(unlearned as ArtId);
     const brought = equippedArts(save.kit);
-    const learned = save.ranks.findIndex((rank, i) => rank > 0 && !brought[i] && !save.guide.dismissed.includes(`equip-${i}`));
+    const learned = save.ranks.findIndex((rank, i) => rank > 0 && !brought[i] && !(save.lampFusion && (i === 2 || i === 5))
+      && !save.guide.dismissed.includes(`equip-${i}`));
     if (learned >= 0) return equipTip(learned as ArtId);
     if (save.ranks[5] && save.ranks[4] && !save.guide.dismissed.includes("preset-fire")) return {
       id: "preset-fire", title: "一轮贴符，下一轮引爆",
@@ -203,7 +214,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   }
   if (tab !== "patrol") return;
 
-  if (result?.drop && result.region !== skyRegion && result.region !== hallRegion && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
+  if (result?.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion && !save.ranks[result.region] && !save.guide.dismissed.includes(`learn-${result.region}`)) return learnTip(result.region);
   if (save.region === courierRegion && !save.victories[courierRegion] && canChallenge(save, courierRegion)) {
     return { id: "courier-preview", title: "纸马的灯罩着它", text: "第二回合冲灯前，压灯可放倒马灯并减伤。迎灯进刀伤害更高，也会挨完整一撞。",
       target: { tab: "skills", action: "preview", label: "查看纸马招路" } };
@@ -315,6 +326,7 @@ function defeatTip(save: Save, region: Region): Tip {
     "先看第几回合踏空，再看下一回合的落地伤。",
     "先看哪些回合刀招只能擦伤，哪些回合可以打实。",
     "催灯前查看护纸是否打破，活过该回合才有应答。",
+    "看是哪一站卡在覆簿纸后，再调整催灯前一回合的招式。",
   ];
   const advice = [
     "用守式应战，虎啸原本要扣 36 点气血，架住后只扣 7 点。",
@@ -326,6 +338,7 @@ function defeatTip(save: Save, region: Region): Tip {
     "听潮步能避掠栈。守式能扶索两次，镇山喝可截断落爪。",
     "第 2 回合可用踏缆步追及，第 3 回合可用镇山喝截断落巢。两者改变的回合不同。",
     "守式自动护灯，攻式可以用符火破纸。",
+    "先用符火或照灯断影破纸，再用守式度过催灯。三站各需要一次。",
   ];
   return {
     id: `defeat-${region}-${precise ? 2 : 1}`, title: precise ? "再试一个解法" : "先看败在哪里",

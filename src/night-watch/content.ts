@@ -5,6 +5,7 @@ export const watchRegion = 5;
 export const cliffRegion = 6;
 export const skyRegion = 7;
 export const hallRegion = 8;
+export const altarRegion = 9;
 export const heartRealm = 4;
 export const heartDao = 1430;
 export const stillRealm = 5;
@@ -17,7 +18,11 @@ export const freeRealm = 8;
 export const freeDao = 7200;
 export const bookReadingDao = 180;
 export const lampPaper = 120;
+export const altarPaper = 132;
 export const trueSigilBonus = 18;
+export const fusionStrike = 22;
+export const altarStations = ["芦花渡 · 陆婆", "云栈 · 守灯人", "纸马驿 · 驿卒"] as const;
+export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
 export const ropeStep = 6;
 export const windSurveyDao = 720;
 export const mountainFirstReward = 6;
@@ -148,5 +153,14 @@ export const regions = [
     foes: [{ name: "旧簿纸影", sprite: "mirror" }, { name: "檐铃精", sprite: "lantern" }],
     boss: "守灯影", sprite: "lamp-keeper", hp: trials.lampTrial.hp,
     reward: 36, patrolInterval: 3200, chapter: "卷四 · 归山",
+  },
+  {
+    name: "主灯台", patrolCap: 8800, place: "总灯房最高处", tag: "归山 · 主灯台",
+    title: "第三声铃之后", intro: "主灯台还照着那册写错的总簿。陆婆报船名，守灯人在云栈举灯，驿卒把更牌搁下。阿照把灯挑在他们之间，等三站亲口应声。",
+    cleared: "旧铃静下去，陆婆、守灯人和驿卒的声音终于各有了位置。总灯房把「全路人齐」划去，重新逐站点名。阿照提灯下山，回到芦花渡。",
+    clues: ["渡口船名", "三站灯号", "灯罩里的旧纱"], thresholds: [6, 14, 24],
+    foes: [{ name: "错名纸影", sprite: "mirror" }, { name: "烧灯精", sprite: "lantern" }],
+    boss: "守灯妖", sprite: "altar-keeper", hp: 480,
+    reward: 48, patrolInterval: 3200, chapter: "卷四 · 归山",
   },
 ] as const;

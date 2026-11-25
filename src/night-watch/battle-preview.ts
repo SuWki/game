@@ -2,7 +2,7 @@ import { arts, heartRealm } from "./content.ts";
 import { equipment, gearDisplayName, gearRank, knownGear } from "./equipment.ts";
 import type { GearId } from "./equipment.ts";
 import {
-  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, replacedArt, study, tickFight, tuneEngraving, weaponArts,
+  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, equipLampFusion, replacedArt, study, tickFight, tuneEngraving, weaponArts,
 } from "./game.ts";
 import type { ArtId, Engraving, Fight, Kit, PresetSlot, Save } from "./game.ts";
 
@@ -12,6 +12,7 @@ export type BuildChange =
   | { kind: "art"; id: ArtId; learn: boolean }
   | { kind: "engraving"; id: Engraving }
   | { kind: "weapon-order" }
+  | { kind: "lamp-fusion" }
   | { kind: "preset"; slot: PresetSlot };
 
 export type BuildSuggestion = { changes: BuildChange[]; label: string; cost: number; outcome: Fight };
@@ -49,6 +50,8 @@ function applyOne(save: Save, change: BuildChange) {
     }
     case "engraving":
       return Object.hasOwn(engravings, change.id) && save.mirror.equipped !== change.id && tuneEngraving(save, change.id, "equip");
+    case "lamp-fusion":
+      return equipLampFusion(save, true);
     case "weapon-order": {
       const second = weaponArts(save.kit)[1];
       if (save.realm < heartRealm || second === undefined) return false;
@@ -72,6 +75,8 @@ function changeLabel(save: Save, change: BuildChange) {
     }
     case "engraving":
       return `换上${engravings[change.id].name}`;
+    case "lamp-fusion":
+      return "装备照灯断影";
     case "weapon-order":
       return `让${arts[weaponArts(save.kit)[1]].name}先出手`;
     case "preset":
@@ -114,10 +119,12 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
     .map(id => ({ kind: "gear", id }) as const);
   const moves = arts.flatMap((art, index) => {
     const id = index as ArtId;
+    if (save.lampFusion && (id === 2 || id === 5)) return [];
     return !worn[id] && save.realm >= art.realm && (save.ranks[id] || save.drops[id] && save.dao >= art.cost)
       ? [{ kind: "art", id, learn: !save.ranks[id] } as const] : [];
   });
   const singles: BuildChange[] = [...moves, stance, ...gear];
+  if (save.lampFusion && !save.kit.lampFusion) singles.push({ kind: "lamp-fusion" });
   if (weaponArts(save.kit).length === 2) singles.push({ kind: "weapon-order" });
   for (const id of Object.keys(engravings) as Engraving[]) {
     if (save.mirror.ranks[id] && save.mirror.equipped !== id) singles.push({ kind: "engraving", id });

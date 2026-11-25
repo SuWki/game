@@ -54,6 +54,12 @@ h1 { font-family: "Songti SC", SimSun, serif; font-size: clamp(25px, 3.1vw, 43px
 .stage[data-zone="cloud-sky"][data-flying=true] .enemy { bottom: 36%; }
 .stage[data-zone="cloud-sky"][data-flying=true] .enemy::after { opacity: 0; }
 .stage[data-zone="lamp-hall"] { --scene-ratio: 2; --ground-inset: .168; }
+.stage[data-zone="lamp-altar"] { --scene-ratio: 2; --ground-inset: .168; }
+.altar-stations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; list-style: none; margin: 8px 0; padding: 0; }
+.altar-stations li { border: 1px solid var(--line); padding: 5px; font-size: 12px; }
+.altar-stations li[aria-current="step"] { border-color: var(--gold); color: var(--gold); }
+.altar-stations li[data-answered="true"] { color: #c0dac7; }
+.altar-stations small { display: block; font-size: 11px; }
 .scenery, .shade { position: absolute; inset: 0; pointer-events: none; }
 .scenery { background-size: 100% 100%; background-repeat: no-repeat; image-rendering: pixelated; }
 .shade { background: linear-gradient(#071119ce, transparent 24% 76%, #071119da 93%); }

@@ -11,8 +11,8 @@ function skySave(total = 5140) {
   const old = newSave(100);
   old.version = 6;
   old.region = 7;
-  for (const key of ["kills", "clues", "victories", "rematchRanks"]) old[key].pop();
-  old.guide.defeats.pop();
+  for (const key of ["kills", "clues", "victories", "rematchRanks"]) old[key] = old[key].slice(0, 8);
+  old.guide.defeats = old.guide.defeats.slice(0, 8);
   old.victories.fill(1);
   old.windSurveyed = true;
   old.ranks = [1, 1, 0, 1, 1, 1, 1];
