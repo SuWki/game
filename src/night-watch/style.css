@@ -523,6 +523,8 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .mirror-layout h2,.mirror-entry h3,.mirror-outcome h3 { margin:0; }
 .mirror-entry { padding: 14px; background: #ebdfbf; border-left: 3px solid #814a35; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; justify-content:space-between; }
 .mirror-entry p,.engraving p { margin: 4px 0; }
+.recovery-note { border-left: 3px solid #965a3f; padding: 8px 12px; margin: 10px 0; background: #ecdfbf; }
+.recovery-note .choices { margin-top: 6px; }
 .mirror-engraving { border-top: 2px solid #9a8264; padding-top: 10px; }
 .mirror-engraving + .mirror-engraving { margin-top: 18px; }
 .reforge-card { scroll-margin-block: 80px; }

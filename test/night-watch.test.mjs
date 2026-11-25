@@ -1098,6 +1098,53 @@ test("河伯强化关按实际回浪时机结算，首次取胜补悟听潮步",
   assert.equal(previewOpening(next, "safe").prepared, "水底铃扰阵");
 });
 
+test("河伯再战第三关的回浪追篙可用听潮步化解，也能用守式和割缆撑过去", () => {
+  const save = duelFixture(730, 2);
+  save.rematchRanks = [1, 2, 0, 0, 0, 0];
+  save.clues[1] = 3;
+  save.drops[0] = save.drops[1] = true;
+  save.ranks[0] = save.ranks[1] = 1;
+  save.kit.stance = "attack";
+  save.ownedGear = ["reedBlade", "ferryCoat", "hillCoat", "tideSeal"];
+  save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tideSeal" };
+  const plan = [[4, "safe"], [10, "safe"]];
+  const configured = startRematch(save, 1);
+  assert.equal(setBattlePlan(configured, [{ round: 4, choice: "safe" }, { round: 10, choice: "safe" }]), true);
+  const wavePreview = forecastFight(configured, 2);
+  assert.equal(wavePreview.riverDrenched, true);
+  assert.ok(wavePreview.rounds[1].marks.includes("回浪沾衣"));
+  const pursuitPreview = forecastFight(configured, 3);
+  assert.equal(pursuitPreview.riverDrenched, false);
+  assert.ok(pursuitPreview.rounds[2].marks.includes("湿衣追篙"));
+  const lost = playRounds(configured, configured.limit);
+  assert.equal(lost.result, "lost");
+  assert.equal(lost.round, 9);
+  assert.match(defeatSummary(lost), /追篙击倒.*听潮步/);
+  assert.doesNotMatch(lost.log[4], /湿了衣衫/);
+
+  equipArt(save, 1, true);
+  const swift = automaticDuel(startRematch(save, 1), plan);
+  assert.equal(swift.result, "won");
+  assert.equal(swift.round, 12);
+  assert.ok(swift.links["听潮步避开沾衣"] > 0);
+  assert.equal(swift.links["湿衣追篙"], undefined);
+  assert.equal(swift.links["渡水蓑回血 +7"], 4);
+
+  equipArt(save, 1, false);
+  save.kit.stance = "guard";
+  save.loadout.armor = "hillCoat";
+  save.rematchRanks[0] = 3;
+  readyArts(save, [0], 2);
+  const sturdy = automaticDuel(startRematch(save, 1), plan);
+  assert.equal(sturdy.result, "won");
+  assert.equal(sturdy.round, 16);
+  assert.ok(sturdy.links["山行衣护身"] > 0);
+  assert.ok(sturdy.links["湿衣追篙"] > 0);
+
+  save.rematchRanks[1] = 1;
+  assert.equal(forecastFight(startRematch(save, 1), 2).riverDrenched, false);
+});
+
 test("异相已完成且线索实查完毕时，只给本案对应的镜中妖影一次准备", () => {
   const s = newSave(0);
   s.victories = [1, 1, 1, 0, 0, 0];

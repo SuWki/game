@@ -1,13 +1,47 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, recordedClues } from "./game.ts";
-import type { Region, Save } from "./game.ts";
+import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, planWindows, recordedClues, riverPursuitActive } from "./game.ts";
+import type { Fight, Region, Save } from "./game.ts";
 import { caseClues, encounters } from "./tactics.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | "rematch" | TrialId;
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
+export type PrepFocus = "plan" | "weapon" | "armor" | "stance" | `art:${Region}`;
+export type RecoveryTip = { text: string; label: string; focus: PrepFocus };
+
+export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
+  const marks = fight.lastExchange?.marks ?? [];
+  if (marks.includes("更印封阵") || marks.includes("更印震响")) {
+    return { text: "寄灯符先贴印，挑灯诀下一回合引爆。尚未带挑灯诀时，可在第 2、5 回合安排借灯引符。", label: "查看寄灯符", focus: "art:4" };
+  }
+  if (riverPursuitActive(fight) && !marks.includes("覆舟") && (fight.links["湿衣追篙"] || fight.riverDrenched)) {
+    return { text: "听潮步在回浪那一轮避击，配渡水蓑能回气。也可提前割缆，用守式撑过其余几轮。", label: "查看听潮步", focus: "art:1" };
+  }
+  if (marks.includes("覆舟") || fight.trial?.id === "ferryTrial") {
+    const rounds = planWindows(fight).slice(0, 2).join("、");
+    if (!fight.loadout.weapon && save.ownedGear.some(id => id === "pineBlade" || id === "reedBlade")) {
+      return { text: `先穿上行囊里的兵刃。再在第 ${rounds} 回合排割缆，免得河水灌满。`, label: "换上兵刃", focus: "weapon" };
+    }
+    return { text: `第 ${rounds} 回合安排割缆可清水位。听潮步能躲开重浪，船缆仍会汲水。`, label: "重新安排割缆", focus: "plan" };
+  }
+  if (marks.includes("纸面反噬") || fight.trial?.id === "templeTrial") {
+    return save.drops[2]
+      ? { text: "照影让接下来的刀招打中真身。没有显形的回合还可提前排挑灯。", label: "查看照影", focus: "art:2" }
+      : { text: "第 2、5 回合安排挑灯，可以连续三回合斩到真身。", label: "重新安排挑灯", focus: "plan" };
+  }
+  if (marks.includes("跌落驿桥")) {
+    return { text: "第 6、9 回合安排借墩稳身可以清除失足，也可用镇山喝截住横篙。", label: "重新安排稳身", focus: "plan" };
+  }
+  if (fight.life > 0) {
+    return { text: `回合用尽时对手还剩 ${fight.hp} 气血。可以换刀或检查装备词条是否触发。`, label: "比较兵刃", focus: "weapon" };
+  }
+  if (fight.kit.stance === "attack") {
+    return { text: "切到守式可以架住重击。换好后用战前预览检查少掉多少气血。", label: "调整架势", focus: "stance" };
+  }
+  return { text: "看看行囊里的护具能增加多少气血，再对照战报里伤害最高的回合。", label: "比较护具", focus: "armor" };
+}
 
 export function clueTip(save: Save, showRead = false) {
   const region = save.region;
