@@ -23,6 +23,13 @@ export const trueSigilBonus = 18;
 export const fusionStrike = 22;
 export const altarStations = ["芦花渡 · 陆婆", "云栈 · 守灯人", "纸马驿 · 驿卒"] as const;
 export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
+export const altarMirrorName = "归山镜题 · 错页";
+export const altarMirrorSand = 22;
+export const altarMirrorPages = [
+  { start: 2, deadline: 3, strength: 135 },
+  { start: 6, deadline: 7, strength: 72 },
+  { start: 9, deadline: 12, strength: 150 },
+] as const;
 export const ropeStep = 6;
 export const windSurveyDao = 720;
 export const mountainFirstReward = 6;

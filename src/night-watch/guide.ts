@@ -25,6 +25,10 @@ const caseAdvice = [
 ] as const;
 
 export function battleBrief(fight: Fight) {
+  if (fight.altarMirror) return {
+    threat: "十二回合内破三页。第二页第 6 回合覆上，第 7 回合末还在就会合镜。",
+    hint: "第二页窗口错开了挑灯诀和照灯断影。可用镇山喝截铃锋接折篙刀，或用两轮刀伤直接破纸。",
+  };
   const threat = [
     "第 3、6、9… 回合，山君吹起虎啸。",
     riverPursuitActive(fight) ? "挨两次湿衣追篙就会落水。" : "河伯汲水三次便会覆舟。",
@@ -49,6 +53,19 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.altarMirror) {
+    if (fight.altarMirror.pages === 1 && marks.includes("护纸合镜")) return {
+      text: "第二页只能赶第 6、7 回合。差少量伤害可切攻式。守式也可以用镇山喝截铃锋，再接折篙刀。",
+      label: "查看镇山喝", focus: "art:0",
+    };
+    if (fight.altarMirror.pages < 3 && !fight.kit.lampFusion && !(fight.kit.sigil && fight.kit.kindle)) {
+      return save.lampFusion
+        ? { text: "照灯断影能赶上首页和末页。第二页另留武学或刀伤。", label: "查看照灯断影", focus: "fusion" }
+        : { text: "寄灯符配挑灯诀能烧首页与末页。第二页需要预留刀伤。", label: "查看寄灯符", focus: "art:4" };
+    }
+    if (fight.life > 0) return { text: "三页破齐后，还要在第十二回合内击退妖影。换刀可以缩短收尾。", label: "比较兵刃", focus: "weapon" };
+    return { text: "可以比较护具和守更牌，把气血留到末页收尾。", label: "比较护具", focus: "armor" };
+  }
   if (fight.altarAnswers) {
     if (fight.altarAnswers.progress < 3 && !fight.kit.lampFusion && !(fight.kit.sigil && fight.kit.kindle)) {
       return save.lampFusion
