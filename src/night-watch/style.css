@@ -395,20 +395,17 @@ body { background: #e7e0cc; color: #36392f; }
 #pack-sheet .outfit-picker { padding: 0; background: transparent; }
 #battle-sheet { width: min(490px,calc(100% - 24px)); max-height: 85dvh; padding: 16px; color: var(--ink); }
 #battle-sheet::backdrop { background: #0e1d22a8; }
-#battle-sheet #battle-plan-options > p { margin-top: 7px; }
-.plan-tactics { display: grid; gap: 8px; margin: 12px 0; }
-.plan-tactics div { border-left: 2px solid #b28a5e; padding-left: 10px; }
-.plan-tactics dt { font-weight: 700; }
-.plan-tactics dd { margin: 2px 0 0; font-size: .88rem; color: #514535; }
-.plan-orders { display: grid; gap: 7px; margin: 12px 0; }
-.plan-orders label { display: grid; grid-template-columns: max-content minmax(0,1fr); align-items: center; gap: 8px; }
-.plan-orders select { width: 100%; min-width: 0; min-height: 40px; font: inherit; color: #33291f; background: #f7ebd1; border: 1px solid #ae997c; border-radius: 4px; }
-#battle-plan-preview { font-size: .88rem; color: #584535; }
-.plan-gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
-.plan-gauges progress { background: #cabb9e; }
-.plan-gauges progress::-webkit-progress-bar { background: #cabb9e; }
-.plan-gauges progress::-webkit-progress-value { background: #5e7a62; }
-.plan-gauges div + div progress::-webkit-progress-value { background: #a96551; }
+#battle-brief > p { margin-top: 6px; }
+#battle-brief .battle-threat { padding-left: 9px; border-left: 3px solid #975c3f; }
+.battle-objective { font-size: .9rem; color: #5c442d; }
+#battle-preview { padding: 9px 10px; margin-top: 12px; background: #e9dabc; font-size: .88rem; color: #584535; }
+#battle-preview > p:not(:first-child) { margin-top: 6px; }
+.battle-preview-gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.battle-preview-gauges progress { background: #cabb9e; }
+.battle-preview-gauges progress::-webkit-progress-bar { background: #cabb9e; }
+.battle-preview-gauges progress::-webkit-progress-value { background: #5e7a62; }
+.battle-preview-gauges div + div progress::-webkit-progress-value { background: #a96551; }
+.battle-alert { color: #7d3425; font-weight: 600; }
 .stage[data-boss=true] { height: clamp(200px,34dvh,340px); }
 .theatre:has(.stage[data-boss=true]) .satchel { display:none; }
 .nav { position:static; background:transparent; border:0; border-bottom:1px solid #a39579; gap:0; padding:0; grid-row:1; color:#514832; }

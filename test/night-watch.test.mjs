@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accrueOffline, accrueSand, answerOpening, canChallenge, canEarnSand, clueCount, combatStats, compareGear, cultivation, defeatSummary, earnDao, decode, forecastFight, gearRequirement, loadoutStats, newSave, trainingRoute,
-  applyPreset, artDue, equipArt, planWindows, previewOpening, recordedClues, recordPatrolKill, reforgeGear, reforgeState, rematchSpec, roundMoves, setBattlePlan, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
+  applyPreset, artDue, enableCombatTactics, equipArt, planWindows, previewOpening, recordedClues, recordPatrolKill, reforgeGear, reforgeState, rematchSpec, roundMoves, setBattlePlan, settleMirror, settleRematch, settleTrial, startCaseFight, startFight, startMirrorFight, startRematch, startTrial, storePreset, study, tickFight, tuneEngraving, weaponArts, win,
 } from "../src/night-watch/game.ts";
 import { mountainFirstReward, regions } from "../src/night-watch/content.ts";
 import { equipment, gearEffect } from "../src/night-watch/equipment.ts";
@@ -1218,63 +1218,124 @@ function automaticDuel(fight, pairs = []) {
   return playRounds(fight, fight.limit);
 }
 
-test("六案首战有稳定所得的解法，山君负责上手，其余空装盲打会败阵", () => {
+function duelWithTactics(fight) {
+  assert.equal(enableCombatTactics(fight), true);
+  while (fight.result === "fighting") {
+    tickFight(fight);
+    assert.equal(fight.waiting, false);
+  }
+  return fight;
+}
+
+test("六案首战可以直接用正式配装交锋，河伯、纸马和驿卒的低进度空装档会败阵", () => {
   const route = [
-    [14, undefined, [], [[3, "safe"], [6, "safe"]]],
-    [204, "tigerFang", [0], [[2, "risk"], [5, "risk"]]],
-    [830, "tigerFang", [0], [[2, "safe"], [5, "safe"]]],
-    [1284, "tigerFang", [0], [[3, "risk"], [6, "risk"]]],
-    [1545, "postSeal", [0, 3], [[2, "safe"], [5, "safe"]]],
-    [2315, "courierSeal", [0, 3, 4], [[2, "risk"], [5, "risk"]]],
+    [14, undefined, []],
+    [204, "tigerFang", [0]],
+    [830, "tigerFang", [0]],
+    [1284, "tigerFang", [0]],
+    [1545, "postSeal", [0, 3]],
+    [2315, "courierSeal", [0, 3, 4]],
   ];
-  for (const [region, [dao, charm, arts, orders]] of route.entries()) {
+  for (const [region, [dao, charm, arts]] of route.entries()) {
     const save = duelFixture(dao, region);
-    const blind = automaticDuel(startCaseFight(save, region));
-    assert.equal(blind.result, region === 0 ? "won" : "lost", regions[region].boss);
-    if (region === 1) {
-      assert.equal(automaticDuel(startCaseFight(save, region), [[2, "safe"], [5, "safe"]]).result, "lost");
-    }
+    const blind = duelWithTactics(startCaseFight(save, region));
+    assert.equal(blind.result, [1, 4, 5].includes(region) ? "lost" : "won", regions[region].boss);
     save.loadout = charm ? { weapon: "pineBlade", charm } : { weapon: "pineBlade" };
     readyArts(save, arts);
-    assert.equal(automaticDuel(startCaseFight(save, region), orders).result, "won", regions[region].boss);
+    const fight = duelWithTactics(startCaseFight(save, region));
+    assert.equal(fight.result, "won", regions[region].boss);
+    if (region === 1) assert.deepEqual([fight.round, fight.links["引浪撞舟"]], [10, 2]);
   }
 });
 
-test("照妖镜前十二重可用首卷装备连续打通，提前回浪和娘娘换相需要调整", () => {
+test("照妖镜前十二重可用首卷装备连续打通，攻式的提前回浪和娘娘换相需要换招", () => {
   const save = duelFixture(1284, 3);
   save.rematchRanks = [1, 1, 1, 0, 0, 0];
   save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "tigerFang" };
   readyArts(save, [0]);
 
   for (let level = 1; level <= 12; level++) {
-    let plan = [[2, "risk"]];
-    if (level >= 3 && level <= 4) plan = [[2, "safe"], [5, "risk"]];
     if (level === 5) {
-      const blind = automaticDuel(startMirrorFight(save, level));
+      save.kit.stance = "attack";
+      save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tideSeal" };
+      const blind = duelWithTactics(startMirrorFight(save, level));
       assert.equal(blind.result, "lost");
       assert.match(defeatSummary(blind), /水位涨满三格/);
       readyArts(save, [1]);
-      save.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tideSeal" };
     }
-    if (level >= 5 && level <= 9) plan = [[1, "safe"], [4, "safe"]];
     if (level === 10) {
+      save.kit.stance = "guard";
       save.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "tigerFang" };
       equipArt(save, 1, false);
     }
-    if (level === 10 || level === 11) plan = [[2, "risk"], [5, "risk"]];
     if (level === 12) {
-      const blind = automaticDuel(startMirrorFight(save, level));
+      save.kit.stance = "attack";
+      save.loadout.charm = "tideSeal";
+      const blind = duelWithTactics(startMirrorFight(save, level));
       assert.equal(blind.result, "lost");
       assert.match(defeatSummary(blind), /纸面反噬/);
       readyArts(save, [2]);
-      save.loadout = { weapon: "templeBlade", armor: "ferryCoat", charm: "mirrorPearl" };
-      plan = [];
     }
-    const fight = automaticDuel(startMirrorFight(save, level), plan);
+    const fight = duelWithTactics(startMirrorFight(save, level));
     assert.equal(fight.result, "won", `第 ${level} 重`);
     assert.ok(settleMirror(save, fight, 0).reward > 0);
   }
   assert.equal(save.mirror.best, 12);
+});
+
+test("随阵自动出招的战前和中途推演与实战一致，已查线索仍由有效截招触发", () => {
+  const save = duelFixture(1284, 3);
+  save.clues[3] = 3;
+  save.loadout.weapon = "pineBlade";
+  readyArts(save, [0]);
+  const bridge = duelWithTactics(startCaseFight(save, 3));
+  assert.equal(bridge.links["借栏绊篙"], 1);
+  assert.equal(bridge.focus, 2);
+
+  const river = startMirrorFight(save, 1);
+  assert.equal(enableCombatTactics(river), true);
+  const start = forecastFight(river, 6);
+  assert.equal(start.tacticsUsed, 2);
+  assert.equal(river.round, 0);
+  assert.equal(river.focus, 2);
+  playRounds(river, 2);
+  const next = forecastFight(river, 1);
+  playRounds(river, 3);
+  assert.equal(enableCombatTactics(river), false);
+  assert.deepEqual(next.rounds[0], river.lastExchange);
+  assert.deepEqual(start.rounds[2], river.lastExchange);
+});
+
+test("三关河伯和守更再战需要实际换招，两件异相可以用稳定所得完成", () => {
+  const river = duelFixture(730, 2);
+  river.rematchRanks = [1, 2, 0, 0, 0, 0];
+  river.clues[1] = 3;
+  river.kit.stance = "attack";
+  river.loadout = { weapon: "reedBlade", armor: "ferryCoat", charm: "tideSeal" };
+  assert.equal(duelWithTactics(startRematch(river, 1)).result, "lost");
+  readyArts(river, [1]);
+  const tide = duelWithTactics(startRematch(river, 1));
+  assert.deepEqual([tide.result, tide.round, tide.links["渡水蓑回血 +7"]], ["won", 12, 4]);
+
+  const watch = duelFixture(3400, 6);
+  watch.rematchRanks = [1, 1, 0, 0, 0, 1];
+  watch.ownedGear = ["pineBlade", "ferryCoat"];
+  watch.mirror.sand = 40;
+  watch.loadout = { weapon: "pineBlade", armor: "ferryCoat", charm: "courierSeal" };
+  assert.equal(reforgeGear(watch, "pineBlade"), true);
+  assert.equal(reforgeGear(watch, "ferryCoat"), true);
+  assert.equal(duelWithTactics(startRematch(watch, 5)).result, "lost");
+  readyArts(watch, [0, 4, 5]);
+  const fire = duelWithTactics(startRematch(watch, 5));
+  assert.deepEqual([fire.result, fire.round, fire.life], ["won", 12, 57]);
+
+  const trial = duelFixture(830, 3);
+  trial.rematchRanks[0] = 1;
+  trial.loadout = { weapon: "pineBlade", charm: "tigerFang" };
+  const lamps = duelWithTactics(startTrial(trial, "ferryTrial"));
+  assert.deepEqual([lamps.result, lamps.trial.progress], ["won", 2]);
+  const faces = duelWithTactics(startTrial(trial, "templeTrial"));
+  assert.deepEqual([faces.result, faces.trial.progress], ["won", 3]);
 });
 
 test("重铸分别检查主线、再战、装备与砂，保留原词条和旧档强化", () => {

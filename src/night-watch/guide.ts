@@ -1,38 +1,80 @@
 import { arts, bridgeRegion, courierRegion, heartRealm, realms, regions, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, planWindows, recordedClues, riverPursuitActive } from "./game.ts";
+import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, patrolRemaining, recordedClues, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { Fight, Region, Save } from "./game.ts";
-import { caseClues, encounters } from "./tactics.ts";
+import { caseClues } from "./tactics.ts";
 
 export type Tab = "patrol" | "practice" | "skills" | "archive" | "mirror" | "rematch" | TrialId;
 type Result = { region: Region; won: boolean; drop?: boolean; trialId?: TrialId; mirrorLevel?: number };
 type Target = { tab: Tab; action?: string; label: string };
 export type Tip = { id: string; title: string; text: string; target?: Target };
-export type PrepFocus = "plan" | "weapon" | "armor" | "stance" | `art:${Region}`;
+export type PrepFocus = "weapon" | "armor" | "stance" | `art:${Region}`;
 export type RecoveryTip = { text: string; label: string; focus: PrepFocus };
+
+const caseAdvice = [
+  "守式能架住虎啸。穿戴松纹刀，能多打出几分伤害。",
+  "镇山喝对上回浪时能借浪清水。守式也会找机会割缆。",
+  "守式会在危险时挑灯照面。照影显形能让更多刀招打中真身。",
+  "镇山喝能截住横篙，失足前换守式也可借墩稳身。",
+  "守式会压灯卸势，听潮步可避开冲灯。",
+  "寄灯符能借火破印。配挑灯诀可以持续引爆。",
+] as const;
+
+export function battleBrief(fight: Fight) {
+  const threat = [
+    "第 3、6、9… 回合，山君吹起虎啸。",
+    riverPursuitActive(fight) ? "未割缆的回浪会沾衣，下一回合还有追篙。" : "河伯汲水三次便会覆舟。",
+    "连续斩中两次纸面，会遭反噬。",
+    "第三次被横篙逼得失足，就会跌下驿桥。",
+    "纸马提灯冲撞，马灯在时刀伤减半。",
+    wardSealActive(fight) ? "连续三次敲更时没破印，就会被封阵。" : "敲更时更印若还在，会震伤阿照。",
+  ][fight.region];
+  const hint = fight.region === 1 && fight.riverWave === 2
+    ? "听潮步能避开提前到第 2 回合的回浪，水位由割缆处理。"
+    : fight.region === 2 && !fight.kit.reveal && !fight.rematchRank && !fight.mirrorLevel && !fight.trial
+      ? "用守式挑灯照见真身。快些收尾，可以少受一轮反噬。"
+      : caseAdvice[fight.region];
+  return { threat, hint };
+}
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
-  if (marks.includes("更印封阵") || marks.includes("更印震响")) {
-    return { text: "寄灯符先贴印，挑灯诀下一回合引爆。尚未带挑灯诀时，可在第 2、5 回合安排借灯引符。", label: "查看寄灯符", focus: "art:4" };
+  if (marks.includes("更印封阵") || marks.includes("更印震响") ||
+    wardSealActive(fight) && (fight.links["更印震响"] > 0 || !fight.kit.sigil && fight.links["揭去更印"] > 0)) {
+    if (fight.kit.sigil && !fight.kit.kindle && save.drops[5]) {
+      return { text: "两次借火用完后，更印还会重结。带挑灯诀，把每道寄灯符都引爆。", label: "查看挑灯诀", focus: "art:5" };
+    }
+    if (fight.kit.sigil && fight.kit.kindle) {
+      return { text: "符火已经在用。可比较兵刃的刀伤，赶在再次敲更前收尾。", label: "比较兵刃", focus: "weapon" };
+    }
+    return { text: "装备寄灯符，阿照就能借火破印。配上挑灯诀，每次贴符后还能接着引爆。", label: "查看寄灯符", focus: "art:4" };
   }
   if (riverPursuitActive(fight) && !marks.includes("覆舟") && (fight.links["湿衣追篙"] || fight.riverDrenched)) {
-    return { text: "听潮步在回浪那一轮避击，配渡水蓑能回气。也可提前割缆，用守式撑过其余几轮。", label: "查看听潮步", focus: "art:1" };
+    return { text: "听潮步可避开回浪，配渡水蓑还能回气。也可用守式割缆，靠护具撑过其余几轮。", label: "查看听潮步", focus: "art:1" };
   }
   if (marks.includes("覆舟") || fight.trial?.id === "ferryTrial") {
-    const rounds = planWindows(fight).slice(0, 2).join("、");
     if (!fight.loadout.weapon && save.ownedGear.some(id => id === "pineBlade" || id === "reedBlade")) {
-      return { text: `先穿上行囊里的兵刃。再在第 ${rounds} 回合排割缆，免得河水灌满。`, label: "换上兵刃", focus: "weapon" };
+      return { text: "先穿上行囊里的兵刃，争取在第三次汲水前收尾。", label: "换上兵刃", focus: "weapon" };
     }
-    return { text: `第 ${rounds} 回合安排割缆可清水位。听潮步能躲开重浪，船缆仍会汲水。`, label: "重新安排割缆", focus: "plan" };
+    if (fight.riverWave === 3 && save.drops[0] && fight.kit.shout === "off") {
+      return { text: "带镇山喝，在第 3 回合对上回浪，就能借浪清水。松纹刀还能借截断加伤。", label: "查看镇山喝", focus: "art:0" };
+    }
+    if (fight.riverWave === 2 && fight.kit.step !== "tide" && save.drops[1]) {
+      return { text: "提前的回浪正好撞上听潮步。守式割缆对付水位，听潮步对付浪伤。", label: "查看听潮步", focus: "art:1" };
+    }
+    return fight.kit.stance === "guard"
+      ? { text: "两次割缆换来的时间有限。比较兵刃的刀伤，在水位再涨满前收尾。", label: "比较兵刃", focus: "weapon" }
+      : { text: "换守式，阿照会在水位开始上涨后尝试割缆。", label: "调整架势", focus: "stance" };
   }
   if (marks.includes("纸面反噬") || fight.trial?.id === "templeTrial") {
-    return save.drops[2]
-      ? { text: "照影让接下来的刀招打中真身。没有显形的回合还可提前排挑灯。", label: "查看照影", focus: "art:2" }
-      : { text: "第 2、5 回合安排挑灯，可以连续三回合斩到真身。", label: "重新安排挑灯", focus: "plan" };
+    return save.drops[2] && !fight.kit.reveal
+      ? { text: "照影让接下来的刀招打中真身。照影没有覆盖时，守式会找机会挑灯。", label: "查看照影", focus: "art:2" }
+      : fight.kit.stance === "attack"
+        ? { text: "换成守式，阿照会在纸面干扰时挑灯。利用亮灯的几轮尽快收尾。", label: "调整架势", focus: "stance" }
+        : { text: "挑灯的窗口有限，试试提高能打中真身的刀伤。", label: "比较兵刃", focus: "weapon" };
   }
   if (marks.includes("跌落驿桥")) {
-    return { text: "第 6、9 回合安排借墩稳身可以清除失足，也可用镇山喝截住横篙。", label: "重新安排稳身", focus: "plan" };
+    return { text: "镇山喝会在第 3、6、9… 回合截住横篙，帮阿照站稳。", label: "查看镇山喝", focus: "art:0" };
   }
   if (fight.life > 0) {
     return { text: `回合用尽时对手还剩 ${fight.hp} 气血。可以换刀或检查装备词条是否触发。`, label: "比较兵刃", focus: "weapon" };
@@ -52,18 +94,18 @@ export function clueTip(save: Save, showRead = false) {
   const id = `clue-${region}-${step}${step >= challengeClues && !available ? "-locked" : ""}`;
   if (!showRead && save.guide.dismissed.includes(id)) return;
   const enemy = regions[region].boss;
-  const response = encounters[region].safe.name;
+  const advice = region === 2 && !save.drops[2] ? "守式会在危险时挑灯照面。" : caseAdvice[region];
   const unlock = available ? `现在可以挑战${enemy}。` : `进入${realms[challengeRealms[region]]}境后可挑战${enemy}。`;
   if (step === 1) return {
     id, step, title: `第一条线索 · ${regions[region].clues[0]}`, text: caseClues[region].danger, label: "查看首领招路",
   };
   if (step === challengeClues) return {
     id, step, title: "第二条线索 · 找到应对",
-    text: `${unlock}可在战前把「${response}」排到险招回合。第三条线索能强化这次应对。`, label: "查看应对办法",
+    text: `${unlock}${advice}第三条线索能为这场交锋再添一处准备。`, label: "查看应对办法",
   };
   return {
     id, step, title: "第三条线索 · 应变已备好",
-    text: `首次执行「${response}」，额外打 ${caseClues[region].damage} 点伤害。${available ? "出战前可查看这次准备。" : unlock}`,
+    text: `${automaticPreparationText(region)}${available ? "出战前可查看这次准备。" : unlock}`,
     label: "查看备战效果",
   };
 }
@@ -150,7 +192,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   if (!save.victories[0]) {
     if (canChallenge(save, 0)) return {
       id: "first-boss", title: "初次问妖",
-      text: "点挑战山君，先把伏身避啸排在第 3 回合，再开始交锋。开战后阿照会照这个计划出手。",
+      text: "点挑战山君，看看虎啸是在第几回合。穿上刚捡的松纹刀，守式能帮你架住虎啸。",
       target: { tab: "patrol", action: "fight:0", label: "挑战山君" },
     };
     if (save.ownedGear.length && !Object.keys(save.loadout).length && !save.guide.dismissed.includes("first-gear")) {
@@ -223,19 +265,19 @@ function defeatTip(save: Save, region: Region): Tip {
   const precise = save.guide.defeats[region] >= 2;
   const clues = [
     "打开交锋详情，找出虎啸在哪一回合命中，再看看自己的架势。",
-    "如果有装备还没穿戴，先把兵刃和护具穿上。留意河伯绷缆的回合，提前排割缆。",
+    "先穿好兵刃和护具。守式会找机会割缆，镇山喝也能截住按期到来的回浪。",
     "接连斩中两次纸面会受到反噬。打开交锋详情，看看反噬发生在哪一回合。",
     "横篙命中三次会掉下桥。看第 3、6、9 回合的失足变化。",
-    "马灯还亮时，冲灯命中会灼伤。战前安排压灯，看看前六回合的余血差多少。",
+    "马灯还亮时，冲灯命中会灼伤。用守式压灯减伤，或用听潮步避开冲撞。",
     "驿卒会重复结更印。看战报里哪几回合出现震响，确认破印的时机。",
   ];
   const advice = [
     "用守式应战，虎啸原本要扣 36 点气血，架住后只扣 7 点。",
-    "第 2、5 回合安排割缆能清水位。也可带松纹刀和已修习的镇山喝，把割缆换成引浪。",
-    "烛偏时能打中真身。前一回合可收刀等候，或挑灯连续三回合见到真身。已修习照影时，也可提前显形。",
-    "把「借墩稳身」安排在第 6 或第 9 回合，清掉已经积累的失足。也可以装备镇山喝，每三回合截断横篙。",
-    "试试守式。第 2、5 回合各压一次灯，可减伤并让本回合的刀打实。",
-    "装备寄灯符和折篙刀。第 2、5 回合都选「借灯引符」，可以烧去更印并打出火伤。",
+    "守式割缆能清水位。带松纹刀和镇山喝，截断时能多打伤害，也能借浪清水位。",
+    "烛偏时能打中真身。守式挑灯后连续三回合能看到真身，照影还可以显形。",
+    "装备镇山喝，每三回合截断横篙。用守式也有机会借墩稳住脚。",
+    "试试守式。压灯可以减伤，让冲灯回合的刀招打实。",
+    "装备寄灯符，借火能烧去更印。学会挑灯诀后，符火可以持续引爆。",
   ];
   return {
     id: `defeat-${region}-${precise ? 2 : 1}`, title: precise ? "再试一个解法" : "先看败在哪里",

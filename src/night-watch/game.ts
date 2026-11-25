@@ -519,6 +519,7 @@ export type Fight = {
   consult: boolean; waiting: boolean; focus: number;
   order?: { round: number; choice: Response };
   plan?: BattleOrder[];
+  autoTactics?: boolean;
   lastExchange?: { round: number; life: number; hp: number; marks: string[] };
   links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
@@ -762,8 +763,59 @@ export function setBattlePlan(fight: Fight, orders: BattleOrder[]) {
     || orders.some(order => !windows.includes(order.round) || order.choice !== "safe" && order.choice !== "risk"
       || order.choice === "risk" && planRiskRequirement(fight, order.round))) return false;
   fight.consult = false;
+  fight.autoTactics = false;
   fight.plan = orders.map(order => ({ ...order })).sort((left, right) => left.round - right.round);
   return true;
+}
+
+export function enableCombatTactics(fight: Fight) {
+  if (!fight.boss || fight.round || fight.time || fight.result !== "fighting") return false;
+  fight.consult = false;
+  fight.autoTactics = true;
+  delete fight.plan;
+  return true;
+}
+
+function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | undefined {
+  if (!openingDue(fight.region, round, fight.riverWave)) return;
+  const guard = fight.kit.stance === "guard";
+  const hasTide = fight.kit.step === "tide" && fight.ranks[1] > 0;
+  const hasShout = fight.kit.shout !== "off" && fight.ranks[0] > 0 && artDue(round, 0);
+  switch (fight.region) {
+    case 0:
+      return guard && !hasShout ? "safe" : undefined;
+    case 1:
+      if (!planRiskRequirement(fight, round)) return "risk";
+      if (guard && fight.trial?.id === "ferryTrial" && !hasTide) return "safe";
+      if ((guard || hasTide) && fight.water >= 1) return "safe";
+      break;
+    case 2: {
+      if (!guard) break;
+      // 提前照面与照影覆盖的回合都无需再次挑灯。
+      const litThrough = fight.order?.choice === "safe" ? fight.order.round + 2 : 0;
+      const reveals = fight.kit.reveal && fight.ranks[2] > 0;
+      if (Math.max(litThrough, fight.revealedThrough) < round && !(reveals && artDue(round, 2))) return "safe";
+      break;
+    }
+    case bridgeRegion:
+      if (hasShout) return guard ? undefined : "risk";
+      return guard && fight.footing > 0 ? "safe" : undefined;
+    case courierRegion:
+      return guard ? "safe" : undefined;
+    case watchRegion:
+      if (fight.ward <= 0) break;
+      if (fight.sigilThrough >= round) return fight.kit.kindle && fight.ranks[5] > 0 ? undefined : "risk";
+      return guard ? "safe" : undefined;
+  }
+}
+
+export function automaticPreparationText(region: Region) {
+  const { aid, damage } = caseClues[region];
+  const trigger = [
+    "伏身避啸或截断虎啸", "割缆断流或引浪倒撞", "挑灯照面或施放照影",
+    "借墩稳身或截断横篙", "压灯卸势或以听潮步避开冲灯", "揭去更印或引爆符火",
+  ][region];
+  return `「${aid}」· 首次${trigger}额外造成 ${damage} 点伤害。`;
 }
 
 export function answerOpening(f: Fight, choice: Response) {
@@ -799,7 +851,8 @@ function resolveRound(f: Fight) {
   const drenched = f.riverDrenched;
   f.riverDrenched = false;
   const actions: string[] = [];
-  const planned = f.plan?.find(order => order.round === round);
+  const tactic = f.autoTactics && f.focus > 0 ? automaticTactic(f, round) : undefined;
+  const planned = tactic ? { round, choice: tactic } : f.plan?.find(order => order.round === round);
   if (planned && f.focus > 0) {
     if (f.region === watchRegion && planned.choice === "risk" && f.sigilThrough < round) {
       actions.push("没有可引爆的寄灯符，依原招出手");
@@ -807,7 +860,9 @@ function resolveRound(f: Fight) {
     } else {
       f.order = planned;
       f.focus--;
-      marks.push(encounters[f.region][planned.choice].name);
+      if (planned.choice !== "safe" || f.region !== 2 && f.region !== bridgeRegion) {
+        marks.push(encounters[f.region][planned.choice].name);
+      }
     }
   }
   const rank = f.rematchRank ?? 0;
@@ -928,7 +983,10 @@ function resolveRound(f: Fight) {
     f.footing = 0;
     marks.push("借墩稳身");
   }
-  if (f.hp > 0 && f.preparation === "ready" && choice === "safe" && elapsed === (f.region === 1 ? 1 : 0)) {
+  const responsePrep = (choice === "safe" || f.autoTactics && choice === "risk") && elapsed === (f.region === 1 ? 1 : 0);
+  const artPrep = f.autoTactics && (interrupted && (f.region === 0 || f.region === bridgeRegion)
+    || f.region === 2 && reveal || horseCharge && tide || watching && marks.includes("符火引爆"));
+  if (f.hp > 0 && f.preparation === "ready" && (responsePrep || artPrep)) {
     const clue = caseClues[f.region];
     f.preparation = "used";
     marks.push(clue.aid);
@@ -1089,7 +1147,8 @@ function resolveRound(f: Fight) {
   f.log.push(f.event);
   if (trial?.id === "templeTrial" && backlash) {
     f.result = "lost";
-    f.lastThreat = "纸面反噬吹熄了烛火。挑灯照出真身，或收刀等烛偏。";
+    f.lastThreat = f.autoTactics ? "纸面反噬吹熄了烛火。守式可挑灯，带照影可增加显形的回合。"
+      : "纸面反噬吹熄了烛火。挑灯照出真身，或收刀等烛偏。";
   } else if (trial && f.hp <= 0 && trial.progress < trials[trial.id].target) {
     f.result = "lost";
     f.lastThreat = `大妖已退，${trials[trial.id].counter}只完成 ${trial.progress} / ${trials[trial.id].target}。`;
@@ -1115,14 +1174,14 @@ export function previewOpening(fight: Fight, choice: Response) {
 
 export function forecastFight(fight: Fight, rounds = 6) {
   const f = structuredClone(fight);
-  f.order = undefined;
+  if (!f.autoTactics) f.order = undefined;
   const result: NonNullable<Fight["lastExchange"]>[] = [];
   for (let i = 0; i < rounds && f.result === "fighting"; i++) {
     resolveRound(f);
     if (f.lastExchange) result.push(f.lastExchange);
   }
   return { rounds: result, life: Math.max(0, f.life), hp: Math.max(0, f.hp), result: f.result,
-    wardStreak: f.wardStreak, water: f.water, riverDrenched: f.riverDrenched };
+    wardStreak: f.wardStreak, water: f.water, riverDrenched: f.riverDrenched, tacticsUsed: fight.focus - f.focus };
 }
 
 export function defeatSummary(fight: Fight) {
@@ -1130,8 +1189,10 @@ export function defeatSummary(fight: Fight) {
   if (fight.life > 0) return `回合已用尽，对手还剩 ${fight.hp} 点气血。`;
   const marks = fight.lastExchange?.marks ?? [];
   if (marks.includes("覆舟")) return "水位涨满三格，阿照落水败阵。";
-  if (marks.includes("湿衣追篙")) return "回浪沾衣，下一回合被河伯追篙击倒。听潮步能避浪，也可在绷缆时提前割缆。";
-  if (marks.includes("回浪沾衣")) return "阿照被回浪击倒。可带听潮步避浪，或提前割缆后用守式架住。";
+  if (marks.includes("湿衣追篙")) return fight.autoTactics ? "回浪沾衣，下一回合被河伯追篙击倒。听潮步可以避浪，守式可在水位上涨后自动割缆。"
+    : "回浪沾衣，下一回合被河伯追篙击倒。听潮步能避浪，也可在绷缆时提前割缆。";
+  if (marks.includes("回浪沾衣")) return fight.autoTactics ? "阿照被回浪击倒。可带听潮步避浪，或换守式减轻重击。"
+    : "阿照被回浪击倒。可带听潮步避浪，或提前割缆后用守式架住。";
   if (marks.includes("跌落驿桥")) return "第三次被横篙扫中，阿照跌落驿桥。";
   if (marks.includes("更印封阵")) return "三次敲更时更印都还在。第 3、6、9… 回合前用符火、揭印或刀伤破印。";
   if (marks.includes("纸面反噬")) return `第 ${fight.round} 回合遭到纸面反噬，气血耗尽。`;
