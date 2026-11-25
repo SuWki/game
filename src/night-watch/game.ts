@@ -1,20 +1,22 @@
-import { arts, bridgeRegion, cliffRegion, courierRegion, heartDao, heartRealm, mountainFirstReward, regions, stillDao, stillRealm, trialIds, trialRounds, trials, trialSand, watchRegion, windDao, windSurveyDao } from "./content.ts";
+import { arts, bridgeRegion, cliffRegion, courierRegion, heartDao, heartRealm, mountainFirstReward, regions, ropeStep, skyRegion, stillDao, stillRealm, trialIds, trialRounds, trials, trialSand, watchRegion, windDao, windRealm, windSurveyDao } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { bossEquipment, charmPower, equipment, gearDamage, gearDisplayName, gearEffect, gearLife, gearRank, knownGear, minionEquipment, reforgeIds, reforging, slots, traitPower, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearReforges, GearSlot, ReforgeId } from "./equipment.ts";
 import { caseClues, decisionDue, encounters } from "./tactics.ts";
 import type { Response } from "./tactics.ts";
 
-export type ArtId = 0 | 1 | 2 | 3 | 4 | 5;
-export type Region = ArtId | typeof cliffRegion;
-type PerArt<T> = [T, T, T, T, T, T];
+export type OldRegion = 0 | 1 | 2 | 3 | 4 | 5;
+export type ArtId = OldRegion | typeof ropeStep;
+export type Region = ArtId | typeof skyRegion;
+type PerArt<T> = [T, T, T, T, T, T, T];
 type PerRegion<T> = [...PerArt<T>, T];
 type WeaponArt = 0 | 3 | 5;
 export type Strategy = "off" | "ready" | "windup";
 export type Kit = {
   stance: "guard" | "attack";
   shout: Strategy;
-  step: "basic" | "tide";
+  step: "basic" | "tide" | "rope";
+  inwardTide?: true;
   reveal: boolean;
   fold?: boolean;
   foldFirst?: boolean;
@@ -30,7 +32,7 @@ type GuideProgress = {
   defeats: PerRegion<number>;
 };
 export type Save = {
-  version: 5;
+  version: 6;
   region: Region;
   realm: number;
   dao: number;
@@ -158,11 +160,11 @@ export function tuneEngraving(save: Save, id: Engraving, action: "train" | "equi
   return true;
 }
 
-const realmStarts = [0, 130, 430, 830, heartDao, stillDao];
-const layerCosts = [0, 30, 40, 60, 80, 100];
+const realmStarts = [0, 130, 430, 830, heartDao, stillDao, windDao];
+const layerCosts = [0, 30, 40, 60, 80, 100, 120];
 
-export function cultivation(total: number, heartOpened = false, stillOpened = false) {
-  const lastRealm = heartOpened ? stillOpened ? stillRealm : heartRealm : heartRealm - 1;
+export function cultivation(total: number, heartOpened = false, stillOpened = false, windOpened = false) {
+  const lastRealm = heartOpened ? stillOpened ? windOpened ? windRealm : stillRealm : heartRealm : heartRealm - 1;
   let realm = 0;
   while (realm < lastRealm && total >= realmStarts[realm + 1]) realm++;
   let progress = total - realmStarts[realm];
@@ -176,7 +178,7 @@ export function cultivation(total: number, heartOpened = false, stillOpened = fa
 }
 
 export function cultivationFor(save: Pick<Save, "lifetimeDao" | "victories" | "windSurveyed">) {
-  return cultivation(save.lifetimeDao, !!save.victories[bridgeRegion], save.windSurveyed && !!save.victories[watchRegion]);
+  return cultivation(save.lifetimeDao, !!save.victories[bridgeRegion], save.windSurveyed && !!save.victories[watchRegion], !!save.victories[cliffRegion]);
 }
 
 export function earnDao(save: Save, amount: number) {
@@ -226,19 +228,20 @@ export function gearRequirement(save: Save, id: GearId) {
   if (id === "postSeal" && !has(3)) return "装备折篙刀，才增加首斩伤害。";
   if (id === "courierSeal" && !has(4)) return "装备寄灯符，引爆符印时才加火伤。";
   if (id === "courierSeal" && !has(5)) return "可在驿卒战借灯引爆，其他交锋可配挑灯诀引爆。";
+  if (id === "lampKnot" && !has(0)) return "带镇山喝截断重击，下一回合普攻打实才会回气。";
 }
 
 function newGuide(): GuideProgress {
-  return { enabled: true, dismissed: [], defeats: [0, 0, 0, 0, 0, 0, 0] };
+  return { enabled: true, dismissed: [], defeats: [0, 0, 0, 0, 0, 0, 0, 0] };
 }
 
 export function newSave(now: number): Save {
   return {
-    version: 5, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], windSurveyed: false,
-    kills: [0, 0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0, 0],
-    drops: [false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0], time: now,
+    version: 6, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], windSurveyed: false,
+    kills: [0, 0, 0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0, 0, 0],
+    drops: [false, false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0, 0], time: now,
     guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0 }, presets: [null, null],
-    rematchRanks: [0, 0, 0, 0, 0, 0, 0], reforges: {},
+    rematchRanks: [0, 0, 0, 0, 0, 0, 0, 0], reforges: {},
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
     report: "师父把旧灯交给阿照。山道上，先听再走。",
@@ -264,6 +267,8 @@ function cleanKit(kit: Kit, save: Save): Kit {
     equipArt(draft, art, true);
   }
   if (kit?.step === "tide") equipArt(draft, 1, true);
+  if (kit?.step === "rope") equipArt(draft, ropeStep, true);
+  if (kit?.inwardTide && clean.step !== "tide") setInwardTide(draft, true);
   if (kit?.sigil) equipArt(draft, 4, true);
   else if (kit?.reveal) equipArt(draft, 2, true);
   return clean;
@@ -306,18 +311,18 @@ export function decode(raw: string | null, now: number): Save {
   const data = JSON.parse(raw) as Omit<Save, "version"> & { version: number };
   const count = (n: unknown, max = Number.MAX_SAFE_INTEGER) =>
     typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= max;
-  const size = [0, 3, 3, 4, 6, 7][data?.version];
-  const artSize = [0, 3, 3, 4, 6, 6][data?.version];
+  const size = [0, 3, 3, 4, 6, 7, 8][data?.version];
+  const artSize = [0, 3, 3, 4, 6, 6, 7][data?.version];
   const entries = (value: unknown, test: (item: unknown) => boolean) =>
     Array.isArray(value) && value.length === size && value.every(test);
-  if (!size || !count(data.region, size - 1) || !count(data.realm, data.version >= 5 ? stillRealm : size === 3 ? 3 : heartRealm) ||
+  if (!size || !count(data.region, size - 1) || !count(data.realm, data.version === 6 ? windRealm : data.version === 5 ? stillRealm : size === 3 ? 3 : heartRealm) ||
       !count(data.dao) || !count(data.time) || !entries(data.kills, countValue => count(countValue)) ||
       !entries(data.victories, countValue => count(countValue)) ||
       !Array.isArray(data.drops) || data.drops.length !== artSize || !data.drops.every(item => typeof item === "boolean") ||
       !Array.isArray(data.ranks) || data.ranks.length !== artSize || !data.ranks.every(item => count(item, 2)) ||
       !["guard", "attack"].includes(data.kit?.stance) ||
       !["off", "ready", "windup"].includes(data.kit?.shout) ||
-      !["basic", "tide"].includes(data.kit?.step) || typeof data.kit?.reveal !== "boolean" ||
+      !(data.version === 6 ? ["basic", "tide", "rope"] : ["basic", "tide"]).includes(data.kit?.step) || typeof data.kit?.reveal !== "boolean" ||
       typeof data.report !== "string") {
     throw new Error("存档格式无法读取");
   }
@@ -329,7 +334,7 @@ export function decode(raw: string | null, now: number): Save {
   if (data.version === 1) {
     const earned = (region: Region, thresholds: readonly number[]) =>
       data.victories[region] > 0 ? 3 : thresholds.filter(target => data.kills[region] >= target).length;
-    data.clues = [earned(0, [2, 5, 10]), earned(1, [3, 8, 15]), earned(2, [3, 8, 15]), 0, 0, 0, 0];
+    data.clues = [earned(0, [2, 5, 10]), earned(1, [3, 8, 15]), earned(2, [3, 8, 15]), 0, 0, 0, 0, 0];
   } else if (!entries(data.clues, item => count(item, 3))) {
     throw new Error("线索进度无法读取");
   }
@@ -345,11 +350,13 @@ export function decode(raw: string | null, now: number): Save {
   for (const [region, id] of bossEquipment.entries()) {
     if (data.victories[region] > 0 && !data.ownedGear.includes(id)) data.ownedGear.push(id);
   }
+  if (data.victories[cliffRegion]) data.drops[ropeStep] = true;
+  if (data.victories[skyRegion] && !data.ownedGear.includes("lampKnot")) data.ownedGear.push("lampKnot");
   data.loadout = cleanLoadout(data.loadout, data.ownedGear);
   data.autoPatrol = data.victories[0] > 0 && data.autoPatrol === true;
   data.newGear = Array.isArray(data.newGear) ? [...new Set(data.newGear.filter(id => data.ownedGear.includes(id)))] : [];
   if (data.lifetimeDao === undefined) {
-    const previousCosts = [0, 70, 250, 580, 580, 580];
+    const previousCosts = [0, 70, 250, 580, 580, 580, 580];
     const spent = data.ranks.reduce((sum, rank) => sum + [0, 60, 460][rank], 0);
     data.lifetimeDao = Math.min(Number.MAX_SAFE_INTEGER, Math.max(realmStarts[data.realm], data.dao + previousCosts[data.realm] + spent));
   }
@@ -367,12 +374,12 @@ export function decode(raw: string | null, now: number): Save {
     || !count(recent.hp) || typeof recent.won !== "boolean" || typeof recent.build !== "string" || recent.build.length > 180)) {
     delete data.mirror.recent;
   }
-  data.windSurveyed = data.version === 5 && data.windSurveyed === true && !!data.victories[watchRegion];
+  data.windSurveyed = data.version >= 5 && data.windSurveyed === true && !!data.victories[watchRegion];
   data.realm = cultivationFor(data).realm;
-  const save: Save = { ...data, version: 5 };
+  const save: Save = { ...data, version: 6 };
   const progress = data.rematchRanks;
-  save.rematchRanks = [0, 0, 0, 0, 0, 0, 0];
-  for (let i = 0; i < arts.length; i++) {
+  save.rematchRanks = [0, 0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < bossEquipment.length; i++) {
     if (save.victories[i] && count(progress?.[i], maxRematchRank)) {
       save.rematchRanks[i] = progress[i];
       if (progress[i]) save.clues[i] = 3;
@@ -420,7 +427,7 @@ export function recordPatrolKill(save: Save, random = Math.random) {
   const region = save.region;
   if (!canPatrol(save)) return { reward: 0, found: undefined };
   const reward = earnPatrolDao(save, regions[region].reward);
-  const id = region === cliffRegion ? undefined : minionEquipment[region][save.kills[region] % 2];
+  const id = region < cliffRegion ? minionEquipment[region as OldRegion][save.kills[region] % 2] : undefined;
   save.kills[region]++;
   save.clues[region] = recordedClues(save, region);
   const firstGear = region === 0 && save.kills[0] === 2;
@@ -433,6 +440,7 @@ export function recordPatrolKill(save: Save, random = Math.random) {
 }
 
 export function unlocked(save: Save, region: Region): boolean {
+  if (region === skyRegion) return !!save.victories[cliffRegion] && save.realm >= windRealm;
   return region === 0 || save.victories[region - 1] > 0;
 }
 
@@ -445,7 +453,7 @@ export function trainingRoute(save: Save, needed: number) {
   if (choices.length) return { region: choices[0], accessible: false };
 }
 
-export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm, stillRealm] as const;
+export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm, stillRealm, windRealm] as const;
 
 export const challengeClues = 2;
 export function surveyWind(save: Save) {
@@ -476,7 +484,16 @@ export function rate(save: Save): number {
 export function win(save: Save, region: Region, random = Math.random) {
   const first = save.victories[region]++ === 0;
   if (region === cliffRegion) {
+    const drop = !save.drops[ropeStep];
+    save.drops[ropeStep] = true;
     if (first) earnDao(save, Math.max(0, windDao - save.lifetimeDao));
+    return { first, drop, recovered: undefined };
+  }
+  if (region === skyRegion) {
+    if (first && !save.ownedGear.includes("lampKnot")) {
+      save.ownedGear.push("lampKnot");
+      save.newGear.unshift("lampKnot");
+    }
     return { first, drop: false, recovered: undefined };
   }
   if (region === bridgeRegion && first) save.realm = cultivationFor(save).realm;
@@ -520,6 +537,7 @@ const patterns: Move[][] = [
   [{ name: "举灯", damage: 9 }, { name: "冲灯", damage: 36, heavy: true }, { name: "回蹄", damage: 14 }],
   [{ name: "立更印", damage: 12 }, { name: "提槌", damage: 13 }, { name: "敲更", damage: 29, heavy: true }],
   [{ name: "回风", damage: 8 }, { name: "掠栈", damage: 62, heavy: true }, { name: "落爪", damage: 50, heavy: true, interruptible: true }],
+  [{ name: "升空", damage: 11 }, { name: "贴崖", damage: 19 }, { name: "落巢", damage: 43, heavy: true, interruptible: true }],
 ];
 const cliffFallDamage = 84;
 
@@ -530,6 +548,10 @@ export type Fight = {
   limit: number; mirrorLevel?: number; water: number; paperHits: number; footing: number; riverWave: 2 | 3;
   riverDrenched: boolean; riverPursuits: number;
   cliffStepRound?: number;
+  casePractice?: true;
+  inwardTideUsed?: boolean;
+  skyDelayRound?: number;
+  lampKnotRound?: number;
   trial?: { id: TrialId; progress: number };
   rematchRank?: number;
   rematchPractice?: boolean;
@@ -574,12 +596,13 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
 export function startCaseFight(save: Save, region: Region) {
   if (!canChallenge(save, region)) return;
   const fight = startFight(save, region, true);
+  if (region >= cliffRegion && save.victories[region]) fight.casePractice = true;
   if (recordedClues(save, region) === 3) fight.preparation = "ready";
   return fight;
 }
 
 export function rematchSpec(save: Save, region: Region, practice = false) {
-  if (region === cliffRegion) return;
+  if (region === cliffRegion || region === skyRegion) return;
   const progress = save.rematchRanks[region];
   const rank = practice ? maxRematchRank : progress + 1;
   if (!save.victories[region] || rank > maxRematchRank || practice && progress !== maxRematchRank) return;
@@ -611,7 +634,7 @@ export function startRematch(save: Save, region: Region, practice = false) {
 
 export function settleRematch(save: Save, fight: Fight) {
   const { rematchRank: rank, region } = fight;
-  if (region === cliffRegion || !rank || fight.rematchPractice || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
+  if (region === cliffRegion || region === skyRegion || !rank || fight.rematchPractice || fight.result !== "won" || rematchSpec(save, region)?.rank !== rank) return;
   save.rematchRanks[region] = rank;
   save.clues[region] = 3;
   const drop = !save.drops[region];
@@ -718,7 +741,7 @@ export function artDue(round: number, art: ArtId) {
 }
 
 export function equippedArts(kit: Kit) {
-  return [kit.shout === "windup" || kit.shout === "ready", kit.step === "tide", !!kit.reveal, !!kit.fold, !!kit.sigil, !!kit.kindle] as const;
+  return [kit.shout === "windup" || kit.shout === "ready", kit.step === "tide", !!kit.reveal, !!kit.fold, !!kit.sigil, !!kit.kindle, kit.step === "rope"] as const;
 }
 
 export function weaponArts(kit: Kit): WeaponArt[] {
@@ -738,6 +761,8 @@ function weaponCapacity(realm: number) {
 }
 
 export function replacedArt(save: Save, art: ArtId) {
+  if (art === 1 && save.kit.step === "rope") return ropeStep;
+  if (art === ropeStep && save.kit.step === "tide") return 1;
   if (art === 2 && save.kit.sigil) return 4;
   if (art === 4 && save.kit.reveal) return 2;
   if (art === 0 || art === 3 || art === 5) {
@@ -749,7 +774,13 @@ export function replacedArt(save: Save, art: ArtId) {
 export function equipArt(save: Save, art: ArtId, equip: boolean) {
   if (!save.ranks[art] || save.realm < arts[art].realm) return;
   const kit = save.kit;
-  if (art === 1) kit.step = equip ? "tide" : "basic";
+  if (art === 1 || art === ropeStep) {
+    const step = art === 1 ? "tide" : "rope";
+    if (equip) {
+      kit.step = step;
+      if (art === 1) delete kit.inwardTide;
+    } else if (kit.step === step) kit.step = "basic";
+  }
   else if (art === 2) {
     kit.reveal = equip;
     if (equip) kit.sigil = false;
@@ -766,10 +797,22 @@ export function equipArt(save: Save, art: ArtId, equip: boolean) {
   }
 }
 
+export function setInwardTide(save: Save, equip: boolean) {
+  if (equip) {
+    if (save.realm < stillRealm || save.ranks[1] !== 2 || save.kit.inwardTide) return false;
+    if (save.kit.step === "tide") save.kit.step = "basic";
+    save.kit.inwardTide = true;
+  } else {
+    if (!save.kit.inwardTide) return false;
+    delete save.kit.inwardTide;
+  }
+  return true;
+}
+
 export function roundMoves(region: Region, kit: Kit, round: number, riverWave: 2 | 3 = 3) {
   const equipped = equippedArts(kit);
   return {
-    names: ([2, 4, 1, ...weaponArts(kit)] as ArtId[]).filter(id => equipped[id] && artDue(round, id)).map(id => arts[id].name),
+    names: ([2, 4, 1, ropeStep, ...weaponArts(kit)] as ArtId[]).filter(id => equipped[id] && artDue(round, id)).map(id => arts[id].name),
     enemy: moveFor(region, round, riverWave).name,
     opening: openingDue(region, round, riverWave),
   };
@@ -839,12 +882,15 @@ function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | u
       return guard ? "safe" : undefined;
     case cliffRegion:
       return guard && !hasTide ? "safe" : undefined;
+    case skyRegion:
+      return guard && !(fight.kit.step === "rope" && fight.ranks[ropeStep]) ? "safe" : undefined;
   }
 }
 
 export function automaticPreparationText(region: Region) {
   const { aid, damage } = caseClues[region];
   if (region === cliffRegion) return `「${aid}」· 首次落地少扣 ${damage} 点气血。`;
+  if (region === skyRegion) return `「${aid}」· 首次打实贴崖额外造成 ${damage} 点伤害。`;
   const trigger = [
     "伏身避啸或截断虎啸", "割缆断流或引浪倒撞", "挑灯照面或施放照影",
     "借墩稳身或截断横篙", "压灯卸势或以听潮步避开冲灯", "揭去更印或引爆符火",
@@ -903,10 +949,16 @@ function resolveRound(f: Fight) {
       f.preparation = "used";
       marks.push(aid.aid);
     }
-    const damage = cliffFallDamage - (aid?.damage ?? 0);
+    let damage = cliffFallDamage - (aid?.damage ?? 0);
+    const inward = f.kit.inwardTide && f.kit.step !== "tide" && f.ranks[1] === 2 && !f.inwardTideUsed;
+    if (inward) {
+      f.inwardTideUsed = true;
+      damage = Math.max(1, Math.ceil(damage / 2));
+      marks.push("内化听潮步");
+    }
     f.life -= damage;
     marks.push("踏空落地");
-    actions.push(`第 ${stepRound} 回合踏空，落地扣 ${damage} 点气血${aid ? `（旧灯结扣减 ${aid.damage}）` : ""}`);
+    actions.push(`第 ${stepRound} 回合踏空，落地扣 ${damage} 点气血${aid ? `（旧灯结扣减 ${aid.damage}）` : ""}${inward ? "，内化听潮步减半" : ""}`);
     if (f.life <= 0) {
       f.result = "lost";
       f.cue = "strike";
@@ -986,7 +1038,21 @@ function resolveRound(f: Fight) {
   if (lamp && elapsed === 0) marks.push("挑灯照面");
   if (lamp) actions.push("灯下见真身");
   const exposed = lamp || f.region !== 2 || f.revealedThrough >= round || f.realm >= 3 && round % 3 === 0;
-  const hurt = (damage: number) => Math.max(1, Math.round(damage * (cover ? 0.5 : exposed ? 1 : 0.2)));
+  const sky = f.region === skyRegion;
+  const nearCliff = sky && round % 3 === 2;
+  const chasing = nearCliff && f.kit.step === "rope" && f.ranks[ropeStep] > 0 && artDue(round, ropeStep);
+  const skyHeld = sky && f.skyDelayRound === round;
+  const skyOpen = !sky || skyHeld || round % 3 === 0 || nearCliff && (chasing || choice === "safe" && elapsed === 0);
+  if (chasing) {
+    marks.push("踏缆步追及");
+    actions.push("踏缆步追上贴崖鹞影");
+  }
+  if (skyHeld) actions.push("落巢被截断，衔灯鹞来不及升空");
+  if (!skyOpen) {
+    marks.push("鹞影难及");
+    actions.push("刀锋够不到，只能擦伤");
+  }
+  const hurt = (damage: number) => Math.max(1, Math.round(damage * (cover ? 0.5 : exposed && skyOpen ? 1 : 0.2)));
   const tide = f.kit.step === "tide" && f.ranks[1] > 0 && artDue(round, 1);
   if (tide) marks.push("听潮步起势");
   if (tide) actions.push("听潮步闪避");
@@ -1012,7 +1078,7 @@ function resolveRound(f: Fight) {
     if (f.hp <= 0 || !f.ranks[art] || !artDue(round, art)) continue;
     if (art === 5) {
       actions.push(`挑灯诀刀伤 ${deal(hurt(f.ranks[5] === 2 ? 16 : 10))}`);
-      if (f.hp > 0 && exposed && f.sigilThrough >= round) ignite();
+      if (f.hp > 0 && exposed && skyOpen && f.sigilThrough >= round) ignite();
       continue;
     }
     if (art === 3) {
@@ -1051,7 +1117,8 @@ function resolveRound(f: Fight) {
   const responsePrep = (choice === "safe" || f.autoTactics && choice === "risk") && elapsed === (f.region === 1 ? 1 : 0);
   const artPrep = f.autoTactics && (interrupted && (f.region === 0 || f.region === bridgeRegion)
     || f.region === 2 && reveal || horseCharge && tide || watching && marks.includes("符火引爆"));
-  if (f.region !== cliffRegion && f.hp > 0 && f.preparation === "ready" && (responsePrep || artPrep)) {
+  const canPrepare = sky ? nearCliff && skyOpen : f.region !== cliffRegion && (responsePrep || artPrep);
+  if (f.hp > 0 && f.preparation === "ready" && canPrepare) {
     const clue = caseClues[f.region];
     f.preparation = "used";
     marks.push(clue.aid);
@@ -1087,8 +1154,16 @@ function resolveRound(f: Fight) {
     }
     const rush = lunge && interrupted ? 18 : horseChoice === "risk" ? 20 : 0;
     if (rush) marks.push(horseChoice === "risk" ? "迎灯进刀 +20" : "迎篙抢步 +18");
-    const damage = deal(hurt((stats.damage + engraved + bladeBonus + bonus + rush + (charge ? 12 : ambush ? 28 : 0)) * flank * seal));
+    const ropeBonus = chasing && f.ranks[ropeStep] === 2 ? 10 : 0;
+    const damage = deal(hurt((stats.damage + engraved + bladeBonus + bonus + rush + ropeBonus + (charge ? 12 : ambush ? 28 : 0)) * flank * seal));
     actions.push(`普攻刀伤 ${damage}`);
+    if (sky && skyOpen) marks.push("普攻打实");
+    if (damage > 0 && skyOpen && exposed && !cover && f.lampKnotRound === round && f.life < f.maxLife) {
+      const heal = Math.min(f.maxLife - f.life, charmPower("lampKnot", upgrade("lampKnot")));
+      f.life += heal;
+      marks.push("续灯扣回气");
+      actions.push(`续灯扣回气 ${heal}`);
+    }
     if (f.region === 2) {
       struckTrue = exposed;
       const sealing = paperSealActive(f);
@@ -1117,6 +1192,12 @@ function resolveRound(f: Fight) {
     }
   }
   if (interrupted && f.engraving?.id === "edge") f.cutRound = round;
+  if (interrupted && sky) {
+    f.skyDelayRound = round + 1;
+    marks.push("截断升空");
+    actions.push("落巢被截断，下一回合仍可近身");
+  }
+  if (interrupted && f.loadout.charm === "lampKnot") f.lampKnotRound = round + 1;
   if (trial?.id === "templeTrial" && trial.progress < trials.templeTrial.target) {
     trial.progress = struckTrue ? trial.progress + 1 : 0;
     if (trial.progress === trials.templeTrial.target) actions.push("三个名字都已写下");
@@ -1274,6 +1355,7 @@ export function forecastFight(fight: Fight, rounds = 6) {
 
 export function defeatSummary(fight: Fight) {
   if (fight.trial && fight.life > 0 && (fight.hp <= 0 || fight.round < fight.limit)) return fight.lastThreat;
+  if (fight.region === skyRegion && fight.life > 0) return `第 ${fight.round} 回合交锋结束，衔灯鹞还剩 ${fight.hp} 气血。近刀在 ${fight.links["鹞影难及"] ?? 0} 个回合只能擦伤。`;
   if (fight.life > 0) return `回合已用尽，对手还剩 ${fight.hp} 点气血。`;
   const marks = fight.lastExchange?.marks ?? [];
   if (fight.region === cliffRegion) {
@@ -1281,6 +1363,7 @@ export function defeatSummary(fight: Fight) {
     if (marks.includes("掠栈踏空")) return `第 ${fight.round} 回合被掠栈击倒。守式可以扶索减伤，听潮步可以闪避。`;
     return `第 ${fight.round} 回合气血耗尽。听潮步可避掠栈，落爪可用镇山喝截断。`;
   }
+  if (fight.region === skyRegion) return `第 ${fight.round} 回合气血耗尽。踏缆步可追及贴崖的鹞影，镇山喝可截断落巢。`;
   if (marks.includes("覆舟")) return "水位涨满三格，阿照落水败阵。";
   if (marks.includes("追篙落水")) return `累计挨了两次湿衣追篙，阿照被打落水。避开回浪，或把回浪伤压到 ${riverDrenchDamage} 以下可以免沾衣。`;
   if (marks.includes("湿衣追篙")) return fight.autoTactics ? "回浪沾衣，下一回合被河伯追篙击倒。听潮步可以避浪，守式可在水位上涨后自动割缆。"

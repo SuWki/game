@@ -1,13 +1,16 @@
-export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋", "坐忘"] as const;
+export const realms = ["锻骨", "舒筋", "贯劲", "听息", "心斋", "坐忘", "御风"] as const;
 export const bridgeRegion = 3;
 export const courierRegion = 4;
 export const watchRegion = 5;
 export const cliffRegion = 6;
+export const skyRegion = 7;
 export const heartRealm = 4;
 export const heartDao = 1430;
 export const stillRealm = 5;
 export const stillDao = 3600;
 export const windDao = 4600;
+export const windRealm = 6;
+export const ropeStep = 6;
 export const windSurveyDao = 720;
 export const mountainFirstReward = 6;
 export const trials = {
@@ -33,6 +36,8 @@ export const breakthrough = [
   { gift: "成功架住重击后反击 6 点。", verse: "一箭入石，满弓余声未歇。" },
   { gift: "开启神通位。每逢第 3、6、9… 回合自然辨出真身。", verse: "芦花无风动，水底有呼吸。" },
   { gift: "再开启一个武学位。两门武学同回合出手时，可调换先后。", verse: "听见铃声落下，才知桥上风静。" },
+  { gift: "可内化精通的听潮步，减轻一次落地伤。", verse: "坐忘形息，风来不惊。" },
+  { gift: "可沿风灯所照的索路前往天栈。", verse: "循风过栈，见灯知路。" },
 ] as const;
 
 export const arts = [
@@ -42,6 +47,7 @@ export const arts = [
   { name: "折篙刀", first: 3, every: 3, kind: "武学", cost: 90, description: "第 3、6、9… 回合斩一刀，伤害 8。同回合先用镇山喝截断，便追斩 12 点。", mastery: "追斩伤害由 12 提升至 22。", realm: 3 },
   { name: "寄灯符", first: 1, every: 3, kind: "神通", cost: 110, description: "第 1、4、7… 回合贴符，维持到下一回合结束。挑灯诀命中即可引爆，火伤 26，也能烧去更印。", mastery: "符火伤害由 26 提升至 38。", realm: 4 },
   { name: "挑灯诀", first: 2, every: 3, kind: "武学", cost: 130, description: "第 2、5、8… 回合出手，刀伤 10。击中带符的真身，可引爆符火。", mastery: "刀伤由 10 提升至 16。", realm: 4 },
+  { name: "踏缆步", first: 2, every: 3, kind: "身法", cost: 160, description: "第 2、5、8… 回合踏索追近，可在贴崖时让刀招全额命中。", mastery: "成功追近时，本回合普攻刀伤 +10。", realm: 5 },
 ] as const;
 
 export const regions = [
@@ -107,5 +113,14 @@ export const regions = [
     foes: [{ name: "缠绳雀", sprite: "reed" }, { name: "竹灯精", sprite: "lantern" }],
     boss: "回风鸮", sprite: "cliff-owl", hp: 418,
     reward: 24, patrolInterval: 3200, chapter: "卷三 · 云栈",
+  },
+  {
+    name: "天栈", patrolCap: 6000, place: "上层灯站", tag: "云栈断索之上",
+    title: "另一盏未应的灯", intro: "阿照踩着回风越过断索。上站的风灯还亮着一圈空火，灯芯已经被崖上的鹞影衔走。",
+    cleared: "灯芯归位，两站灯火隔着山雾照见彼此。师父从上站取出第二册巡簿。两册对照，一册写着「第一船已到」，另一册却抄成了「全路人齐」。",
+    clues: ["回旋的瓦羽", "崖边残灯", "可拴风灯的铜环"], thresholds: [8, 18, 30],
+    foes: [{ name: "翻瓦鸦", sprite: "reed" }, { name: "夺灯萤", sprite: "lantern" }],
+    boss: "衔灯鹞", sprite: "sky-hawk", hp: 460,
+    reward: 30, patrolInterval: 3200, chapter: "卷三 · 云栈",
   },
 ] as const;

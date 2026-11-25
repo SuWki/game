@@ -1,4 +1,4 @@
-import { bridgeRegion, courierRegion } from "./content.ts";
+import { bridgeRegion, courierRegion, skyRegion } from "./content.ts";
 
 export const slots = { weapon: "兵刃", armor: "护具", charm: "佩饰" } as const;
 export type GearSlot = keyof typeof slots;
@@ -24,6 +24,7 @@ export const equipment = {
   watchBlade: { name: "夜更刀", slot: "weapon", level: 6, effect: "基础刀伤 +12", damage: 12 },
   watchCoat: { name: "巡驿甲", slot: "armor", level: 6, effect: "气血上限 +56", life: 56 },
   watchSeal: { name: "守更牌", slot: "charm", level: 6, effect: "第 3、6、9… 回合受到的攻击伤害 -6，最低 1 点" },
+  lampKnot: { name: "续灯扣", slot: "charm", level: 8, effect: "截断重击后，下一回合普攻全额命中可回气 +12" },
 } as const satisfies Record<string, Gear>;
 
 export type GearId = keyof typeof equipment;
@@ -68,6 +69,7 @@ export const minionEquipment = [
 ] as const;
 
 export function gearRegion(id: GearId) {
+  if (id === "lampKnot") return skyRegion;
   return minionEquipment.findIndex((pair, i) => id === bossEquipment[i] || pair.some(item => item === id));
 }
 
@@ -89,7 +91,7 @@ export function gearLife(id: GearId, rank: number, reforges: GearReforges = {}) 
   return item.slot === "armor" ? (item.life ?? 0) + rank * 9 + reforgeBonus(id, reforges) : 0;
 }
 
-const charmBase = { tigerFang: 3, tideSeal: 4, mirrorPearl: 5, postSeal: 6, courierSeal: 8, watchSeal: 6 };
+const charmBase = { tigerFang: 3, tideSeal: 4, mirrorPearl: 5, postSeal: 6, courierSeal: 8, watchSeal: 6, lampKnot: 12 };
 export type CharmId = keyof typeof charmBase;
 export function charmPower(id: CharmId, rank: number) {
   return charmBase[id] + rank * (id === "tideSeal" || id === "watchSeal" ? 2 : 3);

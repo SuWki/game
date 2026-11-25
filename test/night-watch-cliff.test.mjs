@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cliffRegion } from "../src/night-watch/content.ts";
+import { cliffRegion, ropeStep, skyRegion, windRealm } from "../src/night-watch/content.ts";
 import {
   accrueOffline, canChallenge, cultivationFor, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, newSave,
-  patrolRemaining, recordPatrolKill, recordedClues, rematchSpec, startCaseFight, study, surveyWind, tickFight, unlocked, win,
+  patrolRemaining, recordPatrolKill, recordedClues, rematchSpec, setInwardTide, startCaseFight, study, surveyWind, tickFight, unlocked, win,
 } from "../src/night-watch/game.ts";
 import { compareBattleBuilds, previewBattle } from "../src/night-watch/battle-preview.ts";
 
@@ -12,7 +12,7 @@ function oldWatchSave(total = 2315) {
   old.version = 4;
   old.region = 5;
   old.victories = [1, 1, 1, 1, 1, 1];
-  for (const key of ["kills", "clues", "rematchRanks"]) old[key].pop();
+  for (const key of ["kills", "clues", "rematchRanks"]) old[key] = old[key].slice(0, 6);
   old.guide.defeats = [0, 1, 0, 1, 0, 2];
   old.drops = [true, true, false, true, true, true];
   old.ranks = [1, 1, 0, 1, 0, 0];
@@ -45,9 +45,9 @@ test("六图旧档开残栈，读回新档保留旧装备与养成", () => {
   old.victories[5] = 1;
   const migrated = decode(JSON.stringify(old), 101);
   assert.equal(unlocked(migrated, cliffRegion), true);
-  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0]);
+  assert.deepEqual(migrated.guide.defeats, [0, 1, 0, 1, 0, 2, 0, 0]);
   assert.deepEqual(migrated.newGear, old.newGear);
-  assert.deepEqual(migrated.ranks, old.ranks);
+  assert.deepEqual(migrated.ranks, [...old.ranks, 0]);
   assert.deepEqual(migrated.loadout, old.loadout);
   assert.equal(migrated.rematchRanks[0], 1);
   assert.equal(migrated.mirror.sand, 17);
@@ -74,8 +74,108 @@ test("低档 25 杀查风灯入坐忘，消耗可用道行与回访不会重算�
   assert.equal(reloaded.lifetimeDao, 4600);
   assert.equal(win(reloaded, cliffRegion).first, false);
   assert.equal(reloaded.lifetimeDao, 4600);
-  assert.equal(cultivationFor(reloaded).layer, 10);
+  assert.equal(cultivationFor(reloaded).realm, windRealm);
+  assert.equal(cultivationFor(reloaded).layer, 1);
   assert.equal(rematchSpec(reloaded, cliffRegion), undefined);
+});
+
+test("残栈 v5 首胜档补悟踏缆步，同一首胜开御风与天栈", () => {
+  const old = enterCliff(3450);
+  for (let i = 0; i < 25; i++) recordPatrolKill(old);
+  assert.equal(surveyWind(old), true);
+  earnDao(old, 600);
+  assert.equal(old.lifetimeDao, 4650);
+  assert.equal(unlocked(old, skyRegion), false);
+
+  old.version = 5;
+  for (const key of ["kills", "clues", "victories", "rematchRanks", "drops", "ranks"]) old[key].pop();
+  old.guide.defeats.pop();
+  old.victories[cliffRegion] = 1;
+  const migrated = decode(JSON.stringify(old), 100);
+  assert.equal(migrated.realm, windRealm);
+  assert.equal(migrated.drops[ropeStep], true);
+  assert.equal(migrated.ranks[ropeStep], 0);
+  assert.equal(migrated.lifetimeDao, old.lifetimeDao);
+  assert.equal(unlocked(migrated, skyRegion), true);
+  assert.equal(win(migrated, cliffRegion).drop, false);
+  assert.equal(study(migrated, ropeStep), true);
+  assert.deepEqual(decode(JSON.stringify(migrated), 100), migrated);
+});
+
+test("内化听潮步与主动互斥，可和踏缆步同带，首次落地先减线索再减半", () => {
+  const save = enterCliff(2400);
+  for (let i = 0; i < 40; i++) recordPatrolKill(save);
+  surveyWind(save);
+  assert.equal(setInwardTide(save, true), false);
+  assert.equal(study(save, 1), true);
+  equipArt(save, 1, true);
+  assert.equal(setInwardTide(save, true), true);
+  assert.equal(save.kit.step, "basic");
+  win(save, cliffRegion);
+  assert.equal(study(save, ropeStep), true);
+  equipArt(save, ropeStep, true);
+  const reloaded = decode(JSON.stringify(save), 100);
+  assert.equal(reloaded.kit.step, "rope");
+  assert.equal(reloaded.kit.inwardTide, true);
+  reloaded.kit.stance = "attack";
+  const fight = previewBattle(caseFight(reloaded));
+  assert.match(fight.log[2], /落地扣 30.*旧灯结扣减 24.*内化听潮步减半/);
+  assert.match(fight.log[5], /落地扣 84/);
+  assert.equal(fight.links["内化听潮步"], 1);
+  equipArt(reloaded, 1, true);
+  assert.equal(reloaded.kit.step, "tide");
+  assert.equal(reloaded.kit.inwardTide, undefined);
+  assert.equal(reloaded.ranks[1], 2);
+});
+
+test("衔灯鹞的近身回合改变胜负，首胜的续灯扣进旧装备循环", () => {
+  const save = enterCliff(2315);
+  for (let i = 0; i < 25; i++) recordPatrolKill(save);
+  surveyWind(save);
+  win(save, cliffRegion);
+  save.region = skyRegion;
+  save.rematchRanks[0] = 0;
+  for (let i = 0; i < 17; i++) recordPatrolKill(save);
+  assert.equal(canChallenge(save, skyRegion), false);
+  recordPatrolKill(save);
+  const start = state => {
+    const fight = startCaseFight(state, skyRegion);
+    enableCombatTactics(fight);
+    return fight;
+  };
+  equipArt(save, 0, true);
+  equipArt(save, 3, true);
+  const stable = previewBattle(start(save));
+  assert.deepEqual([stable.result, stable.round, stable.links["压灯引鹞"], stable.links["截断升空"]], ["won", 13, 2, 4]);
+  assert.match(stable.log[3], /来不及升空.*普攻刀伤 32/);
+  assert.doesNotMatch(stable.log[3], /擦伤/);
+
+  const attack = structuredClone(save);
+  attack.kit.stance = "attack";
+  attack.loadout = { weapon: "watchBlade", armor: "watchCoat", charm: "watchSeal" };
+  equipArt(attack, 0, false);
+  equipArt(attack, 3, false);
+  const lost = previewBattle(start(attack));
+  assert.deepEqual([lost.result, lost.round], ["lost", 15]);
+  assert.equal(study(attack, ropeStep), true);
+  assert.ok(compareBattleBuilds(attack, start, lost).some(({ changes }) => changes.some(change => change.id === ropeStep)));
+  equipArt(attack, ropeStep, true);
+  const live = start(attack);
+  const verdict = previewBattle(live);
+  while (live.result === "fighting") tickFight(live);
+  assert.deepEqual(live.log, verdict.log);
+  assert.deepEqual([live.result, live.round, live.links["踏缆步追及"]], ["won", 12, 4]);
+  assert.ok(live.life < stable.life);
+
+  win(save, skyRegion);
+  win(save, skyRegion);
+  assert.equal(save.ownedGear.filter(id => id === "lampKnot").length, 1);
+  assert.deepEqual(save.newGear, ["lampKnot"]);
+  const loaded = decode(JSON.stringify(save), 100);
+  loaded.loadout.charm = "lampKnot";
+  const withKnot = previewBattle(start(loaded));
+  assert.equal(withKnot.links["续灯扣回气"], 4);
+  assert.equal(withKnot.life - stable.life, 48);
 });
 
 test("离线扫清后能查风灯，实查第三条才给落地减伤", () => {

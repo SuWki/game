@@ -96,9 +96,9 @@ export function applyBuildChange(save: Save, changes: readonly BuildChange[]) {
 // and avoids trying every possible combination of stash items.
 const compatible = [
   ["pineBlade", 0], ["reedBlade", 1], ["templeBlade", 2], ["ferryCoat", 1],
-  ["templeCoat", 2], ["postSeal", 3], ["courierSeal", 4],
+  ["templeCoat", 2], ["postSeal", 3], ["courierSeal", 4], ["lampKnot", 0],
 ] as const;
-const pairedArts = [[0, 3], [1, 2], [4, 5]] as const;
+const pairedArts = [[0, 3], [1, 2], [4, 5], [0, 6]] as const;
 
 export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fight | undefined, current?: Fight): BuildSuggestion[] {
   if (!current) {

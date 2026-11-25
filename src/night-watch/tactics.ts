@@ -42,6 +42,12 @@ export const encounters = [
     safe: { name: "扶索稳身", effect: "掠栈打中时扶住横索，避免本轮踏空。" },
     risk: { name: "依原招出手", effect: "掠栈打中且未扶索时会踏空。" },
   },
+  {
+    first: 2, every: 3, sign: "鹞影将擦过灯架",
+    read: "趁它贴崖，跟上或压灯。落巢时还能截断它的下一次升空。",
+    safe: { name: "压灯引鹞", effect: "本回合将衔灯鹞引至刀锋所及处。" },
+    risk: { name: "依原招出手", effect: "下一回合落巢时可近身。" },
+  },
 ] as const;
 
 export type Response = "safe" | "risk" | "pass";
@@ -86,10 +92,16 @@ export const caseClues = [
     counter: "守式扶索两次，听潮步可闪避掠栈。镇山喝能截断下一回合的落爪。",
     aid: "旧灯结扣", damage: 24,
   },
+  {
+    danger: "升空和贴崖时，近刀只能擦伤。第 3、6、9… 回合落巢，可以打实。",
+    counter: "踏缆步可在贴崖时追近。守式可压灯两次，镇山喝截断落巢后下一轮还能近身。",
+    aid: "拴灯引鹞", damage: 18,
+  },
 ] as const;
 
 export function preparationText(region: keyof typeof encounters & number) {
   const clue = caseClues[region];
   if (region === 6) return `「${clue.aid}」· 首次落地少扣 ${clue.damage} 点气血。`;
+  if (region === 7) return `「${clue.aid}」· 首次打实贴崖额外造成 ${clue.damage} 点伤害。`;
   return `「${clue.aid}」· 首次${encounters[region].safe.name}后，额外造成 ${clue.damage} 点伤害。`;
 }
