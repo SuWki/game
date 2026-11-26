@@ -458,7 +458,7 @@ function skillRack() {
   const weapons = weaponArts(save.kit);
   const twoWeapons = save.realm >= heartRealm;
   const open = 1 + Number(twoWeapons) + Number(save.realm >= 1) + Number(save.realm >= 3);
-  const filled = weapons.length + Number(save.realm >= 1) + Number(equipped[2] || equipped[4] || save.kit.lampFusion);
+  const filled = weapons.length + Number(save.realm >= 1) + Number(equipped[2] || equipped[4] || save.kit.lampFusion === true);
   const divine: ArtId = equipped[4] || !equipped[2] && save.drops[4] ? 4 : 2;
   const step = equipped[ropeStep] ? ropeStep : equipped[1] || !save.drops[ropeStep] ? 1 : ropeStep;
   const choices = [...weapons, ...([0, 3, 5] as const).filter(id => save.drops[id] && !weapons.includes(id) && !(id === 5 && save.lampFusion))];
