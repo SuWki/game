@@ -168,12 +168,16 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
     if (build && battleBuildImproves(current, build.outcome)) return build;
   };
   const winners = singles.map(change => tryChanges([change])).filter((item): item is BuildSuggestion => !!item);
+  const addPair = (first: BuildChange | undefined, second: BuildChange | undefined) => {
+    if (!first || !second) return;
+    const win = tryChanges([first, second]);
+    if (win) winners.push(win);
+  };
+  if ((current.paperHorseCase || current.watchCase) && !winners.some(({ outcome }) => outcome.life / outcome.maxLife >= 0.25)) {
+    addPair(gear.find(item => item.id === "postBlade"), gear.find(item => item.id === "postCoat"));
+    addPair(gear.find(item => item.id === "courierBlade"), gear.find(item => item.id === "courierCoat"));
+  }
   if (!winners.length) {
-    const addPair = (first: BuildChange | undefined, second: BuildChange | undefined) => {
-      if (!first || !second) return;
-      const win = tryChanges([first, second]);
-      if (win) winners.push(win);
-    };
     for (const [id, move] of compatible) addPair(gear.find(item => item.id === id), moves.find(item => item.id === move));
     for (const [first, second] of pairedArts) addPair(moves.find(item => item.id === first), moves.find(item => item.id === second));
     for (const move of moves) addPair(stance, move);

@@ -11,9 +11,9 @@ import {
   accrueOffline, accrueSand, artDue, canChallenge, canCompareBooks, canEnterLampTrial, canFuseLamp, canPatrol, challengeRealms, clueCount, compareBooks, compareGear, cultivationFor, decode, defeatSummary, equipArt, equippedArts, equipLampFusion, footingLimit, frame, fuseLamp, engravingCost, engravingPower, engravings, gearRequirement, loadoutStats, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
   enableCombatTactics, patrolRemaining, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, setInwardTide, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, surveyWind, tickFight, tuneEngraving, unlocked, win,
 } from "./game.ts";
-import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive, wardSealLimit, wardStrength } from "./game.ts";
+import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive } from "./game.ts";
 import type { AltarMirrorAttempt, ArtId, CloudMirrorAttempt, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
-import { canViewTrial } from "./game.ts";
+import { canViewTrial, fightWardStrength, wardSealLimitFor } from "./game.ts";
 import { applyBuildChange, availableBuildChanges, battleBuildImproves, changeLabel, compareBattleBuilds, previewBattle, previewBuild } from "./battle-preview.ts";
 import type { BuildChange, BuildSuggestion } from "./battle-preview.ts";
 
@@ -315,6 +315,7 @@ function patrolPanel(): string {
       (result.first && result.region === courierRegion ? "<p>迎战驿卒时，寄灯符第 1 回合贴符，第 2 回合可借灯引爆、烧去更印。纸马灯芯能再添 8 点火伤。</p>" : "") +
       (result.won && result.horseImpact ? `<p>第 ${result.horseImpact.round} 回合挨了冲灯与灼伤，共扣 ${result.horseImpact.damage} 点气血。</p>`
         : result.won && result.links["听潮步避开冲灯"] ? `<p>听潮步避开了 ${result.links["听潮步避开冲灯"]} 次冲灯。</p>` : "") +
+      (result.won && result.links["敲空更铃"] ? `<p>更印打破后，驿卒敲空更铃 ${result.links["敲空更铃"]} 次。${result.links["借灯引符"] ? `阿照借灯破印 ${result.links["借灯引符"]} 次。` : ""}</p>` : "") +
       (result.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion ? artCard(result.region, true) : "") +
       (save.newGear[0] ? lootCard(save.newGear[0], save.newGear[0] === result.recovered) : "") +
       (awakening ? '<p class="meta">回山道后可开启沿路巡夜，达到本地上限就会收灯。</p>' : "") +
@@ -1230,7 +1231,11 @@ function battleBuildText(before: Fight, after: Fight) {
   const outcome = (fight: Fight) => `${fight.round} 回合${fight.result === "won" ? "取胜" : "败阵"}`;
   const dodge = after.log.findIndex((line, index) => line.includes("闪避过冲灯") && !before.log[index]?.includes("闪避过冲灯"));
   const writ = after.log.findIndex((line, index) => line.includes("路引 +") && !before.log[index]?.includes("路引 +"));
+  const burned = after.log.findIndex((line, index) => line.includes("符火烧去更印") && !before.log[index]?.includes("符火烧去更印"));
+  const rebound = after.log.findIndex((line, index) => line.includes("敲空更铃") && !before.log[index]?.includes("敲空更铃"));
   const effect = dodge >= 0 ? ` · 第 ${dodge + 1} 回合避开冲灯${after.log[dodge].includes("渡水蓑回复") ? "并由渡水蓑回气" : ""}`
+    : burned >= 0 ? ` · 第 ${burned + 1} 回合符火烧去更印`
+    : rebound >= 0 ? ` · 第 ${rebound + 1} 回合破印后敲更反伤`
     : writ >= 0 ? ` · 第 ${writ + 1} 回合折篙刀吃到路引加伤` : "";
   return `${outcome(before)} → ${outcome(after)} · 余血 ${Math.max(0, before.life)} → ${Math.max(0, after.life)}${effect}`;
 }
@@ -1265,8 +1270,9 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   const brief = battleBrief(encounter);
   battleAdvice = projected.result === "lost" ? battleRecovery(save, projected) : undefined;
   const paper = !!encounter.paperHorseCase;
-  battleBuilds = battleAdvice || paper ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
-  manualChanges = paper ? availableBuildChanges(save).singles : [];
+  const fullComparison = paper || encounter.region === watchRegion;
+  battleBuilds = battleAdvice || fullComparison ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
+  manualChanges = fullComparison ? availableBuildChanges(save).singles : [];
   manualBuild = undefined;
   const loadoutButton = element<HTMLButtonElement>("#battle-start [data-action=battle-loadout]");
   loadoutButton.classList.toggle("primary", !!battleAdvice && !battleBuilds.length);
@@ -1275,21 +1281,24 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     : encounter.altarMirror ? altarMirrorName : encounter.mirrorLevel ? `照妖镜 · 第 ${integer(encounter.mirrorLevel)} 重` : "";
   element("#battle-brief").innerHTML = `${stage ? `<small>${stage}</small>` : ""}
     <p class="battle-threat"><strong>${escape(brief.threat)}</strong></p>
-    ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : paper ? `<p>${escape(brief.hint)}</p>` : ""}
+    ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : fullComparison ? `<p>${escape(brief.hint)}</p>` : ""}
     ${encounter.trial ? `<p class="battle-objective">${trials[encounter.trial.id].goal}</p>` : ""}
     <p class="meta">${kitNames(encounter.kit).join(" · ")} · ${Object.values(encounter.loadout).map(gearName).join("、") || "未穿戴装备"}</p>`;
   const suggestions = battleBuilds.length
-    ? `<details class="battle-build-list"${paper ? " open" : ""}><summary>${won ? "对照更合适的配装" : "对照可过的配装"}</summary>${battleBuilds.map((build, i) => {
+    ? `<details class="battle-build-list"${fullComparison ? " open" : ""}><summary>${won ? "对照更合适的配装" : "对照可过的配装"}</summary>${battleBuilds.map((build, i) => {
       const effect = ["风灯结扣", "护住风灯", "照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
         .find(mark => build.outcome.links[mark] > (projected.links[mark] ?? 0));
       return `<section class="battle-build">
-        <div><strong>${escape(build.label)}</strong><p>${paper ? escape(battleBuildText(projected, build.outcome)) : `第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}`}</p></div>
+        <div><strong>${escape(build.label)}</strong><p>${fullComparison ? escape(battleBuildText(projected, build.outcome)) : `第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}`}</p></div>
         ${button(`battle-build:${i}`, build.cost ? `修习并应用 · ${build.cost} 道行` : "应用这套", false, i === 0)}
       </section>`;
     }).join("")}</details>`
     : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
-  const fallback = paper && !won && !battleBuilds.some(build => build.cost === 0) && !save.rematchRanks[bridgeRegion]
-    ? `<p class="meta">强敌再战的驿桥首关可补齐青石刀和驿衣。${button(`rematch:${bridgeRegion}`, "查看驿桥再战")}</p>` : "";
+  const needsFallback = (paper || encounter.watchCase) && !won && !battleBuilds.some(build => build.cost === 0);
+  const fallback = needsFallback && !save.rematchRanks[bridgeRegion]
+    ? `<p class="meta">强敌再战的驿桥首关可补齐青石刀和驿衣。${button(`rematch:${bridgeRegion}`, "查看驿桥再战")}</p>`
+    : needsFallback && encounter.watchCase && !save.rematchRanks[courierRegion]
+      ? `<p class="meta">强敌再战的纸马首关可补齐刻灯刀和挡风衣。${button(`rematch:${courierRegion}`, "查看纸马再战")}</p>` : "";
   const manual = manualChanges.length ? `<details class="battle-forecast"><summary>免费试配一项</summary>
     <label for="battle-trial-change">选择要试的调整</label><select id="battle-trial-change"><option value="0">选择装备或招式</option>
     ${manualChanges.map((change, i) => `<option value="${i + 1}">${escape(changeLabel(save, change))}</option>`).join("")}</select><div id="battle-trial-result" aria-live="polite"></div></details>` : "";
@@ -1313,7 +1322,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     : projected.trial?.id === "rollCall" ? `预计应答 ${projected.trial.progress} / ${rollCallStations.length} · ${rollCallStations.slice(0, projected.trial.progress).join("、") || "尚无应答"}`
     : encounter.trial?.id === "lampTrial" ? `预计应答 ${projected.trial?.progress ?? 0} / 2 · ${projected.trueGuardUsed ? "本场会触发真人留息" : "本场无须触发真人留息"}`
     : encounter.region === skyRegion ? `普攻打实 ${projected.links["普攻打实"] ?? 0} 次 · 单回合最多掉 ${Math.max(0, ...simulation.rounds.map(round => -round.life))} 气血`
-    : wardSealActive(encounter) ? `连续未破印 ${simulation.wardStreak} / ${wardSealLimit}` : "";
+    : wardSealActive(encounter) ? `连续未破印 ${simulation.wardStreak} / ${wardSealLimitFor(encounter)}` : "";
   element("#battle-preview").innerHTML = `<p>推演至第 ${simulation.rounds.length} 回合${ending}</p>
     <div class="battle-preview-gauges">
       <div><span>阿照 · ${simulation.life} / ${encounter.maxLife}</span><progress aria-label="阿照预计气血" value="${simulation.life}" max="${encounter.maxLife}"></progress></div>
@@ -1367,10 +1376,10 @@ function paintDuel() {
     <span>${f.footing}/${footingLimit} · ${f.footing >= footingLimit - 1 ? "再中横篙就会跌落驿桥" : "三次失足便会跌落驿桥"}</span></div>` : "";
   const lamps = trial && f.trial ? `<div class="trial-meter"><b>${trial.counter}</b><span aria-hidden="true">${"◆".repeat(f.trial.progress)}${"◇".repeat(trial.target - f.trial.progress)}</span><small>${f.trial.progress} / ${trial.target}</small></div>` : "";
   const horse = f.region === courierRegion ? '<div class="water-gauge"><b>马灯</b><span>马灯护身时，普通刀伤减半。</span></div>' : "";
-  const maxWard = wardStrength(f.rematchRank);
+  const maxWard = fightWardStrength(f);
   const ward = f.region === watchRegion ? `<div class="water-gauge" data-flood="${round % 3 === 0 && f.ward > 0}"><b>更印</b>
     <meter aria-label="更印" min="0" max="${maxWard}" value="${f.ward}"></meter>
-    <span>${f.ward}/${maxWard} · ${wardSealActive(f) ? `连续未破 ${f.wardStreak}/${wardSealLimit}，满格封阵` : "敲更前未破，震响扣 28 气血"}</span></div>` : "";
+    <span>${f.ward}/${maxWard} · ${wardSealActive(f) ? `连续未破 ${f.wardStreak}/${wardSealLimitFor(f)}，满格封阵` : "敲更前未破，震响扣 28 气血"}</span></div>` : "";
   const sigil = f.sigilThrough >= round ? `<div class="trial-meter"><b>寄灯符</b><span>可引爆 · 第 ${f.sigilThrough} 回合末消散</span></div>` : "";
   const speed = `<button type="button" data-action="battle-speed" aria-pressed="${quickBattle}" aria-label="切换加速交锋">战速 ×${quickBattle ? 2 : 1}</button>`;
   const cliff = f.region === cliffRegion ? `<div class="water-gauge" data-flood="${f.cliffStepRound !== undefined}"><b>${f.cliffStepRound !== undefined ? "踏空" : "落脚"}</b>

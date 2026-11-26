@@ -1,6 +1,6 @@
 import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, trials, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperHorseBurn, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
+import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, fightWardStrength, masteryCost, paperHorseBurn, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
 import { caseClues } from "./tactics.ts";
 
@@ -25,6 +25,10 @@ const caseAdvice = [
 ] as const;
 
 export function battleBrief(fight: Fight) {
+  if (fight.watchCase) return {
+    threat: `更印强度 ${fightWardStrength(fight)}。第 3、6、9… 回合敲更，连续两次未破会封阵。`,
+    hint: "守式可自动揭印一次。寄灯符能借灯烧印，也可用刀招直接打破。破印后驿卒敲更会伤到自己。",
+  };
   if (fight.paperHorseCase) return {
     threat: `第 2、5、8… 回合冲灯。马灯亮着时，冲灯命中还会灼伤 ${paperHorseBurn} 点。`,
     hint: "守式每战自动压灯一次。听潮步能避开之后的冲灯；也可用护具承伤，带折篙刀与驿桥路引加快收尾。",
@@ -73,6 +77,10 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.watchCase) {
+    if (!fight.kit.sigil && save.drops[4]) return { text: "寄灯符第 1 回合贴符，第 2 回合借灯破印。佩戴纸马灯芯，火伤再加 8。", label: "查看寄灯符", focus: "art:4" };
+    return { text: "借灯的机会有限。比较兵刃和武学伤害，争取在下一次敲更前打空更印。", label: "比较兵刃", focus: "weapon" };
+  }
   if (fight.paperHorseCase && fight.horseImpact) {
     if (fight.kit.step !== "tide" && save.drops[1]) return { text: "听潮步在冲灯回合闪避，渡水蓑还能随闪避回气。", label: "查看听潮步", focus: "art:1" };
     if (!equippedArts(fight.kit)[3] && save.drops[3]) return { text: "配折篙刀和驿桥路引，每次出刀多打 6 点，可以少扛几次冲灯。", label: "查看折篙刀", focus: "art:3" };

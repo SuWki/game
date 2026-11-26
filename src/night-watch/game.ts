@@ -76,6 +76,8 @@ export const footingLimit = 3;
 export const paperHorseBurn = 22;
 export const watchWard = 58;
 export const wardSealLimit = 3;
+const watchCaseWard = 79;
+const watchCaseRebound = 22;
 export const maxRematchRank = 3;
 const rematchHealth = [0, 42, 92, 155];
 const rematchAttack = [0, 4, 9, 15];
@@ -650,6 +652,8 @@ export type Fight = {
   casePractice?: true;
   paperHorseCase?: true;
   horseImpact?: { round: number; damage: number };
+  watchCase?: true;
+  wardFirstMiss?: { round: number; ward: number };
   inwardTideUsed?: boolean;
   skyDelayRound?: number;
   lampKnotRound?: number;
@@ -708,6 +712,7 @@ export function startCaseFight(save: Save, region: Region) {
   if (!canChallenge(save, region)) return;
   const fight = startFight(save, region, true);
   if (region === courierRegion) fight.paperHorseCase = true;
+  if (region === watchRegion) fight.watchCase = true;
   if (region >= cliffRegion && save.victories[region]) fight.casePractice = true;
   if (recordedClues(save, region) === 3) fight.preparation = "ready";
   return fight;
@@ -1129,7 +1134,7 @@ function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | u
     case watchRegion:
       if (fight.ward <= 0) break;
       if (fight.sigilThrough >= round) return fight.kit.kindle && fight.ranks[5] > 0 ? undefined : "risk";
-      return guard ? "safe" : undefined;
+      return guard && (!fight.watchCase || !fight.links["揭去更印"]) ? "safe" : undefined;
     case cliffRegion:
       return guard && !(hasTide && artDue(round, 1)) ? "safe" : undefined;
     case skyRegion:
@@ -1167,7 +1172,15 @@ export function wardStrength(rank = 0) {
 }
 
 export function wardSealActive(fight: Fight) {
-  return fight.region === watchRegion && (fight.rematchRank ?? 0) >= 2;
+  return wardSealLimitFor(fight) > 0;
+}
+
+export function wardSealLimitFor(fight: Fight) {
+  return fight.watchCase ? 2 : fight.region === watchRegion && (fight.rematchRank ?? 0) >= 2 ? wardSealLimit : 0;
+}
+
+export function fightWardStrength(fight: Fight) {
+  return fight.watchCase ? watchCaseWard : wardStrength(fight.rematchRank);
 }
 
 export function riverPursuitActive(fight: Fight) {
@@ -1267,7 +1280,7 @@ function resolveRound(f: Fight) {
   const cover = f.region === courierRegion && horseCovered(round, horseChoice);
   const watching = f.region === watchRegion;
   if (watching && round % 3 === 1) {
-    f.ward = wardStrength(rank);
+    f.ward = fightWardStrength(f);
     actions.push(`更印凝成，吸收 ${f.ward} 伤害`);
   }
   if (lampAnswers && lampAnswers.progress < answerGoal && round % 3 === 1) {
@@ -1526,17 +1539,24 @@ function resolveRound(f: Fight) {
     if (watching && round % 3 === 0) {
       f.wardStreak = f.ward > 0 ? f.wardStreak + 1 : 0;
       if (f.ward > 0) {
+        f.wardFirstMiss ??= { round, ward: f.ward };
         f.life -= 28;
         marks.push("更印震响");
         actions.push("更印未破，震响扣 28 点气血");
+      } else if (f.watchCase) {
+        f.hp -= watchCaseRebound;
+        marks.push("敲空更铃");
+        actions.push(`更印已破，驿卒敲空更铃，反伤 ${watchCaseRebound}`);
       }
-      if (wardSealActive(f) && f.wardStreak >= wardSealLimit) {
+      const sealLimit = wardSealLimitFor(f);
+      if (sealLimit && f.wardStreak >= sealLimit) {
         f.life = 0;
         marks.push("更印封阵");
-        actions.push("连续三次未破更印，阿照被困在印阵中");
+        actions.push(`连续${f.watchCase ? "两" : "三"}次未破更印，阿照被困在印阵中`);
       }
     }
-    if (f.life <= 0) f.cue = "strike";
+    if (f.hp <= 0) f.cue = "stagger";
+    else if (f.life <= 0) f.cue = "strike";
     else if (paperBattle && move.damage === 0) actions.push(`${f.name}整理灯纸，这轮没有攻击`);
     else if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       if (move.backwash) protectedLamp = true;
@@ -1754,6 +1774,11 @@ export function forecastFight(fight: Fight, rounds = 6) {
 }
 
 export function defeatSummary(fight: Fight) {
+  if (fight.watchCase && fight.wardFirstMiss) {
+    const { round, ward } = fight.wardFirstMiss;
+    const ending = fight.lastExchange?.marks.includes("更印封阵") ? "连续两次未破印，封阵败退" : fight.life <= 0 ? "气血耗尽" : `回合用尽，驿卒余 ${fight.hp} 气血`;
+    return `第 ${round} 回合敲更时还剩 ${ward} 点更印。第 ${fight.round} 回合${ending}。`;
+  }
   if (fight.paperHorseCase && fight.horseImpact) {
     const { round, damage } = fight.horseImpact;
     const ending = fight.life <= 0 ? "气血耗尽" : `回合用尽，纸马余 ${fight.hp} 气血`;
