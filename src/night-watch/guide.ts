@@ -33,6 +33,10 @@ export function battleBrief(fight: Fight) {
     threat: "第 2、5、8… 回合掠栈。连续稳住两次风灯，再击退余影。",
     hint: "守式扶索或听潮步闪避都能记一次。踏空会清掉尚未达成的连续记录。",
   };
+  if (fight.trial?.id === "rollCall") return {
+    threat: trials.rollCall.goal,
+    hint: trials.rollCall.hint,
+  };
   if (fight.templeReprise) return {
     threat: "第 4、7、10… 回合烛偏见真身。累计两次斩中纸面就会封灯。",
     hint: "照影或照灯断影可以更早显形。显形期间斩中真身会清掉纸痕，守式另能挑灯两次。",
@@ -79,6 +83,14 @@ export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
     return fight.kit.stance === "attack"
       ? { text: "切到守式可连续扶索两次。想保持攻式，可带听潮步在掠栈回合闪避。", label: "调整架势", focus: "stance" }
       : { text: "在第 2、5、8… 回合装备听潮步会自动闪避，护住风灯。", label: "查看听潮步", focus: "art:1" };
+  }
+  if (fight.trial?.id === "rollCall") {
+    if (fight.trial.progress < trials.rollCall.target && fight.lampMissedRound
+      && !fight.kit.lampFusion && !(fight.kit.sigil && fight.kit.kindle)) {
+      return { text: "寄灯符在第 1、4 回合贴符，挑灯诀在第 2、5 回合引爆，赶在两次催灯前烧去护纸。", label: "查看寄灯符", focus: "art:4" };
+    }
+    if (fight.life <= 0) return { text: "催灯术每三轮打一次。用守式或换上气血更高的护具，多留一轮答话的时间。", label: "比较护具", focus: "armor" };
+    return { text: "两人答完后要击退纸影。比较兵刃的刀伤，争取在下次催灯前收尾。", label: "比较兵刃", focus: "weapon" };
   }
   if (fight.templeReprise) {
     if (marks.includes("纸面封灯")) {

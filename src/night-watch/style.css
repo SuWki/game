@@ -604,6 +604,13 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .post-route > div { padding:12px; }
 .post-route h3,.post-route p { margin:2px 0 6px; }
 .post-route button { min-height:44px; }
+.story-record { margin:12px 0 16px; padding:12px; border:1px solid #ab9474; background:#eee1c3; }
+.story-record summary { cursor:pointer; }
+.story-record > summary { font-weight:700; }
+.story-record details:last-child { margin-bottom:0; }
+.story-record ol { margin:8px 0; padding-left:22px; }
+.story-record li + li { margin-top:12px; }
+.story-record li p { margin:4px 0; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy { right:12%; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy img { max-width:42vw; object-fit:contain; object-position:bottom; }
 .round-effect { grid-column:2/-1; color:#5f5746; overflow-wrap:anywhere; }

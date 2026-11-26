@@ -615,10 +615,10 @@ test("旧档按案补入异相纪录，首卷未平不能接托付", () => {
   s.victories = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
   s.mirror.best = 12;
   const old = decode(JSON.stringify(s), 100);
-  assert.deepEqual(old.trialBest, { ferryTrial: 0, templeTrial: 0, lampTrial: 0, cloudRelay: 0 });
+  assert.deepEqual(old.trialBest, { ferryTrial: 0, templeTrial: 0, lampTrial: 0, cloudRelay: 0, rollCall: 0 });
   assert.equal(old.mirror.best, 12);
   old.trialBest = { ferryTrial: 11, templeTrial: -1 };
-  assert.deepEqual(decode(JSON.stringify(old), 100).trialBest, { ferryTrial: 11, templeTrial: 0, lampTrial: 0, cloudRelay: 0 });
+  assert.deepEqual(decode(JSON.stringify(old), 100).trialBest, { ferryTrial: 11, templeTrial: 0, lampTrial: 0, cloudRelay: 0, rollCall: 0 });
 });
 
 test("回灯过渡的预览与护灯结算一致，踏步护灯仍要处理水位", () => {
@@ -667,7 +667,7 @@ test("烛下还名反噬即失托，保底装备挑灯可胜；只杀妖不能�
   assert.equal(settleTrial(s, won), 8);
   const restored = decode(JSON.stringify(s), 100);
   assert.equal(settleTrial(restored, won), 0);
-  assert.deepEqual(restored.trialBest, { ferryTrial: 0, templeTrial: 9, lampTrial: 0, cloudRelay: 0 });
+  assert.deepEqual(restored.trialBest, { ferryTrial: 0, templeTrial: 9, lampTrial: 0, cloudRelay: 0, rollCall: 0 });
 });
 
 test("首卷旧档过桥查案，首胜确定给路引与折篙刀，心斋同时检查道行和首胜", () => {

@@ -22,6 +22,7 @@ export const altarPaper = 132;
 export const trueSigilBonus = 18;
 export const fusionStrike = 22;
 export const altarStations = ["芦花渡 · 陆婆", "云栈 · 守灯人", "纸马驿 · 驿卒"] as const;
+export const firstAwakening = "虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。这份能从妖招里听出门道的天赋，叫作「观化」。";
 export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
 export const altarMirrorName = "归山镜题 · 错页";
 export const altarMirrorSand = 22;
@@ -37,6 +38,13 @@ export const altarMirrorPages = [
   { start: 6, deadline: 7, strength: 72 },
   { start: 9, deadline: 12, strength: 150 },
 ] as const;
+export const rollCallPaperCut = 78;
+export const rollCallStations = ["陆婆", "驿卒"] as const;
+
+export function altarMirrorPageStrength(index: number, prepared: boolean) {
+  return altarMirrorPages[index].strength - (prepared && index === altarMirrorPages.length - 1 ? rollCallPaperCut : 0);
+}
+
 export const ropeStep = 6;
 export const windSurveyDao = 720;
 export const mountainFirstReward = 6;
@@ -66,6 +74,13 @@ export const trials = {
     hint: "第 2、5、8… 回合掠栈。守式扶索或听潮步闪避都能护住风灯。踏空时，未完成的连续记录会清零。",
     opening: "上站和下站终于照见了彼此。守灯人递来一盏备用风灯，请阿照试走一遍接班的路。",
     ending: "上站的人接过风灯，在旧索旁扎了个新扣。从此风灯过栈，总留一处可以伸手的地方。",
+  },
+  rollCall: {
+    name: "代为报人", region: hallRegion, hp: 365, wave: 3, target: rollCallStations.length, counter: "亲口应答",
+    goal: "护住陆婆和驿卒两次答话，再击退漏名纸影。",
+    hint: "第 3、6、9… 回合催灯。先破护纸，阿照活过当轮，当前等候的人才能应答。寄灯符配挑灯诀能赶在铃响前烧纸。",
+    opening: "新巡簿上空着两个名字。一个还在渡口搬货，一个替同伴值更。陆婆和驿卒记得他们去做什么，便来总灯房替他们报平安。压在簿底的旧纸却只肯认铃声。",
+    ending: "陆婆说完最后一个字，驿卒才接过笔。他把两人的去处写在姓名旁。往后接班的人掀到这一页，便知道哪一盏灯还该留着。",
   },
 } as const;
 export type TrialId = keyof typeof trials;
@@ -115,7 +130,7 @@ export const regions = [
   {
     name: "白烛庙", patrolCap: 1370, place: "庙街", tag: "青芦村南",
     title: "没有名字的木牌", intro: "石生说，庙里供了七年的无字牌，近来学会了开口。它每晚换一副声音。",
-    cleared: "陆婆提笔写下「阿满」。石生把借来的灯一盏一盏送回各家。",
+    cleared: "七年前，摆渡学徒阿满折返救人，再也没上岸。无字牌原是给他留的。陆婆提笔写下「阿满」。石生把借来的灯一盏一盏送回各家。",
     clues: ["借名帖", "倒流的蜡", "缺一角的无字牌"], thresholds: [36, 84, 140],
     foes: [{ name: "纸灯童", sprite: "lantern" }, { name: "铜镜妖", sprite: "mirror" }],
     boss: "借面娘娘", sprite: "mask", hp: 194,

@@ -1,6 +1,7 @@
 import "./style.css";
 import { altarMirrorName, altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bridgeRegion, breakthrough, cliffRegion, cloudMirrorName, cloudMirrorSand, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, homecoming, lampPaper, realms, regions, ropeStep, skyRegion, stillDao, stillRealm, templeRepriseName, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm } from "./content.ts";
 import type { TrialId } from "./content.ts";
+import { altarMirrorPageStrength, firstAwakening, rollCallPaperCut, rollCallStations } from "./content.ts";
 import { bossEquipment, equipment, gearDisplayName, gearEffect, gearRank, gearRegion, isReforgeId, knownGear, minionEquipment, reforgeIds, reforging, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import { caseClues, encounters } from "./tactics.ts";
@@ -12,13 +13,14 @@ import {
 } from "./game.ts";
 import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive, wardSealLimit, wardStrength } from "./game.ts";
 import type { AltarMirrorAttempt, ArtId, CloudMirrorAttempt, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
+import { canViewTrial } from "./game.ts";
 import { applyBuildChange, compareBattleBuilds, previewBattle } from "./battle-preview.ts";
 import type { BuildSuggestion } from "./battle-preview.ts";
 
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
 const zoneArt = ["mountain", "ferry", "temple", "post-bridge", "post-courtyard", "post-watch", "cloud-cliff", "cloud-sky", "lamp-hall", "lamp-altar"];
-const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", rematch: "强敌再战", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name, lampTrial: trials.lampTrial.name, cloudRelay: trials.cloudRelay.name } as const;
+const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", rematch: "强敌再战", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name, lampTrial: trials.lampTrial.name, cloudRelay: trials.cloudRelay.name, rollCall: trials.rollCall.name } as const;
 const isTrial = (value: string): value is TrialId => Object.hasOwn(trials, value);
 let tab: Tab = "patrol";
 let rematchRegion: OldRegion = 0;
@@ -301,7 +303,7 @@ function patrolPanel(): string {
     const practice = result.region >= cliffRegion && result.won && !result.first;
     return title(result.won ? practice ? "试招取胜" : "战胜大妖" : "败阵", cleared.boss,
       result.won ? practice ? `第 ${result.round} 回合取胜，阿照余 ${result.life} 气血。` : cleared.cleared : escape(result.reason ?? "")) +
-      (awakening ? '<p class="intro"><strong>天赋初醒 · 观化</strong><br>虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。</p>' : "") +
+      (awakening ? `<p class="intro"><strong>天赋初醒 · 观化</strong><br>${firstAwakening}</p>` : "") +
       (result.won && prize ? `<p class="prize">${prize}</p>` : "") +
       (result.first && result.region === bridgeRegion ? `<p>${save.realm >= heartRealm ? "已进入心斋，可同时带两门武学。" : `驿桥已通。累计道行达到 ${heartDao}，便进入心斋、开启第二武学位。`}</p>` : "") +
       (result.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion ? artCard(result.region, true) : "") +
@@ -317,6 +319,7 @@ function patrolPanel(): string {
       (result.won && result.region === skyRegion ? button("tab:archive", "查看两册巡簿") : "") +
       (result.won && result.region === skyRegion ? button("tab:cloudRelay", "接风灯托付", !ready || !!fight) : "") +
       (result.won && result.region === altarRegion ? button("region:1", "回芦花渡送最后一程", !ready || !!fight, true) : "") +
+      (result.won && result.region === altarRegion ? button("tab:rollCall", "查看总灯房托付", !ready || !!fight) : "") +
       (result.won && result.region === altarRegion ? button("tab:mirror:altar", "查看归山镜题", !ready || !!fight) : "") +
       `</div>${recoveryBlock(result)}<details data-remember="report"><summary>逐回合战报 · 第 ${result.round} 回合结束</summary>
       <p>阿照余 ${result.life} 气血 · 大妖余 ${result.hp} 气血</p>
@@ -627,6 +630,29 @@ function slotContents(slot: GearSlot) {
   return `<div class="outfit-picker"><small>${slotNotes[slot]}</small>${list ? `<ul>${list}</ul>` : `<p>${slot === "charm" ? "击败吊睛山君，取得第一枚佩饰。" : "夜行时，小妖有机会掉落这个槽位的装备。"}</p>`}</div>`;
 }
 
+const storyChapters = [
+  { name: "卷一 · 青芦夜话", stops: [0, 1, 2] },
+  { name: "卷二 · 纸马驿", stops: [bridgeRegion, courierRegion, watchRegion] },
+  { name: "卷三 · 云栈", stops: [cliffRegion, skyRegion] },
+  { name: "卷四 · 归山", stops: [hallRegion, altarRegion] },
+] as const;
+
+function storyRecord() {
+  return `<details class="story-record" data-remember="story"><summary>沿途故事</summary>
+    <p>阿照替师父守一夜灯。巡簿第一页留着他的笔迹：「听见第三声，数一数岸上还有几个人。」</p>
+    ${storyChapters.map(({ name, stops }, chapter) => {
+      const known = stops.filter(id => unlocked(save, id) || save.victories[id]);
+      if (!known.length) return "";
+      return `<details data-remember="story-${chapter}"><summary>${name}</summary><ol>${known.map(id => {
+        const region = regions[id];
+        const resolved = id === hallRegion ? !!save.trialBest.lampTrial : !!save.victories[id];
+        return `<li><strong>${region.title}</strong><p>${region.intro}</p>${resolved ? `<p>${region.cleared}</p>` : ""}
+          ${id === 0 && resolved ? `<p>${firstAwakening}</p>` : ""}${id === altarRegion && resolved ? `<p>${homecoming}</p>` : ""}</li>`;
+      }).join("")}</ol></details>`;
+    }).join("")}
+  </details>`;
+}
+
 function archivePanel(): string {
   const unlockedEnd = mirrorUnlocked(save);
   const destinations = [...trialIds.filter(id => id === "ferryTrial" || id === "templeTrial").map(id => ({
@@ -686,8 +712,11 @@ function archivePanel(): string {
   const ending = save.victories[altarRegion] ? `<details data-remember="homecoming"><summary>归山结局 · 第三声铃之后</summary><p>${homecoming}</p>
     ${button("region:1", "回芦花渡", !ready || !!fight)} ${button("tab:mirror:altar", "查看归山镜题", !ready || !!fight)}
     ${button("temple-reprise", "查看白烛庙错烛", !ready || !!fight)}</details>` : "";
-  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>${rebattle}` + (unlockedEnd ?
-    `${hallRoute}${altarRoute}${ending}${cloudRoute}${skyRoute}${books}<h3>卷二 · 纸马驿</h3>${postRoutes}<h3>青芦卷末</h3><div class="after-roads">${destinations.map(road =>
+  const rollCall = canViewTrial(save, "rollCall") ? `<section class="mirror-entry"><div><h3>${trials.rollCall.name}</h3>
+    <p>${save.trialBest.rollCall ? "陆婆和驿卒已补齐名字。巡簿能削弱错页的末页。" : "归山结局后，陆婆和驿卒带来了两个人的消息。"}</p></div>
+    ${button("tab:rollCall", save.trialBest.rollCall ? "回看托付" : "查看托付", !ready || !!fight)}</section>` : "";
+  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>${storyRecord()}${rebattle}` + (unlockedEnd ?
+    `${hallRoute}${altarRoute}${ending}${rollCall}${cloudRoute}${skyRoute}${books}<h3>卷二 · 纸马驿</h3>${postRoutes}<h3>青芦卷末</h3><div class="after-roads">${destinations.map(road =>
       `<button type="button" data-action="tab:${road.tab}" class="after-road"><img alt="" src="${assets + road.art}.webp"><span><small>${road.label}</small><strong>${road.title}</strong><span>${road.detail}</span></span><b aria-hidden="true">›</b></button>`).join("")}</div>
       <details data-remember="old-roads"><summary>首卷旧案 · 换路与再战</summary>${cases}</details>` : cases);
 }
@@ -784,6 +813,19 @@ function trialPanel(id: TrialId) {
       ${button("home", "回总灯房外院", !ready || !!fight)}</div>
       </section><section>${outfitPanel()}</section></div>`;
   }
+  if (id === "rollCall") {
+    return `<div class="trial-layout"><section>
+      <div class="trial-scene"><img src="${assets}lamp-hall.webp" alt=""><div><small>归山 · 总灯房</small><h2>${spec.name}</h2></div></div>
+      <p>${spec.opening}</p>
+      ${best ? `<p>${spec.ending}</p>` : `<div class="trial-goal"><strong>${spec.goal}</strong><p>${spec.hint}</p><small>${trialRounds} 回合为限</small></div>`}
+      ${last ? `<section class="mirror-outcome" role="status"><h3>${last.won ? "名字已补入巡簿" : "托付未成"}</h3>
+        ${last.won ? "" : `<p>${escape(last.reason ?? "")}</p>`}<small>第 ${last.round} 回合 · 应答 ${last.trialProgress} / ${spec.target}</small>
+        ${recoveryBlock(last)}<details data-remember="roll-call-report"><summary>逐回合战报</summary><ol class="log">${last.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : ""}
+      <p class="meta">${best ? "补名巡簿已带入错页" : "完成托付后可带补名巡簿进入错页"}，第 9 回合的末页少 ${rollCallPaperCut} 点护纸。</p>
+      <div class="actions">${best ? button("tab:mirror:altar", "带巡簿去错页", !ready || !!fight, true)
+        : !last ? button("trial-fight:rollCall", "接下托付", !ready || !!fight, true) : ""}</div>
+      </section>${best ? "" : `<section>${outfitPanel()}</section>`}</div>`;
+  }
   const help = `此案完成后，对应镜中妖影可以借用妖案准备。查齐第三条线索后生效。 ${automaticPreparationText(spec.region)}`;
   return `<div class="trial-layout"><section>
     <div class="trial-scene"><img src="${assets + zoneArt[spec.region]}.webp" alt=""><div><small>${regions[spec.region].name} · 异相</small><h2>${spec.name}</h2></div></div>
@@ -806,6 +848,7 @@ function mirrorComparison(current: ComparisonAttempt, previous?: ComparisonAttem
   return `<div class="mirror-comparison">${rows.map((attempt, i) => `<div>
     <strong>${previous ? i === 0 ? "上次" : "本次" : "最近一战"} · ${attempt.won ? "取胜" : "败阵"} · 第 ${attempt.round} 回合</strong>
     <p>${"pages" in attempt ? `破纸 ${attempt.pages} / ${altarMirrorPages.length} · ` : ""}阿照余 ${attempt.life} / ${attempt.maxLife} 气血 · 对手余 ${attempt.hp} 气血</p>
+    ${"pages" in attempt && attempt.pages >= altarMirrorPages.length - 1 && attempt.round >= altarMirrorPages[altarMirrorPages.length - 1].start ? `<p>末页护纸 ${attempt.lastPageStrength ?? altarMirrorPageStrength(altarMirrorPages.length - 1, false)}</p>` : ""}
     ${"falls" in attempt ? `<p>落地 ${attempt.falls} 次 · 备用结扣${attempt.usedLamp ? "已用" : "未触发"}</p>` : ""}
     ${"candleHits" in attempt && attempt.candleHits > 0 ? `<p>烛影刀显形加伤 ${attempt.candleHits} 次</p>` : ""}<small>${escape(attempt.build)}</small></div>`).join("")}</div>`;
 }
@@ -813,6 +856,7 @@ function mirrorComparison(current: ComparisonAttempt, previous?: ComparisonAttem
 function altarMirrorPanel() {
   if (!altarMirrorUnlocked(save)) return "";
   const history = save.mirror.altar;
+  const prepared = !!save.trialBest.rollCall;
   const last = result?.altarMirror ? result : undefined;
   const nextReforge = reforgeIds.find(id => reforgeState(save, id) === "ready");
   const rewardLink = nextReforge ? button(`reforge-focus:${nextReforge}`, `查看${equipment[nextReforge].name}重铸`)
@@ -821,9 +865,11 @@ function altarMirrorPanel() {
     <div class="section-title"><h3>${altarMirrorName}</h3><span>${history?.cleared ? "已首破" : "归山终战后开放"}</span></div>
     <p>十二回合内破掉三页并击退妖影。第二页的两轮窗口留给刀招。</p>
     <ol class="altar-stations" aria-label="破纸时机">${altarMirrorPages.map((page, index) =>
-      `<li><strong>第 ${index + 1} 页</strong><small>第 ${page.start}–${page.deadline} 回合</small><small>强度 ${page.strength}</small></li>`).join("")}</ol>
+      `<li><strong>第 ${index + 1} 页</strong><small>第 ${page.start}–${page.deadline} 回合</small><small>强度 ${altarMirrorPageStrength(index, prepared)}</small></li>`).join("")}</ol>
+    <p class="meta">${prepared ? `补名巡簿已带入，末页护纸 −${rollCallPaperCut}。` : `完成代为报人，末页可少 ${rollCallPaperCut} 点护纸。`}</p>
     ${!last || last.won ? `<div class="actions">${button("altar-mirror-fight", history?.cleared ? "用当前配装试招" : "挑战错页", !ready || !!fight, true)}
     ${button("altar-mirror-setup", "对照招路", !ready || !!fight)}</div>` : ""}
+    ${prepared ? "" : button("tab:rollCall", "查看代为报人", !ready || !!fight)}
     ${!history?.cleared && canEarnSand(save) ? `<p class="meta">首破得 ${altarMirrorSand} 淬纹砂，供现有刻纹与重铸使用。</p>` : ""}
     ${last ? `<section class="mirror-outcome" role="status"><h3>${last.won ? "击破错页" : "合镜败阵"}</h3>
     <p>${last.won ? last.sand ? `首破获得 ${last.sand} 淬纹砂。` : "试招记录已保存。" : escape(last.reason ?? "")}</p>
@@ -1027,9 +1073,10 @@ function paintPanel() {
     renderedPanel = html;
   }
   if (help.open) paintHelp();
+  const firstClue = clueCount(save, 0) > 0;
   for (const item of root.querySelectorAll<HTMLButtonElement>(".nav button")) {
     const key = item.dataset.action?.split(":")[1];
-    item.hidden = !!fight?.boss || !(save.victories[0] || key === "patrol" || key === "skills" && clueCount(save, 0) > 0);
+    item.hidden = !!fight?.boss || !(save.victories[0] || firstClue || key === "patrol");
     if (key === "skills") item.textContent = save.drops.some((known, index) => known && !save.ranks[index]) ? "招式 · 待修习" : "招式";
     if (key === "patrol") item.textContent = save.newGear.length && inBook ? "巡夜 · 待整装" : "巡夜";
     if (key === tab || key === "archive" && (tab === "mirror" || tab === "rematch" || isTrial(tab))) item.setAttribute("aria-current", "page");
@@ -1110,7 +1157,7 @@ function paintPatrolControls() {
       : challengeOpen ? (swept ? "此地小妖已扫清，可以挑战" + region.boss + "。" : clues === challengeClues ? `可挑战${region.boss}。再斩 ${remainingKills} 只，备好应变。` : "应变已备好，可以挑战" + region.boss + "。")
       : clues >= challengeClues || swept ? save.region === cliffRegion ? cliffGateText() : `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
       : save.region === cliffRegion && !save.kills[cliffRegion] ? "提灯巡栈，追查倒向山外的风灯。"
-      : save.region === 0 && save.kills[0] === 0 && save.guide.enabled ? "提灯上山。斩到第三只小妖，就能查山君招路。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
+      : save.region === 0 && save.kills[0] === 0 && save.guide.enabled ? "提灯上山找失踪的挑油人。斩到第三只小妖，就能查山君招路。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
   }
   const drop = element("#gear-find");
   const id = save.newGear[0];
@@ -1185,7 +1232,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     }).join("")}</details>`
     : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
 
-  const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" ? encounter.limit : 6);
+  const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" || encounter.trial?.id === "rollCall" ? encounter.limit : 6);
   const ending = simulation.result === "won" ? " · 取胜" : simulation.result === "lost" ? " · 败阵" : "";
   const pursuits = simulation.rounds.filter(round => round.marks.includes("湿衣追篙")).length;
   const clue = caseClues[encounter.region];
@@ -1198,8 +1245,9 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     : projected.cloudMirror ? `预计落地 ${projected.cloudMirror.falls} 次${projected.links["风灯结扣"] ? " · 风灯结扣护住一次踏空" : ""}`
     : projected.trial?.id === "cloudRelay" ? `预计连续稳住 ${projected.trial.progress} / ${trials.cloudRelay.target} 次`
     : projected.templeReprise && projected.loadout.weapon === "templeBlade" ? `预计烛影刀显形加伤 ${projected.links["烛影刀显形加伤"] ?? 0} 次`
-    : projected.altarMirror ? `预计破纸 ${projected.altarMirror.pages} / ${altarMirrorPages.length} 页`
+    : projected.altarMirror ? `预计破纸 ${projected.altarMirror.pages} / ${altarMirrorPages.length} 页${projected.altarMirror.lastPageStrength ? ` · 末页护纸 ${projected.altarMirror.lastPageStrength}` : ""}`
     : projected.altarAnswers ? `预计应答 ${projected.altarAnswers.progress} / 3 · ${altarStations.slice(0, projected.altarAnswers.progress).join("、") || "尚无应答"}`
+    : projected.trial?.id === "rollCall" ? `预计应答 ${projected.trial.progress} / ${rollCallStations.length} · ${rollCallStations.slice(0, projected.trial.progress).join("、") || "尚无应答"}`
     : encounter.trial?.id === "lampTrial" ? `预计应答 ${projected.trial?.progress ?? 0} / 2 · ${projected.trueGuardUsed ? "本场会触发真人留息" : "本场无须触发真人留息"}`
     : encounter.region === skyRegion ? `普攻打实 ${projected.links["普攻打实"] ?? 0} 次 · 单回合最多掉 ${Math.max(0, ...simulation.rounds.map(round => -round.life))} 气血`
     : wardSealActive(encounter) ? `连续未破印 ${simulation.wardStreak} / ${wardSealLimit}` : "";
@@ -1267,10 +1315,12 @@ function paintDuel() {
   const sky = f.region === skyRegion ? `<div class="water-gauge" data-flood="${phase === 0 && f.skyDelayRound !== round}"><b>刀锋距离</b>
     <span>${f.skyDelayRound === round || phase === 2 ? "可以近身" : phase === 1 ? "踏缆步或守式压灯可以近身" : "升空时刀招只能擦伤"}</span></div>` : "";
   const maxPaper = f.altarAnswers ? altarPaper : lampPaper;
-  const hall = f.altarAnswers || f.trial?.id === "lampTrial" ? `<div class="water-gauge"><b>护纸</b>
+  const rollCall = f.trial?.id === "rollCall" ? f.trial : undefined;
+  const hall = f.altarAnswers || rollCall || f.trial?.id === "lampTrial" ? `<div class="water-gauge"><b>护纸</b>
     <meter aria-label="护纸强度" max="${maxPaper}" value="${f.ward}"></meter><span>${f.ward} / ${maxPaper} · 真人留息${f.trueGuardUsed ? "已用" : "可用一次"}</span></div>` : "";
-  const altarProgress = f.altarAnswers?.progress;
-  const stations = altarProgress === undefined ? "" : `<ol class="altar-stations" aria-label="三站应答 ${altarProgress} / 3">${altarStations.map((station, index) =>
+  const altarProgress = f.altarAnswers?.progress ?? rollCall?.progress;
+  const answerStations = rollCall ? rollCallStations : altarStations;
+  const stations = altarProgress === undefined ? "" : `<ol class="altar-stations" aria-label="应答 ${altarProgress} / ${answerStations.length}">${answerStations.map((station, index) =>
     `<li data-answered="${index < altarProgress}" ${index === altarProgress ? 'aria-current="step"' : ""}>${station}<small>${index < altarProgress ? "已应答" : index === altarProgress ? "等候应答" : "候场"}</small></li>`).join("")}</ol>`;
   const brokenPages = f.altarMirror?.pages;
   const pages = brokenPages === undefined ? "" : `<ol class="altar-stations" aria-label="已破 ${brokenPages} / ${altarMirrorPages.length} 页">${altarMirrorPages.map((page, index) =>
@@ -1310,7 +1360,7 @@ function paintStage() {
   }
   element("#windup").hidden = !fight?.windup;
   changedText("#windup", fight?.windup ?? "");
-  const guardingLamps = fight?.trial?.id === "lampTrial";
+  const guardingLamps = fight?.trial?.id === "lampTrial" || fight?.trial?.id === "rollCall";
   changedText(".stage .chapter", fight?.cloudMirror ? cloudMirrorName : fight?.templeReprise ? "强敌再战 · 错烛" : fight?.altarMirror ? altarMirrorName : fight?.rematchRank ? `强敌再战 · 第 ${fight.rematchRank} 关` : guardingLamps ? "卷四 · 归山"
     : fight?.trial ? "异相 · " + trials[fight.trial.id].name : fight?.mirrorLevel ? `第 ${integer(fight.mirrorLevel)} 重` : region >= bridgeRegion ? regions[region].place : "青芦夜话");
   changedText("#place", fight?.mirrorLevel || fight?.altarMirror || fight?.cloudMirror ? "照妖镜" : guardingLamps ? "总灯房内院" : regions[region].name);
@@ -1699,8 +1749,7 @@ root.addEventListener("click", event => {
   } else if (name === "engraving-focus" && tab === "mirror") {
     element(".mirror-engraving").scrollIntoView({ block: "start" });
   } else if (name === "tab") {
-    if (value === "lampTrial" ? !canEnterLampTrial(save) : value === "cloudRelay" ? !cloudMirrorUnlocked(save)
-      : (value === "mirror" || isTrial(value)) && !mirrorUnlocked(save)) return;
+    if (isTrial(value) ? !canViewTrial(save, value) : value === "mirror" && !mirrorUnlocked(save)) return;
     if (tab === value) return;
     const fromDetail = journal || tab === "mirror" || tab === "rematch" || isTrial(tab) || (tab === "patrol" && !!result);
     const fromNav = !!(event.target as HTMLElement).closest(".nav");
@@ -1712,6 +1761,7 @@ root.addEventListener("click", event => {
     if (parent?.tab === value && !fromNav) {
       returnTo(backTrail.pop());
       if (value === "mirror" && isReforgeId(option)) focusReforge(option);
+      if (value === "mirror" && option === "altar") panel.querySelector("#altar-mirror-entry")?.scrollIntoView({ block: "start" });
       if (value === "mirror" && option === "cloud") panel.querySelector("#cloud-mirror-entry")?.scrollIntoView({ block: "start" });
       return;
     }

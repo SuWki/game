@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { altarRegion, altarMirrorSand } from "../src/night-watch/content.ts";
 import {
   altarMirrorUnlocked, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, fuseLamp, newSave,
-  reforgeGear, settleAltarMirror, startAltarMirror, startCaseFight, tickFight,
+  reforgeGear, settleAltarMirror, settleTrial, startAltarMirror, startCaseFight, startTrial, tickFight,
 } from "../src/night-watch/game.ts";
 import { applyBuildChange, compareBattleBuilds, previewBattle } from "../src/night-watch/battle-preview.ts";
 
@@ -92,4 +92,67 @@ test("错页首破给现有重铸，两次配装记录与普通镜层各自保�
   const replay = previewBattle(startAltarMirror(restored));
   assert.equal(settleAltarMirror(restored, replay, 101).reward, 0);
   assert.equal(restored.mirror.sand, 4);
+});
+
+test("代为报人沿用 v8 存档，答话要先破护纸并活过催灯轮", () => {
+  const old = completedSave();
+  delete old.trialBest.rollCall;
+  const save = decode(JSON.stringify(old), 100);
+  const locked = structuredClone(save);
+  locked.victories[altarRegion] = 0;
+  assert.equal(startTrial(locked, "rollCall"), undefined);
+
+  const noArts = structuredClone(save);
+  equipArt(noArts, 4, false);
+  equipArt(noArts, 5, false);
+  const lost = previewBattle(startTrial(noArts, "rollCall"));
+  assert.deepEqual([lost.result, lost.round, lost.trial.progress], ["lost", 16, 0]);
+  assert.match(defeatSummary(lost), /第 15 回合护纸未破，陆婆没能答话/);
+  settleTrial(noArts, lost);
+  assert.equal(noArts.trialBest.rollCall, 0);
+
+  const attempt = startTrial(save, "rollCall");
+  const forecast = previewBattle(attempt);
+  enableCombatTactics(attempt);
+  while (attempt.result === "fighting") tickFight(attempt);
+  assert.deepEqual(attempt.log, forecast.log);
+  assert.deepEqual([attempt.result, attempt.round, attempt.trial.progress], ["won", 8, 2]);
+  assert.match(attempt.log[2], /陆婆亲口应答（1 \/ 2）/);
+  assert.match(attempt.log[5], /驿卒亲口应答（2 \/ 2）/);
+  const sand = save.mirror.sand;
+  const dao = save.lifetimeDao;
+  settleTrial(save, attempt);
+  settleTrial(save, attempt);
+  assert.deepEqual([save.trialBest.rollCall, save.mirror.sand, save.lifetimeDao], [8, sand, dao]);
+  const restored = decode(JSON.stringify(save), 101);
+  assert.equal(restored.trialBest.rollCall, 8);
+  assert.equal(startTrial(restored, "rollCall"), undefined);
+});
+
+test("补名巡簿只削末页，配装相同可比较破页和收尾回合", () => {
+  const save = completedSave();
+  save.rematchRanks[0] = 1;
+  const guardBefore = previewBattle(startAltarMirror(save));
+  save.kit.stance = "attack";
+  const before = previewBattle(startAltarMirror(save));
+  assert.deepEqual([before.result, before.round, before.life, before.altarMirror.lastPageStrength], ["won", 11, 95, 150]);
+  settleAltarMirror(save, before, 100);
+
+  save.kit.stance = "guard";
+  const trial = previewBattle(startTrial(save, "rollCall"));
+  assert.equal(trial.result, "won");
+  settleTrial(save, trial);
+  const guardAfter = previewBattle(startAltarMirror(save));
+  assert.deepEqual(guardAfter.log, guardBefore.log);
+  assert.deepEqual([guardAfter.result, guardAfter.round, guardAfter.ward], ["lost", 7, 6]);
+
+  save.kit.stance = "attack";
+  const after = previewBattle(startAltarMirror(save));
+  assert.deepEqual(after.log.slice(0, 8), before.log.slice(0, 8));
+  assert.deepEqual([after.result, after.round, after.life, after.altarMirror.lastPageStrength], ["won", 10, 111, 72]);
+  assert.match(after.log[8], /补名巡簿削去末页 78 点护纸/);
+  assert.equal(settleAltarMirror(save, after, 100).reward, 0);
+  const restored = decode(JSON.stringify(save), 101);
+  assert.deepEqual([restored.mirror.altar.previous.lastPageStrength, restored.mirror.altar.recent.lastPageStrength], [150, 72]);
+  assert.equal(restored.mirror.sand, altarMirrorSand);
 });
