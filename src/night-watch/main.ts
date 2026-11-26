@@ -14,8 +14,8 @@ import {
 import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive, wardSealLimit, wardStrength } from "./game.ts";
 import type { AltarMirrorAttempt, ArtId, CloudMirrorAttempt, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
 import { canViewTrial } from "./game.ts";
-import { applyBuildChange, compareBattleBuilds, previewBattle } from "./battle-preview.ts";
-import type { BuildSuggestion } from "./battle-preview.ts";
+import { applyBuildChange, availableBuildChanges, battleBuildImproves, changeLabel, compareBattleBuilds, previewBattle, previewBuild } from "./battle-preview.ts";
+import type { BuildChange, BuildSuggestion } from "./battle-preview.ts";
 
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
@@ -32,7 +32,7 @@ let openSlot: GearSlot | undefined;
 let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
-type BattleResult = { trialId?: TrialId; trialProgress?: number; altarMirror?: boolean; cloudMirror?: boolean; templeReprise?: boolean; mirrorLevel?: number; previousMirror?: MirrorAttempt; rematchRank?: number; rematchPractice?: boolean; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; recovery?: RecoveryTip; first?: boolean; drop?: boolean; daoReward?: number;
+type BattleResult = { trialId?: TrialId; trialProgress?: number; altarMirror?: boolean; cloudMirror?: boolean; templeReprise?: boolean; mirrorLevel?: number; previousMirror?: MirrorAttempt; rematchRank?: number; rematchPractice?: boolean; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; recovery?: RecoveryTip; first?: boolean; drop?: boolean; daoReward?: number; horseImpact?: Fight["horseImpact"];
   recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number };
 let result: BattleResult | null = null;
 type Challenge = { mode: "case"; region: Region } | { mode: "rematch"; region: Region; practice?: boolean }
@@ -312,6 +312,9 @@ function patrolPanel(): string {
       (awakening ? `<p class="prize">道行 +${result.daoReward}。装备镇山喝后，第 3 回合就能截断芦花渡的回浪。</p>`
         : result.won && prize ? `<p class="prize">${prize}</p>` : "") +
       (result.first && result.region === bridgeRegion ? `<p>${save.realm >= heartRealm ? "已进入心斋，可同时带两门武学。" : `驿桥已通。累计道行达到 ${heartDao}，便进入心斋、开启第二武学位。`}</p>` : "") +
+      (result.first && result.region === courierRegion ? "<p>迎战驿卒时，寄灯符第 1 回合贴符，第 2 回合可借灯引爆、烧去更印。纸马灯芯能再添 8 点火伤。</p>" : "") +
+      (result.won && result.horseImpact ? `<p>第 ${result.horseImpact.round} 回合挨了冲灯与灼伤，共扣 ${result.horseImpact.damage} 点气血。</p>`
+        : result.won && result.links["听潮步避开冲灯"] ? `<p>听潮步避开了 ${result.links["听潮步避开冲灯"]} 次冲灯。</p>` : "") +
       (result.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion ? artCard(result.region, true) : "") +
       (save.newGear[0] ? lootCard(save.newGear[0], save.newGear[0] === result.recovered) : "") +
       (awakening ? '<p class="meta">回山道后可开启沿路巡夜，达到本地上限就会收灯。</p>' : "") +
@@ -361,7 +364,7 @@ function patrolPanel(): string {
     (done ? firstVolumeScene(id) : "") +
     `<div class="clues-label"><strong>${location.boss} · 妖案</strong><span>${clues} / 3</span></div>
     <ul class="clues evidence-list">${known}</ul>
-    ${!done && !open && clueCount(save) >= challengeClues ? `<p class="meta">${id === cliffRegion ? cliffGateText() : `已找到大妖，进入${realms[challengeRealms[id]]}境后可挑战。`}</p>` : ""}
+    ${!done && !open && clueCount(save) >= challengeClues ? `<p class="meta">${id === cliffRegion ? cliffGateText() : id === courierRegion ? paperHorseGateText() : `已找到大妖，进入${realms[challengeRealms[id]]}境后可挑战。`}</p>` : ""}
     <div class="actions">${actions}</div>`;
 }
 
@@ -1111,6 +1114,11 @@ function paintPanel() {
   paintPatrolControls();
 }
 
+function paperHorseGateText() {
+  const needed = Math.max(0, heartDao - save.lifetimeDao);
+  return `线索已齐。距心斋还差 ${needed} 道行，约再巡 ${Math.ceil(needed / regions[courierRegion].reward)} 只小妖。入心斋后可同时带两门武学。`;
+}
+
 function paintPatrolControls() {
   const locked = !ready || !!pending || document.hidden;
   hunt.disabled = locked || !!fight || save.autoPatrol;
@@ -1166,7 +1174,7 @@ function paintPatrolControls() {
       : done ? (swept ? "此地小妖已扫清。" : "") + (save.region === altarRegion ? "三站已逐个应答。回芦花渡看看最后一程。"
         : save.region === skyRegion ? "两站灯火已相照。两册巡簿可在斩妖录回看。" : "守灯人安全了，风灯照见向上的索路。")
       : challengeOpen ? (swept ? "此地小妖已扫清，可以挑战" + region.boss + "。" : clues === challengeClues ? `可挑战${region.boss}。再斩 ${remainingKills} 只，备好应变。` : "应变已备好，可以挑战" + region.boss + "。")
-      : clues >= challengeClues || swept ? save.region === cliffRegion ? cliffGateText() : `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
+      : clues >= challengeClues || swept ? save.region === cliffRegion ? cliffGateText() : save.region === courierRegion ? paperHorseGateText() : `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
       : save.region === cliffRegion && !save.kills[cliffRegion] ? "提灯巡栈，追查倒向山外的风灯。"
       : save.region === 0 && save.kills[0] === 0 && save.guide.enabled ? "提灯上山找失踪的挑油人。斩到第三只小妖，就能查山君招路。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
   }
@@ -1191,25 +1199,60 @@ const battleSheet = element<HTMLDialogElement>("#battle-sheet");
 const battleStart = element<HTMLFormElement>("#battle-start");
 let pendingBattle: Challenge | undefined;
 let battleBuilds: BuildSuggestion[] = [];
+let manualChanges: BuildChange[] = [];
+let manualBuild: BuildSuggestion | undefined;
 let battleAdvice: RecoveryTip | undefined;
 battleSheet.addEventListener("close", () => {
   if (battleSheet.open) return;
   pendingBattle = undefined;
   battleBuilds = [];
+  manualChanges = [];
+  manualBuild = undefined;
   battleAdvice = undefined;
 });
 
 function battleVerdict(projected: Fight) {
   if (projected.result === "fighting") return "<p>暂时无法推演整场。</p>";
   const won = projected.result === "won";
+  const close = won && projected.life / projected.maxLife < 0.25;
   const reason = won ? "" : defeatSummary(projected);
   const detail = won ? `第 ${projected.round} 回合取胜 · 阿照余 ${projected.life} / ${projected.maxLife} 气血`
     : reason.startsWith("第 ") ? reason : `第 ${projected.round} 回合 · ${reason}`;
-  return `<section class="battle-verdict" data-verdict="${projected.result}">
-    <strong>${won ? "当前配装可过关" : "当前配装会败阵"}</strong>
+  return `<section class="battle-verdict" data-verdict="${projected.result}" data-close="${close}">
+    <strong>${won ? close ? "低余血取胜" : "推演可过" : "推演败阵"}</strong>
     <p>${escape(detail)}</p>
   </section>`;
 }
+
+function battleBuildText(before: Fight, after: Fight) {
+  const same = before.result === after.result && before.life === after.life && before.round === after.round && before.hp === after.hp;
+  if (same) return "这项调整在本场的胜负、回合和余血均无变化。";
+  const outcome = (fight: Fight) => `${fight.round} 回合${fight.result === "won" ? "取胜" : "败阵"}`;
+  const dodge = after.log.findIndex((line, index) => line.includes("闪避过冲灯") && !before.log[index]?.includes("闪避过冲灯"));
+  const writ = after.log.findIndex((line, index) => line.includes("路引 +") && !before.log[index]?.includes("路引 +"));
+  const effect = dodge >= 0 ? ` · 第 ${dodge + 1} 回合避开冲灯${after.log[dodge].includes("渡水蓑回复") ? "并由渡水蓑回气" : ""}`
+    : writ >= 0 ? ` · 第 ${writ + 1} 回合折篙刀吃到路引加伤` : "";
+  return `${outcome(before)} → ${outcome(after)} · 余血 ${Math.max(0, before.life)} → ${Math.max(0, after.life)}${effect}`;
+}
+
+root.addEventListener("change", event => {
+  const input = event.target;
+  if (!(input instanceof HTMLSelectElement) || input.id !== "battle-trial-change" || !battleSheet.open || !pendingBattle) return;
+  const output = element("#battle-trial-result");
+  const challenge = pendingBattle;
+  const current = challengeFight(challenge);
+  const choice = manualChanges[Number(input.value) - 1];
+  const build = current && choice ? previewBuild(save, draft => challengeFight(challenge, draft), [choice]) : undefined;
+  manualBuild = undefined;
+  output.innerHTML = "";
+  if (!current || !build) return;
+  const before = previewBattle(current);
+  const applies = !build.cost || battleBuildImproves(before, build.outcome);
+  if (applies) manualBuild = build;
+  output.innerHTML = `<p>${escape(battleBuildText(before, build.outcome))}</p>${applies
+    ? button("battle-build:trial", build.cost ? `确认应用 · ${build.cost} 道行` : "应用调整")
+    : `<p class="meta">预计花费 ${build.cost} 道行，当前试配未扣费。</p>`}`;
+});
 
 function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   changedText("#battle-title", "迎战" + encounter.name);
@@ -1221,7 +1264,10 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   start.textContent = won ? "开始交锋" : "仍以当前配装出战";
   const brief = battleBrief(encounter);
   battleAdvice = projected.result === "lost" ? battleRecovery(save, projected) : undefined;
-  battleBuilds = battleAdvice ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
+  const paper = !!encounter.paperHorseCase;
+  battleBuilds = battleAdvice || paper ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
+  manualChanges = paper ? availableBuildChanges(save).singles : [];
+  manualBuild = undefined;
   const loadoutButton = element<HTMLButtonElement>("#battle-start [data-action=battle-loadout]");
   loadoutButton.classList.toggle("primary", !!battleAdvice && !battleBuilds.length);
   const stage = encounter.cloudMirror ? cloudMirrorName : encounter.templeReprise ? templeRepriseName
@@ -1229,19 +1275,25 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     : encounter.altarMirror ? altarMirrorName : encounter.mirrorLevel ? `照妖镜 · 第 ${integer(encounter.mirrorLevel)} 重` : "";
   element("#battle-brief").innerHTML = `${stage ? `<small>${stage}</small>` : ""}
     <p class="battle-threat"><strong>${escape(brief.threat)}</strong></p>
-    ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : ""}
+    ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : paper ? `<p>${escape(brief.hint)}</p>` : ""}
     ${encounter.trial ? `<p class="battle-objective">${trials[encounter.trial.id].goal}</p>` : ""}
     <p class="meta">${kitNames(encounter.kit).join(" · ")} · ${Object.values(encounter.loadout).map(gearName).join("、") || "未穿戴装备"}</p>`;
-  element("#battle-builds").innerHTML = battleBuilds.length
-    ? `<details class="battle-build-list"><summary>对照可过的配装</summary>${battleBuilds.map((build, i) => {
+  const suggestions = battleBuilds.length
+    ? `<details class="battle-build-list"${paper ? " open" : ""}><summary>${won ? "对照更合适的配装" : "对照可过的配装"}</summary>${battleBuilds.map((build, i) => {
       const effect = ["风灯结扣", "护住风灯", "照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
         .find(mark => build.outcome.links[mark] > (projected.links[mark] ?? 0));
       return `<section class="battle-build">
-        <div><strong>${escape(build.label)}</strong><p>第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}</p></div>
+        <div><strong>${escape(build.label)}</strong><p>${paper ? escape(battleBuildText(projected, build.outcome)) : `第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}`}</p></div>
         ${button(`battle-build:${i}`, build.cost ? `修习并应用 · ${build.cost} 道行` : "应用这套", false, i === 0)}
       </section>`;
     }).join("")}</details>`
     : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
+  const fallback = paper && !won && !battleBuilds.some(build => build.cost === 0) && !save.rematchRanks[bridgeRegion]
+    ? `<p class="meta">强敌再战的驿桥首关可补齐青石刀和驿衣。${button(`rematch:${bridgeRegion}`, "查看驿桥再战")}</p>` : "";
+  const manual = manualChanges.length ? `<details class="battle-forecast"><summary>免费试配一项</summary>
+    <label for="battle-trial-change">选择要试的调整</label><select id="battle-trial-change"><option value="0">选择装备或招式</option>
+    ${manualChanges.map((change, i) => `<option value="${i + 1}">${escape(changeLabel(save, change))}</option>`).join("")}</select><div id="battle-trial-result" aria-live="polite"></div></details>` : "";
+  element("#battle-builds").innerHTML = suggestions + fallback + manual;
 
   const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" || encounter.trial?.id === "rollCall" ? encounter.limit : 6);
   const ending = simulation.result === "won" ? " · 取胜" : simulation.result === "lost" ? " · 败阵" : "";
@@ -1462,7 +1514,7 @@ function settleBoss(current: Fight) {
     battleOrigin = null;
     window.scrollTo(0, 0);
     result = { trialId: trial?.id, trialProgress: trial?.progress, rematchRank: current.rematchRank, rematchPractice: current.rematchPractice, mirrorLevel: current.mirrorLevel, altarMirror: !!current.altarMirror, cloudMirror: !!current.cloudMirror, templeReprise: current.templeReprise, previousMirror, sand, daoReward, region: current.region, won, report: current.log, reason,
-      recovery: won ? undefined : battleRecovery(save, current),
+      recovery: won ? undefined : battleRecovery(save, current), horseImpact: current.paperHorseCase ? current.horseImpact : undefined,
       drop: upgraded?.drop,
       links: current.links, round: current.round, life: Math.max(0, current.life), hp: Math.max(0, current.hp), ...loot, ...reprise };
     if (current.templeReprise) rematchRegion = 2;
@@ -1691,11 +1743,12 @@ root.addEventListener("click", event => {
     openPreparation(challengeOf(result), result.recovery.focus);
   } else if (name === "battle-build" && battleSheet.open && pendingBattle && ready && !pending && !fight) {
     const challenge = pendingBattle;
-    const build = battleBuilds[Number(value)];
+    const build = value === "trial" ? manualBuild : battleBuilds[Number(value)];
     const draft = structuredClone(save);
     if (!build || !applyBuildChange(draft, build.changes) || save.dao - draft.dao !== build.cost) return;
     const trial = challengeFight(challenge, draft);
-    if (!trial || previewBattle(trial).result !== "won") {
+    const baseline = challengeFight(challenge);
+    if (!trial || !baseline || (value !== "trial" || build.cost > 0) && !battleBuildImproves(previewBattle(baseline), previewBattle(trial))) {
       const current = challengeFight(challenge);
       if (current) renderBattleBrief(current, challenge);
       return;
@@ -1746,6 +1799,7 @@ root.addEventListener("click", event => {
   } else if ((name === "rematch" || name === "rematch-select") && ready && !pending && !fight?.boss) {
     const chosen = value === undefined ? rematchRegion : id;
     if (chosen === cliffRegion || chosen === skyRegion || chosen === hallRegion || chosen === altarRegion || !save.victories[chosen]) return;
+    if (battleSheet.open) battleSheet.close();
     if (tab !== "rematch") backTrail.push(pageLocation());
     if (tab !== "rematch" || chosen !== rematchRegion) result = null;
     rematchRegion = chosen;

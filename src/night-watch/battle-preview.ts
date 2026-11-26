@@ -2,7 +2,7 @@ import { arts, heartRealm } from "./content.ts";
 import { equipment, gearDisplayName, gearRank, knownGear } from "./equipment.ts";
 import type { GearId } from "./equipment.ts";
 import {
-  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, equipLampFusion, replacedArt, study, tickFight, tuneEngraving, weaponArts,
+  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, equipLampFusion, masteryCost, replacedArt, study, tickFight, tuneEngraving, weaponArts,
 } from "./game.ts";
 import type { ArtId, Engraving, Fight, Kit, PresetSlot, Save } from "./game.ts";
 
@@ -10,6 +10,7 @@ export type BuildChange =
   | { kind: "gear"; id: GearId }
   | { kind: "stance"; stance: Kit["stance"] }
   | { kind: "art"; id: ArtId; learn: boolean }
+  | { kind: "mastery"; id: ArtId }
   | { kind: "engraving"; id: Engraving }
   | { kind: "weapon-order" }
   | { kind: "lamp-fusion" }
@@ -48,6 +49,8 @@ function applyOne(save: Save, change: BuildChange) {
       equipArt(save, id, true);
       return equippedArts(save.kit)[id];
     }
+    case "mastery":
+      return save.ranks[change.id] === 1 && equippedArts(save.kit)[change.id] && study(save, change.id);
     case "engraving":
       return Object.hasOwn(engravings, change.id) && save.mirror.equipped !== change.id && tuneEngraving(save, change.id, "equip");
     case "lamp-fusion":
@@ -63,7 +66,7 @@ function applyOne(save: Save, change: BuildChange) {
   }
 }
 
-function changeLabel(save: Save, change: BuildChange) {
+export function changeLabel(save: Save, change: BuildChange) {
   switch (change.kind) {
     case "gear":
       return `换上${gearDisplayName(change.id, gearRank(change.id, save.rematchRanks), save.reforges)}`;
@@ -73,6 +76,8 @@ function changeLabel(save: Save, change: BuildChange) {
       const previous = replacedArt(save, change.id);
       return `${change.learn ? "修习并装备" : "装备"}${arts[change.id].name}${previous === undefined ? "" : `（替下${arts[previous].name}）`}`;
     }
+    case "mastery":
+      return `精通${arts[change.id].name}`;
     case "engraving":
       return `换上${engravings[change.id].name}`;
     case "lamp-fusion":
@@ -105,14 +110,7 @@ const compatible = [
 ] as const;
 const pairedArts = [[0, 3], [1, 2], [4, 5], [0, 6]] as const;
 
-export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fight | undefined, current?: Fight): BuildSuggestion[] {
-  if (!current) {
-    const encounter = createFight(save);
-    if (!encounter) return [];
-    current = previewBattle(encounter);
-  }
-  if (current.result !== "lost") return [];
-
+export function availableBuildChanges(save: Save) {
   const stance: BuildChange = { kind: "stance", stance: save.kit.stance === "guard" ? "attack" : "guard" };
   const worn = equippedArts(save.kit);
   const gear = [...new Set(save.ownedGear)].filter(id => knownGear(id) && save.loadout[equipment[id].slot] !== id)
@@ -124,24 +122,50 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
       ? [{ kind: "art", id, learn: !save.ranks[id] } as const] : [];
   });
   const singles: BuildChange[] = [...moves, stance, ...gear];
+  if (save.dao >= masteryCost) {
+    for (const [id, equipped] of worn.entries()) {
+      if (equipped && save.ranks[id] === 1) singles.push({ kind: "mastery", id: id as ArtId });
+    }
+  }
   if (save.lampFusion && !save.kit.lampFusion) singles.push({ kind: "lamp-fusion" });
   if (weaponArts(save.kit).length === 2) singles.push({ kind: "weapon-order" });
   for (const id of Object.keys(engravings) as Engraving[]) {
     if (save.mirror.ranks[id] && save.mirror.equipped !== id) singles.push({ kind: "engraving", id });
   }
+  return { singles, stance, gear, moves };
+}
 
-  const tryChanges = (changes: BuildChange[]): BuildSuggestion | undefined => {
-    const draft = structuredClone(save);
-    const labels: string[] = [];
-    for (const change of changes) {
-      const label = changeLabel(draft, change);
-      if (!applyOne(draft, change)) return;
-      labels.push(label);
-    }
-    const encounter = createFight(draft);
-    if (!encounter) return;
-    const outcome = previewBattle(encounter);
-    if (outcome.result === "won") return { changes, label: labels.join("，"), cost: save.dao - draft.dao, outcome };
+export function previewBuild(save: Save, createFight: (draft: Save) => Fight | undefined, changes: BuildChange[]): BuildSuggestion | undefined {
+  const draft = structuredClone(save);
+  const labels: string[] = [];
+  for (const change of changes) {
+    const label = changeLabel(draft, change);
+    if (!applyOne(draft, change)) return;
+    labels.push(label);
+  }
+  const encounter = createFight(draft);
+  if (encounter) return { changes, label: labels.join("，"), cost: save.dao - draft.dao, outcome: previewBattle(encounter) };
+}
+
+export function battleBuildImproves(current: Fight, outcome: Fight) {
+  if (outcome.result !== "won" || outcome.life <= 0) return false;
+  if (current.result === "lost") return true;
+  const lifeGain = outcome.life / outcome.maxLife - current.life / current.maxLife;
+  const roundsSaved = current.round - outcome.round;
+  return lifeGain >= 0.10 && roundsSaved >= 0 || roundsSaved >= 2 && lifeGain >= 0;
+}
+
+export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fight | undefined, current?: Fight): BuildSuggestion[] {
+  if (!current) {
+    const encounter = createFight(save);
+    if (!encounter) return [];
+    current = previewBattle(encounter);
+  }
+  if (current.result === "fighting") return [];
+  const { singles, stance, gear, moves } = availableBuildChanges(save);
+  const tryChanges = (changes: BuildChange[]) => {
+    const build = previewBuild(save, createFight, changes);
+    if (build && battleBuildImproves(current, build.outcome)) return build;
   };
   const winners = singles.map(change => tryChanges([change])).filter((item): item is BuildSuggestion => !!item);
   if (!winners.length) {

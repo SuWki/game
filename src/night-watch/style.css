@@ -419,6 +419,8 @@ body { background: #e7e0cc; color: #36392f; }
 #battle-sheet::backdrop { background: #0e1d22a8; }
 .battle-verdict { padding: 10px 12px; margin: 8px 0; border-left: 3px solid #58715b; background: #e2e8d8; color: #273d2b; }
 .battle-verdict[data-verdict="lost"] { border-color: #985644; background: #edd9cb; color: #582b20; }
+.battle-verdict[data-close="true"] { border-color: #a17a43; background: #efe1bf; color: #503d22; }
+#battle-trial-change { display: block; width: 100%; margin: 4px 0 8px; }
 .battle-verdict p { margin-top: 4px; font-size: .9rem; }
 #battle-brief > p { margin-top: 6px; }
 #battle-brief .battle-threat { padding-left: 9px; border-left: 3px solid #975c3f; }

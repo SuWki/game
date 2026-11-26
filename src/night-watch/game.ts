@@ -73,6 +73,7 @@ export const riverDrenchDamage = 6;
 export const mirrorRounds = 12;
 export const paperHitLimit = 2;
 export const footingLimit = 3;
+export const paperHorseBurn = 22;
 export const watchWard = 58;
 export const wardSealLimit = 3;
 export const maxRematchRank = 3;
@@ -647,6 +648,8 @@ export type Fight = {
   riverDrenched: boolean; riverPursuits: number;
   cliffStepRound?: number;
   casePractice?: true;
+  paperHorseCase?: true;
+  horseImpact?: { round: number; damage: number };
   inwardTideUsed?: boolean;
   skyDelayRound?: number;
   lampKnotRound?: number;
@@ -704,6 +707,7 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
 export function startCaseFight(save: Save, region: Region) {
   if (!canChallenge(save, region)) return;
   const fight = startFight(save, region, true);
+  if (region === courierRegion) fight.paperHorseCase = true;
   if (region >= cliffRegion && save.victories[region]) fight.casePractice = true;
   if (recordedClues(save, region) === 3) fight.preparation = "ready";
   return fight;
@@ -1121,7 +1125,7 @@ function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | u
       if (hasShout) return guard ? undefined : "risk";
       return guard && fight.footing > 0 ? "safe" : undefined;
     case courierRegion:
-      return guard ? "safe" : undefined;
+      return guard && (!fight.paperHorseCase || !fight.links["压灯卸势"]) ? "safe" : undefined;
     case watchRegion:
       if (fight.ward <= 0) break;
       if (fight.sigilThrough >= round) return fight.kit.kindle && fight.ranks[5] > 0 ? undefined : "risk";
@@ -1537,6 +1541,7 @@ function resolveRound(f: Fight) {
     else if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       if (move.backwash) protectedLamp = true;
       actions.push(`闪避过${move.name}`);
+      if (horseCharge) marks.push("听潮步避开冲灯");
       if (cliffSweep) {
         heldFooting = true;
         marks.push("听潮步避开掠栈");
@@ -1632,8 +1637,9 @@ function resolveRound(f: Fight) {
         actions.push("第二次被湿衣追篙击中，阿照落水");
       }
       if (horseCharge && cover) {
-        const burn = 18 + 8 * rank;
+        const burn = f.paperHorseCase ? paperHorseBurn : 18 + 8 * rank;
         f.life -= burn;
+        if (!f.horseImpact) f.horseImpact = { round, damage: damage + burn };
         marks.push("马灯灼伤");
         actions.push(`马灯灼伤，另扣 ${burn} 点气血`);
       }
@@ -1748,6 +1754,11 @@ export function forecastFight(fight: Fight, rounds = 6) {
 }
 
 export function defeatSummary(fight: Fight) {
+  if (fight.paperHorseCase && fight.horseImpact) {
+    const { round, damage } = fight.horseImpact;
+    const ending = fight.life <= 0 ? "气血耗尽" : `回合用尽，纸马余 ${fight.hp} 气血`;
+    return `第 ${round} 回合马灯仍在，冲灯与灼伤共扣 ${damage} 点气血。第 ${fight.round} 回合${ending}。`;
+  }
   if (fight.trial?.id === "cloudRelay" && fight.trial.progress < trials.cloudRelay.target) {
     return `第 ${fight.round} 回合交锋结束，连续稳住 ${fight.trial.progress} / ${trials.cloudRelay.target} 次。掠栈时用守式扶索或听潮步闪避。`;
   }

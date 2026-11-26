@@ -1,6 +1,6 @@
 import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, trials, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
+import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperHorseBurn, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
 import { caseClues } from "./tactics.ts";
 
@@ -25,6 +25,10 @@ const caseAdvice = [
 ] as const;
 
 export function battleBrief(fight: Fight) {
+  if (fight.paperHorseCase) return {
+    threat: `第 2、5、8… 回合冲灯。马灯亮着时，冲灯命中还会灼伤 ${paperHorseBurn} 点。`,
+    hint: "守式每战自动压灯一次。听潮步能避开之后的冲灯；也可用护具承伤，带折篙刀与驿桥路引加快收尾。",
+  };
   if (fight.cloudMirror) return {
     threat: "掠栈提前到第 1、4、7… 回合。踏空后，下一轮先扣落地伤。",
     hint: "守式可以扶索。听潮步赶上的是下一回合的落爪，落地伤仍会先结算。",
@@ -69,6 +73,11 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.paperHorseCase && fight.horseImpact) {
+    if (fight.kit.step !== "tide" && save.drops[1]) return { text: "听潮步在冲灯回合闪避，渡水蓑还能随闪避回气。", label: "查看听潮步", focus: "art:1" };
+    if (!equippedArts(fight.kit)[3] && save.drops[3]) return { text: "配折篙刀和驿桥路引，每次出刀多打 6 点，可以少扛几次冲灯。", label: "查看折篙刀", focus: "art:3" };
+    return { text: "用守式卸掉第一次冲撞，穿上气血更高的护具撑过后续冲灯。", label: "比较护具", focus: "armor" };
+  }
   if (fight.cloudMirror) {
     if (fight.kit.stance === "attack" && fight.life <= 0) return {
       text: "掠栈提前了。切守式可在第 1、4 回合扶索，避免这两次踏空。", label: "调整架势", focus: "stance",
