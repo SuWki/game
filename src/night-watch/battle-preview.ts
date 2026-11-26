@@ -1,8 +1,8 @@
-import { arts, heartRealm } from "./content.ts";
+import { arts, cliffRegion, heartRealm, stillRealm } from "./content.ts";
 import { equipment, gearDisplayName, gearRank, knownGear } from "./equipment.ts";
 import type { GearId } from "./equipment.ts";
 import {
-  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, equipLampFusion, masteryCost, replacedArt, study, tickFight, tuneEngraving, weaponArts,
+  applyPreset, enableCombatTactics, engravings, equipArt, equippedArts, equipLampFusion, masteryCost, replacedArt, setInwardTide, study, tickFight, tuneEngraving, weaponArts,
 } from "./game.ts";
 import type { ArtId, Engraving, Fight, Kit, PresetSlot, Save } from "./game.ts";
 
@@ -11,6 +11,7 @@ export type BuildChange =
   | { kind: "stance"; stance: Kit["stance"] }
   | { kind: "art"; id: ArtId; learn: boolean }
   | { kind: "mastery"; id: ArtId }
+  | { kind: "inward-tide" }
   | { kind: "engraving"; id: Engraving }
   | { kind: "weapon-order" }
   | { kind: "lamp-fusion" }
@@ -51,6 +52,8 @@ function applyOne(save: Save, change: BuildChange) {
     }
     case "mastery":
       return save.ranks[change.id] === 1 && equippedArts(save.kit)[change.id] && study(save, change.id);
+    case "inward-tide":
+      return setInwardTide(save, true);
     case "engraving":
       return Object.hasOwn(engravings, change.id) && save.mirror.equipped !== change.id && tuneEngraving(save, change.id, "equip");
     case "lamp-fusion":
@@ -78,6 +81,8 @@ export function changeLabel(save: Save, change: BuildChange) {
     }
     case "mastery":
       return `精通${arts[change.id].name}`;
+    case "inward-tide":
+      return save.kit.step === "tide" ? "内化听潮步（主动身法换为退步）" : "内化听潮步";
     case "engraving":
       return `换上${engravings[change.id].name}`;
     case "lamp-fusion":
@@ -110,7 +115,7 @@ const compatible = [
 ] as const;
 const pairedArts = [[0, 3], [1, 2], [4, 5], [0, 6]] as const;
 
-export function availableBuildChanges(save: Save) {
+export function availableBuildChanges(save: Save, includeInwardTide = false) {
   const stance: BuildChange = { kind: "stance", stance: save.kit.stance === "guard" ? "attack" : "guard" };
   const worn = equippedArts(save.kit);
   const gear = [...new Set(save.ownedGear)].filter(id => knownGear(id) && save.loadout[equipment[id].slot] !== id)
@@ -122,6 +127,7 @@ export function availableBuildChanges(save: Save) {
       ? [{ kind: "art", id, learn: !save.ranks[id] } as const] : [];
   });
   const singles: BuildChange[] = [...moves, stance, ...gear];
+  if (includeInwardTide && save.realm >= stillRealm && save.ranks[1] === 2 && !save.kit.inwardTide) singles.push({ kind: "inward-tide" });
   if (save.dao >= masteryCost) {
     for (const [id, equipped] of worn.entries()) {
       if (equipped && save.ranks[id] === 1) singles.push({ kind: "mastery", id: id as ArtId });
@@ -162,7 +168,8 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
     current = previewBattle(encounter);
   }
   if (current.result === "fighting") return [];
-  const { singles, stance, gear, moves } = availableBuildChanges(save);
+  const cliff = current.region === cliffRegion;
+  const { singles, stance, gear, moves } = availableBuildChanges(save, cliff);
   const tryChanges = (changes: BuildChange[]) => {
     const build = previewBuild(save, createFight, changes);
     if (build && battleBuildImproves(current, build.outcome)) return build;
@@ -173,7 +180,7 @@ export function compareBattleBuilds(save: Save, createFight: (draft: Save) => Fi
     const win = tryChanges([first, second]);
     if (win) winners.push(win);
   };
-  if ((current.paperHorseCase || current.watchCase) && !winners.some(({ outcome }) => outcome.life / outcome.maxLife >= 0.25)) {
+  if ((current.paperHorseCase || current.watchCase || cliff) && !winners.some(({ outcome }) => outcome.life / outcome.maxLife >= 0.25)) {
     addPair(gear.find(item => item.id === "postBlade"), gear.find(item => item.id === "postCoat"));
     addPair(gear.find(item => item.id === "courierBlade"), gear.find(item => item.id === "courierCoat"));
   }

@@ -1,11 +1,11 @@
 import "./style.css";
 import { altarMirrorName, altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bridgeRegion, breakthrough, cliffRegion, cloudMirrorName, cloudMirrorSand, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, homecoming, lampPaper, realms, regions, ropeStep, skyRegion, stillDao, stillRealm, templeRepriseName, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { altarMirrorPageStrength, ferryEvidence, firstVolumeAftermath, rollCallPaperCut, rollCallStations } from "./content.ts";
+import { altarMirrorPageStrength, ferryEvidence, firstVolumeAftermath, rollCallPaperCut, rollCallStations, watchDelivery } from "./content.ts";
 import { bossEquipment, equipment, gearDisplayName, gearEffect, gearRank, gearRegion, isReforgeId, knownGear, minionEquipment, reforgeIds, reforging, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import { caseClues, encounters } from "./tactics.ts";
-import { battleBrief, battleRecovery, clueTip, nextTip } from "./guide.ts";
+import { battleBrief, battleRecovery, cliffGateText, clueTip, nextTip } from "./guide.ts";
 import type { PrepFocus, RecoveryTip, Tab, Tip } from "./guide.ts";
 import {
   accrueOffline, accrueSand, artDue, canChallenge, canCompareBooks, canEnterLampTrial, canFuseLamp, canPatrol, challengeRealms, clueCount, compareBooks, compareGear, cultivationFor, decode, defeatSummary, equipArt, equippedArts, equipLampFusion, footingLimit, frame, fuseLamp, engravingCost, engravingPower, engravings, gearRequirement, loadoutStats, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
@@ -33,7 +33,7 @@ let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
 type BattleResult = { trialId?: TrialId; trialProgress?: number; altarMirror?: boolean; cloudMirror?: boolean; templeReprise?: boolean; mirrorLevel?: number; previousMirror?: MirrorAttempt; rematchRank?: number; rematchPractice?: boolean; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; recovery?: RecoveryTip; first?: boolean; drop?: boolean; daoReward?: number; horseImpact?: Fight["horseImpact"];
-  recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number };
+  recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number; cliffSummary?: string };
 let result: BattleResult | null = null;
 type Challenge = { mode: "case"; region: Region } | { mode: "rematch"; region: Region; practice?: boolean }
   | { mode: "mirror"; level: number } | { mode: "altar-mirror" } | { mode: "cloud-mirror" } | { mode: "temple-reprise" } | { mode: "trial"; id: TrialId };
@@ -130,11 +130,6 @@ const slotNotes = { weapon: "刀剑 · 增加刀伤", armor: "衣甲 · 增加�
 function realmLabel(state = save) {
   const { realm, layer } = cultivationFor(state);
   return realms[realm] + " · " + layerNames[layer - 1] + "层";
-}
-
-function cliffGateText() {
-  if (!save.windSurveyed) return "去妖案查看风灯，认出它为何朝向断栈。";
-  return `风灯已查明。再巡得 ${stillDao - save.lifetimeDao} 道行可入坐忘，挑战回风鸮。`;
 }
 
 function hallCase() {
@@ -285,8 +280,12 @@ function costText(cost: number): string {
 
 const clueLabels = ["辨出招路", "找到对策", "备好应变"] as const;
 
-function firstVolumeScene(id: Region) {
-  const scene = firstVolumeAftermath.at(id);
+function caseAftermath(id: Region) {
+  return id === watchRegion ? watchDelivery : firstVolumeAftermath.at(id);
+}
+
+function aftermathScene(id: Region) {
+  const scene = caseAftermath(id);
   return scene ? `<aside class="case-turn"><h3>${scene.title}</h3><p>${scene.text}</p></aside>` : "";
 }
 
@@ -297,7 +296,7 @@ function patrolPanel(): string {
     const cleared = regions[result.region];
     const awakening = result.first && result.region === 0;
     const prize = result.region === cliffRegion
-      ? result.first ? `守灯人已获救，取得风灯并踏入御风${result.daoReward ? `，另得 ${result.daoReward} 道行` : ""}。观化悟得《踏缆步》。` : ""
+      ? result.first ? `守灯人已获救，取得风灯并踏入御风${result.daoReward ? `，另得 ${result.daoReward} 道行` : ""}。观化悟得《踏缆步》，在天栈能赶上衔灯鹞贴崖的回合。` : ""
       : result.region === hallRegion || result.region === altarRegion ? ""
       : result.region === skyRegion ? result.first ? "取得第二册巡簿与续灯扣。两册巡簿已收入斩妖录。" : ""
       : result.drop ? `观化悟得《${arts[result.region].name}》${result.daoReward ? `，另得 ${result.daoReward} 道行` : ""}。`
@@ -308,7 +307,7 @@ function patrolPanel(): string {
     const practice = result.region >= cliffRegion && result.won && !result.first;
     return title(result.won ? practice ? "试招取胜" : "战胜大妖" : "败阵", cleared.boss,
       result.won ? practice ? `第 ${result.round} 回合取胜，阿照余 ${result.life} 气血。` : cleared.cleared : escape(result.reason ?? "")) +
-      (result.first ? firstVolumeScene(result.region) : "") +
+      (result.first ? aftermathScene(result.region) : "") +
       (awakening ? `<p class="prize">道行 +${result.daoReward}。装备镇山喝后，第 3 回合就能截断芦花渡的回浪。</p>`
         : result.won && prize ? `<p class="prize">${prize}</p>` : "") +
       (result.first && result.region === bridgeRegion ? `<p>${save.realm >= heartRealm ? "已进入心斋，可同时带两门武学。" : `驿桥已通。累计道行达到 ${heartDao}，便进入心斋、开启第二武学位。`}</p>` : "") +
@@ -316,11 +315,12 @@ function patrolPanel(): string {
       (result.won && result.horseImpact ? `<p>第 ${result.horseImpact.round} 回合挨了冲灯与灼伤，共扣 ${result.horseImpact.damage} 点气血。</p>`
         : result.won && result.links["听潮步避开冲灯"] ? `<p>听潮步避开了 ${result.links["听潮步避开冲灯"]} 次冲灯。</p>` : "") +
       (result.won && result.links["敲空更铃"] ? `<p>更印打破后，驿卒敲空更铃 ${result.links["敲空更铃"]} 次。${result.links["借灯引符"] ? `阿照借灯破印 ${result.links["借灯引符"]} 次。` : ""}</p>` : "") +
+      (result.won && result.cliffSummary ? `<p>${result.cliffSummary}</p>` : "") +
       (result.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion ? artCard(result.region, true) : "") +
       (save.newGear[0] ? lootCard(save.newGear[0], save.newGear[0] === result.recovered) : "") +
       (awakening ? '<p class="meta">回山道后可开启沿路巡夜，达到本地上限就会收灯。</p>' : "") +
       '<div class="actions outcome-actions">' +
-      (result.first && nextRegion < regions.length && unlocked(save, nextRegion as Region) ? button(`region:${nextRegion}`, nextRegion === bridgeRegion ? "随陆婆过河" : `前往${regions[nextRegion].name}`, !!fight, true) : "") +
+      (result.first && nextRegion < regions.length && unlocked(save, nextRegion as Region) ? button(`region:${nextRegion}`, nextRegion === bridgeRegion ? "随陆婆过河" : nextRegion === cliffRegion ? "带钥匙去残栈" : `前往${regions[nextRegion].name}`, !!fight, true) : "") +
       (result.won && result.region < cliffRegion ? button(`rematch:${result.region}`, "强敌再战") : "") +
       (result.won && result.region === 2 ? button("tab:archive", "查看异相与照妖镜") : "") +
       (result.won && result.region >= bridgeRegion ? button("tab:skills", result.region === bridgeRegion ? "查看武学顺序" : "调整配装") : "") +
@@ -344,7 +344,7 @@ function patrolPanel(): string {
   const kills = save.kills[save.region];
   const swept = !patrolRemaining(save);
   const surveyReady = id === cliffRegion && !save.windSurveyed && clueCount(save) >= challengeClues;
-  const sweptClueHint = id === cliffRegion ? "小妖已扫清。风灯仍可查看，结扣只在实查第三条线索后取得。"
+  const sweptClueHint = id === cliffRegion ? (save.windSurveyed ? "小妖已扫清。结扣按第三条实查线索取得。" : "小妖已扫清。仍可查看风灯，结扣按第三条实查线索取得。")
     : id === skyRegion ? "小妖已扫清。已查到的线索和战前准备依然有效。"
     : done ? "强敌再战第一关可补齐剩余线索。" : "小妖已扫清，可以先去查案挑战大妖。";
   const effects = [evidence.danger, battleBrief(startFight(save, id, true)).hint, automaticPreparationText(id)];
@@ -362,10 +362,11 @@ function patrolPanel(): string {
     (clues || open ? button("show-preview", "对照前六回合") : "") +
     (!done && patrolRemaining(save) && !save.autoPatrol ? button("home", clues === challengeClues && open ? "继续巡夜备战" : "回去巡夜") : "");
   return title(location.tag, location.title, id === 1 && save.victories[altarRegion] ? homecoming : done ? location.cleared : location.intro) +
-    (done ? firstVolumeScene(id) : "") +
+    (done ? aftermathScene(id) : "") +
+    (id === cliffRegion && save.windSurveyed ? `<p class="intro">阿照将风灯转回石壁，终于看清了断索旁的落脚处。</p><p class="meta">${clues === 3 ? "带上旧灯结扣，首次落地少扣 24 点气血。" : "旧灯结扣在第三条实查线索里。当前按未带结扣推演。"}</p>` : "") +
     `<div class="clues-label"><strong>${location.boss} · 妖案</strong><span>${clues} / 3</span></div>
     <ul class="clues evidence-list">${known}</ul>
-    ${!done && !open && clueCount(save) >= challengeClues ? `<p class="meta">${id === cliffRegion ? cliffGateText() : id === courierRegion ? paperHorseGateText() : `已找到大妖，进入${realms[challengeRealms[id]]}境后可挑战。`}</p>` : ""}
+    ${!done && !open && clueCount(save) >= challengeClues ? `<p class="meta">${id === cliffRegion ? cliffGateText(save) : id === courierRegion ? paperHorseGateText() : `已找到大妖，进入${realms[challengeRealms[id]]}境后可挑战。`}</p>` : ""}
     <div class="actions">${actions}</div>`;
 }
 
@@ -658,7 +659,7 @@ function storyRecord() {
         const region = regions[id];
         const resolved = id === hallRegion ? !!save.trialBest.lampTrial : !!save.victories[id];
         const testimony = id === 1 && recordedClues(save, 1) >= challengeClues ? `<p>${ferryEvidence[1]}</p>` : "";
-        const aftermath = resolved ? firstVolumeAftermath.at(id) : undefined;
+        const aftermath = resolved ? caseAftermath(id) : undefined;
         return `<li><strong>${region.title}</strong><p>${region.intro}</p>${testimony}${resolved ? `<p>${region.cleared}</p>` : ""}
           ${aftermath ? `<p>${aftermath.text}</p>` : ""}${id === altarRegion && resolved ? `<p>${homecoming}</p>` : ""}</li>`;
       }).join("")}</ol></details>`;
@@ -1175,7 +1176,7 @@ function paintPatrolControls() {
       : done ? (swept ? "此地小妖已扫清。" : "") + (save.region === altarRegion ? "三站已逐个应答。回芦花渡看看最后一程。"
         : save.region === skyRegion ? "两站灯火已相照。两册巡簿可在斩妖录回看。" : "守灯人安全了，风灯照见向上的索路。")
       : challengeOpen ? (swept ? "此地小妖已扫清，可以挑战" + region.boss + "。" : clues === challengeClues ? `可挑战${region.boss}。再斩 ${remainingKills} 只，备好应变。` : "应变已备好，可以挑战" + region.boss + "。")
-      : clues >= challengeClues || swept ? save.region === cliffRegion ? cliffGateText() : save.region === courierRegion ? paperHorseGateText() : `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
+      : clues >= challengeClues || swept ? save.region === cliffRegion ? cliffGateText(save) : save.region === courierRegion ? paperHorseGateText() : `已找到${region.boss}，进入${realms[challengeRealms[save.region]]}境后可挑战。`
       : save.region === cliffRegion && !save.kills[cliffRegion] ? "提灯巡栈，追查倒向山外的风灯。"
       : save.region === 0 && save.kills[0] === 0 && save.guide.enabled ? "提灯上山找失踪的挑油人。斩到第三只小妖，就能查山君招路。" : `再斩 ${remainingKills} 只，${clueLabels[clues]}。`);
   }
@@ -1226,9 +1227,19 @@ function battleVerdict(projected: Fight) {
 }
 
 function battleBuildText(before: Fight, after: Fight) {
+  const falls = after.cliffFalls ?? [];
+  const beforeFalls = before.cliffFalls ?? [];
+  const sameFalls = beforeFalls.length === falls.length && beforeFalls.every((fall, i) => fall.stepRound === falls[i].stepRound && fall.damage === falls[i].damage);
   const same = before.result === after.result && before.life === after.life && before.round === after.round && before.hp === after.hp;
-  if (same) return "这项调整在本场的胜负、回合和余血均无变化。";
+  if (same && sameFalls) return "这项调整在本场的胜负、回合和余血均无变化。";
   const outcome = (fight: Fight) => `${fight.round} 回合${fight.result === "won" ? "取胜" : "败阵"}`;
+  const comparison = `${outcome(before)} → ${outcome(after)} · 余血 ${Math.max(0, before.life)} → ${Math.max(0, after.life)}`;
+  if (after.region === cliffRegion) {
+    const first = falls[0];
+    const saved = beforeFalls[0] && first && beforeFalls[0].stepRound === first.stepRound && beforeFalls[0].damage !== first.damage
+      ? ` · 第 ${first.stepRound + 1} 回合落地伤 ${beforeFalls[0].damage} → ${first.damage}` : "";
+    return `${comparison} · 落地 ${beforeFalls.length} → ${falls.length} 次${saved}。${cliffFightSummary(after)}`;
+  }
   const dodge = after.log.findIndex((line, index) => line.includes("闪避过冲灯") && !before.log[index]?.includes("闪避过冲灯"));
   const writ = after.log.findIndex((line, index) => line.includes("路引 +") && !before.log[index]?.includes("路引 +"));
   const burned = after.log.findIndex((line, index) => line.includes("符火烧去更印") && !before.log[index]?.includes("符火烧去更印"));
@@ -1237,7 +1248,17 @@ function battleBuildText(before: Fight, after: Fight) {
     : burned >= 0 ? ` · 第 ${burned + 1} 回合符火烧去更印`
     : rebound >= 0 ? ` · 第 ${rebound + 1} 回合破印后敲更反伤`
     : writ >= 0 ? ` · 第 ${writ + 1} 回合折篙刀吃到路引加伤` : "";
-  return `${outcome(before)} → ${outcome(after)} · 余血 ${Math.max(0, before.life)} → ${Math.max(0, after.life)}${effect}`;
+  return `${comparison}${effect}`;
+}
+
+function cliffFightSummary(fight: Fight) {
+  const fall = fight.cliffFalls?.[0];
+  const brace = fight.log.findIndex(line => line.includes("扶索稳身"));
+  const step = fight.log.findIndex(line => line.includes("闪避过掠栈"));
+  const footing = brace >= 0 ? `第 ${brace + 1} 回合起扶索，共 ${fight.links["扶索稳身"]} 次。`
+    : step >= 0 ? `第 ${step + 1} 回合起避开掠栈，共 ${fight.links["听潮步避开掠栈"]} 次。` : "";
+  return footing + (fall ? `第 ${fall.stepRound} 回合踏空，第 ${fall.stepRound + 1} 回合落地扣 ${fall.damage} 气血。`
+    : "本场未发生落地伤。");
 }
 
 root.addEventListener("change", event => {
@@ -1270,9 +1291,10 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   const brief = battleBrief(encounter);
   battleAdvice = projected.result === "lost" ? battleRecovery(save, projected) : undefined;
   const paper = !!encounter.paperHorseCase;
-  const fullComparison = paper || encounter.region === watchRegion;
+  const cliff = encounter.region === cliffRegion && !encounter.trial && !encounter.cloudMirror;
+  const fullComparison = paper || cliff || encounter.region === watchRegion;
   battleBuilds = battleAdvice || fullComparison ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
-  manualChanges = fullComparison ? availableBuildChanges(save).singles : [];
+  manualChanges = fullComparison ? availableBuildChanges(save, cliff).singles : [];
   manualBuild = undefined;
   const loadoutButton = element<HTMLButtonElement>("#battle-start [data-action=battle-loadout]");
   loadoutButton.classList.toggle("primary", !!battleAdvice && !battleBuilds.length);
@@ -1282,6 +1304,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   element("#battle-brief").innerHTML = `${stage ? `<small>${stage}</small>` : ""}
     <p class="battle-threat"><strong>${escape(brief.threat)}</strong></p>
     ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : fullComparison ? `<p>${escape(brief.hint)}</p>` : ""}
+    ${cliff ? `<p>${cliffFightSummary(projected)}</p>` : ""}
     ${encounter.trial ? `<p class="battle-objective">${trials[encounter.trial.id].goal}</p>` : ""}
     <p class="meta">${kitNames(encounter.kit).join(" · ")} · ${Object.values(encounter.loadout).map(gearName).join("、") || "未穿戴装备"}</p>`;
   const suggestions = battleBuilds.length
@@ -1294,7 +1317,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
       </section>`;
     }).join("")}</details>`
     : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
-  const needsFallback = (paper || encounter.watchCase) && !won && !battleBuilds.some(build => build.cost === 0);
+  const needsFallback = (paper || cliff || encounter.watchCase) && !won && !battleBuilds.some(build => build.cost === 0);
   const fallback = needsFallback && !save.rematchRanks[bridgeRegion]
     ? `<p class="meta">强敌再战的驿桥首关可补齐青石刀和驿衣。${button(`rematch:${bridgeRegion}`, "查看驿桥再战")}</p>`
     : needsFallback && encounter.watchCase && !save.rematchRanks[courierRegion]
@@ -1511,7 +1534,7 @@ function settleBoss(current: Fight) {
   const reason = won ? "" : defeatSummary(current);
   if (story) draft.report = won ? `阿照战胜了${current.name}。` : reason;
   const loot = won && story ? win(draft, current.region) : undefined;
-  const aftermath = loot?.first ? firstVolumeAftermath.at(current.region) : undefined;
+  const aftermath = loot?.first ? caseAftermath(current.region) : undefined;
   if (aftermath) draft.report = aftermath.text;
   const daoReward = draft.dao - save.dao;
   if (!won && story) draft.guide.defeats[current.region] = Math.min(2, draft.guide.defeats[current.region] + 1);
@@ -1524,6 +1547,7 @@ function settleBoss(current: Fight) {
     window.scrollTo(0, 0);
     result = { trialId: trial?.id, trialProgress: trial?.progress, rematchRank: current.rematchRank, rematchPractice: current.rematchPractice, mirrorLevel: current.mirrorLevel, altarMirror: !!current.altarMirror, cloudMirror: !!current.cloudMirror, templeReprise: current.templeReprise, previousMirror, sand, daoReward, region: current.region, won, report: current.log, reason,
       recovery: won ? undefined : battleRecovery(save, current), horseImpact: current.paperHorseCase ? current.horseImpact : undefined,
+      cliffSummary: story && current.region === cliffRegion ? cliffFightSummary(current) : undefined,
       drop: upgraded?.drop,
       links: current.links, round: current.round, life: Math.max(0, current.life), hp: Math.max(0, current.hp), ...loot, ...reprise };
     if (current.templeReprise) rematchRegion = 2;
@@ -1901,7 +1925,7 @@ root.addEventListener("click", event => {
         draft.autoPatrol = false;
         const gain = draft.lifetimeDao - save.lifetimeDao;
         draft.report = "风灯被回风吹向断索。阿照将灯转回石壁，终于看清落脚处。";
-        commit(draft, () => notify(`已查明风灯${gain ? ` · 道行 +${gain}` : ""}${draft.realm >= stillRealm ? " · 已入坐忘" : ""}`));
+        commit(draft, () => notify(`${gain ? `调查所得 ${gain} 道行。` : ""}${cliffGateText(draft)}`));
       } else if (name === "compare-books" && journal && !fight && compareBooks(draft)) {
         draft.autoPatrol = false;
         const gain = draft.lifetimeDao - save.lifetimeDao;
@@ -1910,7 +1934,7 @@ root.addEventListener("click", event => {
       } else if (name === "region" && regions[id] && unlocked(save, id) && !fight) {
         draft.region = id;
         if (id === 1 && draft.victories[altarRegion]) draft.report = homecoming;
-        else if (id <= bridgeRegion && id !== save.region) draft.report = draft.victories[id] ? regions[id].cleared : regions[id].intro;
+        else if ((id <= bridgeRegion || id === cliffRegion) && id !== save.region) draft.report = draft.victories[id] ? regions[id].cleared : regions[id].intro;
         if (!patrolRemaining(draft)) draft.autoPatrol = false;
         commit(draft, () => { backTrail.length = 0; resetPatrol(); returnTo(); });
       } else if (name === "fight" && (!save.victories[id] || id >= cliffRegion) && canChallenge(save, id) && !fight) {

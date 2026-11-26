@@ -1,6 +1,6 @@
-import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, trials, watchRegion } from "./content.ts";
+import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, stillDao, trials, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, fightWardStrength, masteryCost, paperHorseBurn, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
+import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, fightWardStrength, masteryCost, paperHorseBurn, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive, windSurveyReward } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
 import { caseClues } from "./tactics.ts";
 
@@ -221,6 +221,16 @@ export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   return { text: "看看行囊里的护具能增加多少气血，再对照战报里伤害最高的回合。", label: "比较护具", focus: "armor" };
 }
 
+export function cliffGateText(save: Save) {
+  if (!save.windSurveyed) {
+    const reward = windSurveyReward(save);
+    return `去妖案查看风灯${reward ? `，预计获得 ${reward} 道行` : ""}。查明风灯且累计道行达到 ${stillDao} 可入坐忘。`;
+  }
+  const needed = Math.max(0, stillDao - save.lifetimeDao);
+  return needed ? `风灯已查明。离坐忘还差 ${needed} 道行，约再巡 ${Math.ceil(needed / regions[cliffRegion].reward)} 只小妖。`
+    : "风灯已查明，已入坐忘。可以挑战回风鸮。";
+}
+
 export function clueTip(save: Save, showRead = false) {
   const region = save.region;
   if (region === hallRegion) return;
@@ -232,8 +242,8 @@ export function clueTip(save: Save, showRead = false) {
   if (!showRead && save.guide.dismissed.includes(id)) return;
   const enemy = regions[region].boss;
   const advice = region === 2 && !save.drops[2] ? "守式会在危险时挑灯照面。" : caseAdvice[region];
-  const unlock = available ? `现在可以挑战${enemy}。` : region === cliffRegion && !save.windSurveyed
-    ? "去妖案查看风灯，查明后可入坐忘。" : `进入${realms[challengeRealms[region]]}境后可挑战${enemy}。`;
+  const unlock = available ? `现在可以挑战${enemy}。` : region === cliffRegion
+    ? cliffGateText(save) : `进入${realms[challengeRealms[region]]}境后可挑战${enemy}。`;
   if (step === 1) return {
     id, step, title: `第一条线索 · ${regions[region].clues[0]}`, text: caseClues[region].danger, label: "查看首领招路",
   };

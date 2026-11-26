@@ -528,10 +528,14 @@ export function trainingRoute(save: Save, needed: number) {
 export const challengeRealms = [0, 1, 3, 3, heartRealm, heartRealm, stillRealm, windRealm, trueRealm, freeRealm] as const;
 
 export const challengeClues = 2;
+export function windSurveyReward(save: Pick<Save, "lifetimeDao">) {
+  return Math.max(0, Math.min(windSurveyDao, stillDao - save.lifetimeDao));
+}
+
 export function surveyWind(save: Save) {
   if (save.region !== cliffRegion || !unlocked(save, cliffRegion) || save.windSurveyed || clueCount(save) < challengeClues) return false;
   save.windSurveyed = true;
-  earnDao(save, Math.max(0, Math.min(windSurveyDao, stillDao - save.lifetimeDao)));
+  earnDao(save, windSurveyReward(save));
   return true;
 }
 
@@ -649,6 +653,7 @@ export type Fight = {
   limit: number; mirrorLevel?: number; water: number; paperHits: number; footing: number; riverWave: 2 | 3;
   riverDrenched: boolean; riverPursuits: number;
   cliffStepRound?: number;
+  cliffFalls?: { stepRound: number; damage: number }[];
   casePractice?: true;
   paperHorseCase?: true;
   horseImpact?: { round: number; damage: number };
@@ -1238,6 +1243,7 @@ function resolveRound(f: Fight) {
       marks.push("内化听潮步");
     }
     f.life -= damage;
+    (f.cliffFalls ??= []).push({ stepRound, damage });
     if (f.cloudMirror) {
       f.cloudMirror.falls++;
       f.cloudMirror.lastFallDamage = damage;

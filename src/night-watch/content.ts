@@ -32,6 +32,10 @@ export const ferryEvidence = [
   "陆婆摇了两下船铃便松手。第三声从船底响起，水面跟着往回卷。阿照认出了那一息停顿，和山君发啸前一样。",
   "阿照循铃声摸到了旧缆的位置。等第三声响起、河伯回头，割缆时便能借水势打它。",
 ] as const;
+export const watchDelivery = {
+  title: "送达家书 · 云栈钥匙",
+  text: "老人认出了信背的下站印。信末还写着「我在下站，等人来换灯」。他从门后取下一把钥匙。「昨夜隔山只见一盏灯。你沿旧路上山，看看下站的人等到换班没有。」",
+};
 export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
 export const altarMirrorName = "归山镜题 · 错页";
 export const altarMirrorSand = 22;
@@ -166,7 +170,7 @@ export const regions = [
   {
     name: "守更楼", patrolCap: 3450, place: "更楼", tag: "纸马驿北门",
     title: "还差一声更响", intro: "驿墙下等信的人越来越多。守更驿卒每夜抱着旧更牌点名，那一袋家书从没被点到过。",
-    cleared: "阿照照着灯上的地址送完家书。最后一封被老人按在膝头读了许久。他从门后取下云栈钥匙，说山道上也有人等灯。",
+    cleared: "更铃静了。阿照循着纸马灯罩上的地址，把最后一封家书送到山脚。老人把信压在灯下，读了许久。",
     clues: ["缺了一角的更牌", "北门驿簿", "一袋未送出的家书"], thresholds: [12, 30, 52],
     foes: [{ name: "更铃影", sprite: "mirror" }, { name: "过门纸卒", sprite: "pine" }],
     boss: "守更驿卒", sprite: "watch-guard", hp: 326,
@@ -174,7 +178,7 @@ export const regions = [
   },
   {
     name: "残栈", patrolCap: 4650, place: "下层栈道", tag: "云栈山门",
-    title: "灯朝断路亮", intro: "云栈钥匙拧开山门。栈道上的风灯全朝山外，隔着断索却有人喊：灯亮着，路该还通。",
+    title: "灯朝断路亮", intro: "阿照用老人交来的钥匙开了山门。下站的灯还亮着，却朝断索照。隔着风，她听见有人问：「换班的人到了么？」",
     cleared: "阿照把守灯人拉过最后一截断栈。他转正手里的风灯，山壁上映出一条向上的旧索路。",
     clues: ["向山外翻的灯穗", "断索上新扎的扣", "旧灯下的结扣"], thresholds: [12, 25, 40],
     foes: [{ name: "缠绳雀", sprite: "reed" }, { name: "竹灯精", sprite: "lantern" }],
