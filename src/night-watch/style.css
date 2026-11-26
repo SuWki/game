@@ -424,7 +424,11 @@ body { background: #e7e0cc; color: #36392f; }
 .battle-verdict p { margin-top: 4px; font-size: .9rem; }
 #battle-brief > p { margin-top: 6px; }
 #battle-brief .battle-threat { padding-left: 9px; border-left: 3px solid #975c3f; }
-.battle-objective { font-size: .9rem; color: #5c442d; }
+#battle-objective { margin: 8px 0; font-size: .9rem; color: #5c442d; }
+#battle-objective:empty, #battle-primary-build:empty { display: none; }
+.battle-actions { margin: 8px 0; }
+.battle-actions button, #battle-primary-build button { min-height: 44px; }
+#battle-primary-build { margin-top: 8px; }
 .battle-forecast { margin-top: 8px; }
 #battle-builds { display: grid; gap: 7px; margin-top: 10px; }
 #battle-builds:empty { display: none; }
@@ -517,8 +521,8 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .technique-actions button { min-height: 44px; }
 .art-mastery { margin-top: 8px; }
 .match-rounds { margin: 6px 0 0; padding: 0; list-style: none; }
-.match-rounds li { display: grid; grid-template-columns: 5em minmax(0,1fr) minmax(0,1fr); gap: 6px; padding: 6px 2px; font-size: 13px; border-top: 1px solid #cabb9d; }
-.match-rounds strong { color: #8a4028; }
+.match-rounds li { display: grid; grid-template-columns: 5em minmax(0,1fr); gap: 6px; padding: 6px 2px; font-size: 13px; border-top: 1px solid #cabb9d; }
+.match-rounds small { display: block; margin-top: 3px; color: #5f5746; }
 .duel p.duel-moves { color: #ffe3a1; }
 
 .route-list { padding: 0 0 0 9px; margin: 18px 0; list-style: none; }
@@ -619,7 +623,6 @@ button.skill-slot:hover,button.skill-slot:focus-visible { border-color: #8e442e;
 .story-record li p { margin:4px 0; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy { right:12%; }
 .stage[data-zone="post-bridge"][data-boss="true"] .enemy img { max-width:42vw; object-fit:contain; object-position:bottom; }
-.round-effect { grid-column:2/-1; color:#5f5746; overflow-wrap:anywhere; }
 .mirror-comparison { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr)); gap:8px; margin:8px 0; }
 .mirror-comparison > div { min-width:0; padding:8px; border:1px solid #cbb794; background:#eee0c2; }
 .mirror-comparison p,.mirror-comparison small { font-size:13px; overflow-wrap:anywhere; }

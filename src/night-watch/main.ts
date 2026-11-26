@@ -13,7 +13,7 @@ import {
 } from "./game.ts";
 import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive } from "./game.ts";
 import type { AltarMirrorAttempt, ArtId, CloudMirrorAttempt, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
-import { canViewTrial, fightWardStrength, wardSealLimitFor } from "./game.ts";
+import { canViewTrial, caseEncounter, fightWardStrength, wardSealLimitFor } from "./game.ts";
 import { applyBuildChange, availableBuildChanges, battleBuildImproves, changeLabel, compareBattleBuilds, previewBattle, previewBuild } from "./battle-preview.ts";
 import type { BuildChange, BuildSuggestion } from "./battle-preview.ts";
 
@@ -198,9 +198,12 @@ root.innerHTML = `
   <dialog id="pack-sheet" class="paper" aria-labelledby="pack-title"><div class="guide-head"><h2 id="pack-title"></h2><form method="dialog"><button>收起</button></form></div><div id="pack-list"></div></dialog>
   <dialog id="battle-sheet" class="paper" aria-labelledby="battle-title">
     <div class="guide-head"><h2 id="battle-title"></h2><form method="dialog"><button>返回</button></form></div>
-    <form id="battle-start"><div id="battle-verdict" aria-live="polite"></div><div id="battle-brief"></div><div id="battle-builds"></div>
-      <div class="actions"><button type="submit" class="primary">开始交锋</button><button type="button" data-action="battle-loadout">调整配装</button></div>
-      <details class="battle-forecast"><summary>看前六回合</summary><div id="battle-preview"></div></details>
+    <form id="battle-start"><div id="battle-verdict" aria-live="polite"></div><div id="battle-objective"></div>
+      <div class="actions battle-actions"><button type="submit" class="primary">开始交锋</button><button type="button" data-action="battle-loadout">调整配装</button></div>
+      <div id="battle-primary-build"></div>
+      <details class="battle-forecast"><summary>首领招路与当前配装</summary><div id="battle-brief"></div></details>
+      <div id="battle-builds"></div>
+      <details class="battle-forecast"><summary id="battle-preview-title">看前六回合</summary><div id="battle-preview"></div></details>
     </form>
   </dialog>
   <div id="flash" class="flash" role="status" hidden></div>
@@ -528,7 +531,7 @@ function skillsPanel(): string {
   const opponent = live?.region ?? (target.mode === "case" ? target.region : result?.region ?? save.region);
   const alternate = !!live && target.mode !== "case";
   const intel = alternate ? 3 : Math.max(recordedClues(save, opponent), live ? challengeClues : 0);
-  const scenario = live ?? (intel && target.mode === "case" && opponent !== hallRegion ? startFight(save, opponent, true) : undefined);
+  const scenario = live ?? (intel && target.mode === "case" && opponent !== hallRegion ? caseEncounter(save, opponent) : undefined);
   if (scenario) enableCombatTactics(scenario);
   const fullPreview = scenario?.altarMirror || scenario?.cloudMirror || scenario?.templeReprise;
   const simulation = scenario ? forecastFight(scenario, fullPreview ? scenario.limit : 6) : undefined;
@@ -551,14 +554,10 @@ function skillsPanel(): string {
       `<button type="button" data-action="kit:stance:${stance}" aria-pressed="${save.kit.stance === stance}" ${controlsDisabled ? "disabled" : ""}>${stance === "guard" ? "守式" : "攻式"}</button>`).join("")}</div>
     <p class="meta">守式架住重击时承受 18% 伤害，还会尝试伏身、割缆等应对。攻式提升 25% 基础刀伤。</p></section>`;
   const preview = scenario ? `<details data-remember="preview" id="round-preview"><summary>${heading} · ${fullPreview ? "对照全部回合" : "对照前六回合"}</summary>
-      ${fullPreview ? `<p>${battleBrief(scenario).hint}</p>` : rematch ? `<p>${rematch.detail}</p>` : alternate ? "" : `<p>${caseClues[opponent].danger}</p>${intel >= challengeClues ? `<p>${battleBrief(scenario).hint}</p>` : ""}`}
-      <p class="meta">按当前装备、招式和架势推演。</p>
-      <ol class="match-rounds">${Array.from({ length: simulation?.rounds.length ?? 0 }, (_, i) => {
-        const { names, enemy } = roundMoves(opponent, save.kit, i + 1, scenario.riverWave, battleTiming(scenario));
-        const round = simulation?.rounds[i];
-        const effect = round ? `<small class="round-effect">阿照气血 ${signed(round.life)} · 敌方气血 ${signed(round.hp)}${round.marks.length ? " · " + round.marks.map(escape).join("、") : ""}</small>` : "";
-        return `<li><b>第 ${i + 1} 回合</b><span>${names.length ? `<strong>${names.join(" · ")}</strong>` : "普攻"}</span><span>${enemy}</span>${effect}</li>`;
-      }).join("")}</ol>
+      ${fullPreview ? `<p>${battleBrief(scenario).hint}</p>` : rematch ? `<p>${rematch.detail}</p>` : alternate ? "" : `<p>${battleBrief(scenario).threat}</p>${intel >= challengeClues ? `<p>${battleBrief(scenario).hint}</p>` : ""}`}
+      <p class="meta">按当前配装显示每回合实际结算。</p>
+      <ol class="match-rounds">${simulation?.rounds.map(round => `<li><b>第 ${round.round} 回合</b><span>${escape(round.detail)}
+        <small>阿照气血 ${signed(round.life)} · 对手气血 ${signed(round.hp)}</small></span></li>`).join("") ?? ""}</ol>
       ${simulation ? `<p class="meta">第 ${simulation.rounds.length} 回合末 · 阿照余 ${simulation.life} · 对手余 ${simulation.hp}${simulation.result === "lost" ? " · 会败阵" : simulation.result === "won" ? " · 可取胜" : ""}</p>` : ""}
     </details>` : opponent === hallRegion ? '<p class="meta">对读两册巡簿并入真人后，可查看守灯试炼的配装推演。</p>'
       : '<p class="meta">找到本地第一条线索后，可对照大妖的前六回合。</p>';
@@ -667,13 +666,38 @@ function storyRecord() {
   </details>`;
 }
 
+function archiveNextStep(): string {
+  const disabled = !ready || !!fight;
+  if (save.victories[altarRegion]) {
+    return `<section class="mirror-entry"><div><h3>照妖镜</h3><p>${save.mirror.best ? `已破第 ${integer(save.mirror.best)} 重` : "挑战第一重，开启积砂。"}</p></div>
+      ${button("tab:mirror", "进入照妖镜", disabled, true)}</section>`;
+  }
+  const next = regions.findIndex((_, i) => i === hallRegion ? !save.trialBest.lampTrial : !save.victories[i]) as Region;
+  const id = unlocked(save, next) ? next : (next - 1) as Region;
+  const name = regions[id].name;
+  const here = save.region === id;
+  let action = here ? "home" : `region:${id}`;
+  let label = here ? "继续巡夜" : `前往${name}`;
+  if (next === hallRegion && canEnterLampTrial(save)) {
+    action = "tab:lampTrial";
+    label = "进入内院守灯";
+  } else if (here && (canCompareBooks(save) || (id === cliffRegion && !save.windSurveyed && clueCount(save) >= challengeClues))) {
+    action = "journal";
+    label = "查看妖案";
+  } else if (here && next === id && canChallenge(save, id)) {
+    action = `fight:${id}`;
+    label = "查看迎战";
+  }
+  return `<section class="mirror-entry"><div><small>主线进度</small><h3>${name}</h3></div>${button(action, label, disabled, true)}</section>`;
+}
+
 function archivePanel(): string {
   const unlockedEnd = mirrorUnlocked(save);
   const destinations = [...trialIds.filter(id => id === "ferryTrial" || id === "templeTrial").map(id => ({
     tab: id, title: trials[id].name, art: zoneArt[trials[id].region], label: "异相 · " + regions[trials[id].region].name,
     detail: save.trialBest[id] ? "已完成 · 妖案准备可带入对应镜战" : trials[id].goal,
-  })), { tab: "mirror", title: "照妖镜", art: "mountain", label: "积砂养纹",
-    detail: save.mirror.best ? `已破 ${integer(save.mirror.best)} 重 · 继续挑战` : "十二回合破一重，取淬纹砂养纹或重铸。" }];
+  })), ...(!save.victories[altarRegion] ? [{ tab: "mirror", title: "照妖镜", art: "mountain", label: "积砂养纹",
+    detail: save.mirror.best ? `已破 ${integer(save.mirror.best)} 重 · 继续挑战` : "十二回合破一重，取淬纹砂养纹或重铸。" }] : [])];
   const cases = "<ol class=\"route-list\">" +
     regions.slice(0, bridgeRegion).map((region, i) => {
       const id = i as 0 | 1 | 2;
@@ -729,7 +753,7 @@ function archivePanel(): string {
   const rollCall = canViewTrial(save, "rollCall") ? `<section class="mirror-entry"><div><h3>${trials.rollCall.name}</h3>
     <p>${save.trialBest.rollCall ? "陆婆和驿卒已补齐名字。巡簿能削弱错页的末页。" : "归山结局后，陆婆和驿卒带来了两个人的消息。"}</p></div>
     ${button("tab:rollCall", save.trialBest.rollCall ? "回看托付" : "查看托付", !ready || !!fight)}</section>` : "";
-  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>${storyRecord()}${rebattle}` + (unlockedEnd ?
+  return `<h2>斩妖录</h2><p class="meta">今夜在${regions[save.region].name}</p>${archiveNextStep()}${storyRecord()}${rebattle}` + (unlockedEnd ?
     `${hallRoute}${altarRoute}${ending}${rollCall}${cloudRoute}${skyRoute}${books}<h3>卷二 · 纸马驿</h3>${postRoutes}<h3>青芦卷末</h3><div class="after-roads">${destinations.map(road =>
       `<button type="button" data-action="tab:${road.tab}" class="after-road"><img alt="" src="${assets + road.art}.webp"><span><small>${road.label}</small><strong>${road.title}</strong><span>${road.detail}</span></span><b aria-hidden="true">›</b></button>`).join("")}</div>
       <details data-remember="old-roads"><summary>首卷旧案 · 换路与再战</summary>${cases}</details>` : cases);
@@ -978,8 +1002,9 @@ function mirrorPanel() {
   return `<div class="mirror-layout"><section><div class="section-title"><h2>照妖镜</h2><span>淬纹砂 <b>${integer(sand)}</b></span></div><p class="meta">${!canEarnSand(save)
     ? `已破第 ${integer(best)} 重 · 当前可用的刻纹与重铸已完成` : best ? `已破第 ${integer(best)} 重 · 每小时积攒 ${sandRate(best)} 砂` : "击破第一重后，镜中开始积砂。"}</p>
     ${reforgeAvailable ? `<div class="choices">${button(`reforge-focus:${reforgeAvailable}`, "查看可重铸的装备")}</div>` : ""}
-    ${cloudMirrorPanel()}${altarMirrorPanel()}${outcome}<article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · ${opponent.name}</h3><p>最多 ${mirrorRounds} 回合 · ${rhythm}</p><p class="meta">${advice}</p></div>
+    <article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · ${opponent.name}</h3><p>最多 ${mirrorRounds} 回合 · ${rhythm}</p><p class="meta">${advice}</p></div>
     ${button(`mirror-fight:${next}`, result?.mirrorLevel === next ? "再试此重" : "照见妖影", !ready || !!fight, true)}</article>
+    ${outcome}${cloudMirrorPanel()}${altarMirrorPanel()}
     ${best ? `<form id="mirror-practice"><label>试招重数 <input type="number" min="1" max="${best}" step="1" value="${chosen <= best ? chosen : best}" required name="level"></label>
       ${button("mirror-setup", "对照招路", !ready || !!fight)}<button type="submit" ${!ready || !!fight ? "disabled" : ""}>试招出战</button></form>` : ""}
     <p class="meta">第 ${integer(chosen)} 重备战 · ${prepInfo}
@@ -1303,20 +1328,19 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     : encounter.altarMirror ? altarMirrorName : encounter.mirrorLevel ? `照妖镜 · 第 ${integer(encounter.mirrorLevel)} 重` : "";
   element("#battle-brief").innerHTML = `${stage ? `<small>${stage}</small>` : ""}
     <p class="battle-threat"><strong>${escape(brief.threat)}</strong></p>
-    ${battleAdvice ? `<p>${escape(battleAdvice.text)}</p>` : fullComparison ? `<p>${escape(brief.hint)}</p>` : ""}
+    ${fullComparison ? `<p>${escape(brief.hint)}</p>` : ""}
     ${cliff ? `<p>${cliffFightSummary(projected)}</p>` : ""}
-    ${encounter.trial ? `<p class="battle-objective">${trials[encounter.trial.id].goal}</p>` : ""}
     <p class="meta">${kitNames(encounter.kit).join(" · ")} · ${Object.values(encounter.loadout).map(gearName).join("、") || "未穿戴装备"}</p>`;
-  const suggestions = battleBuilds.length
-    ? `<details class="battle-build-list"${fullComparison ? " open" : ""}><summary>${won ? "对照更合适的配装" : "对照可过的配装"}</summary>${battleBuilds.map((build, i) => {
-      const effect = ["风灯结扣", "护住风灯", "照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
-        .find(mark => build.outcome.links[mark] > (projected.links[mark] ?? 0));
-      return `<section class="battle-build">
-        <div><strong>${escape(build.label)}</strong><p>${fullComparison ? escape(battleBuildText(projected, build.outcome)) : `第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}`}</p></div>
-        ${button(`battle-build:${i}`, build.cost ? `修习并应用 · ${build.cost} 道行` : "应用这套", false, i === 0)}
-      </section>`;
-    }).join("")}</details>`
-    : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
+  element("#battle-objective").textContent = encounter.trial ? trials[encounter.trial.id].goal : "";
+  const cards = battleBuilds.map((build, i) => {
+    const effect = ["风灯结扣", "护住风灯", "照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
+      .find(mark => build.outcome.links[mark] > (projected.links[mark] ?? 0));
+    return `<section class="battle-build">
+      <div><strong>${escape(build.label)}</strong><p>${fullComparison ? escape(battleBuildText(projected, build.outcome)) : `第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}`}</p></div>
+      ${button(`battle-build:${i}`, build.cost ? `修习并应用 · ${build.cost} 道行` : "应用这套", false, !won && i === 0)}
+    </section>`;
+  });
+  const leadingBuild = won ? "" : cards.shift();
   const needsFallback = (paper || cliff || encounter.watchCase) && !won && !battleBuilds.some(build => build.cost === 0);
   const fallback = needsFallback && !save.rematchRanks[bridgeRegion]
     ? `<p class="meta">强敌再战的驿桥首关可补齐青石刀和驿衣。${button(`rematch:${bridgeRegion}`, "查看驿桥再战")}</p>`
@@ -1325,9 +1349,15 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   const manual = manualChanges.length ? `<details class="battle-forecast"><summary>免费试配一项</summary>
     <label for="battle-trial-change">选择要试的调整</label><select id="battle-trial-change"><option value="0">选择装备或招式</option>
     ${manualChanges.map((change, i) => `<option value="${i + 1}">${escape(changeLabel(save, change))}</option>`).join("")}</select><div id="battle-trial-result" aria-live="polite"></div></details>` : "";
-  element("#battle-builds").innerHTML = suggestions + fallback + manual;
+  element("#battle-primary-build").innerHTML = leadingBuild || fallback || (battleAdvice ? `<p class="meta">${escape(battleAdvice.text)}</p>` : "");
+  const suggestions = cards.length ? `<details class="battle-build-list"><summary>${won ? "对照更合适的配装" : "查看其他可过的配装"}</summary>${cards.join("")}</details>` : "";
+  const freeRoute = leadingBuild && fallback ? `<details class="battle-forecast"><summary>免费整备途径</summary>${fallback}</details>` : "";
+  element("#battle-builds").innerHTML = suggestions + freeRoute + manual;
 
-  const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" || encounter.trial?.id === "rollCall" ? encounter.limit : 6);
+  const fullForecast = encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise ||
+    encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" || encounter.trial?.id === "rollCall";
+  changedText("#battle-preview-title", fullForecast ? "查看整场推演" : "看前六回合");
+  const simulation = forecastFight(encounter, fullForecast ? encounter.limit : 6);
   const ending = simulation.result === "won" ? " · 取胜" : simulation.result === "lost" ? " · 败阵" : "";
   const pursuits = simulation.rounds.filter(round => round.marks.includes("湿衣追篙")).length;
   const clue = caseClues[encounter.region];
@@ -1621,7 +1651,9 @@ function faceChallenge(challenge: Challenge) {
   pendingBattle = challenge;
   enableCombatTactics(encounter);
   renderBattleBrief(encounter, challenge);
+  for (const section of battleSheet.querySelectorAll("details")) section.open = false;
   battleSheet.showModal();
+  battleSheet.scrollTop = 0;
 }
 
 function beginBattle(encounter: Fight) {

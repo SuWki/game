@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { bridgeRegion, cliffRegion, ropeStep, skyRegion, windRealm } from "../src/night-watch/content.ts";
 import {
-  accrueOffline, canChallenge, cultivationFor, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, newSave,
+  accrueOffline, canChallenge, cultivationFor, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, forecastFight, newSave,
   patrolRemaining, recordPatrolKill, recordedClues, rematchSpec, setInwardTide, settleRematch, startCaseFight, startRematch, study, surveyWind, tickFight, unlocked, win, windSurveyReward,
 } from "../src/night-watch/game.ts";
 import { applyBuildChange, availableBuildChanges, compareBattleBuilds, previewBattle, previewBuild } from "../src/night-watch/battle-preview.ts";
@@ -246,6 +246,11 @@ test("回风鸮用旧装守式或闪避取胜，高面板攻式失配也会在�
   assert.deepEqual([lost.result, lost.round, lost.links["落地败阵"]], ["lost", 6, 1]);
   assert.match(defeatSummary(lost), /第 5 回合踏空，第 6 回合落地扣了 84/);
   assert.doesNotMatch(lost.log[5], /镇山喝/);
+  const encounter = caseFight(save);
+  enableCombatTactics(encounter);
+  const last = forecastFight(encounter).rounds[5];
+  assert.match(last.detail, /落地.*84/);
+  assert.doesNotMatch(last.detail, /镇山喝|折篙刀/);
   assert.ok(compareBattleBuilds(save, caseFight, lost).some(suggestion => suggestion.outcome.result === "won"));
   equipArt(save, 1, true);
   const live = caseFight(save);

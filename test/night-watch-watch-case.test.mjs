@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bridgeRegion, watchRegion } from "../src/night-watch/content.ts";
-import { decode, defeatSummary, earnDao, equipArt, newSave, settleRematch, startCaseFight, startRematch, wardSealLimitFor } from "../src/night-watch/game.ts";
+import { caseEncounter, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, forecastFight, newSave, settleRematch, startCaseFight, startRematch, wardSealLimitFor } from "../src/night-watch/game.ts";
 import { applyBuildChange, compareBattleBuilds, previewBattle, previewBuild } from "../src/night-watch/battle-preview.ts";
 
 const watch = save => startCaseFight(save, watchRegion);
@@ -17,6 +17,20 @@ function arrival(dao = 1766) {
   save.drops[0] = save.drops[3] = save.drops[4] = true;
   return save;
 }
+
+test("守更首条线索的预习会结算正式首战的更印和第六回合伤害", () => {
+  const save = arrival();
+  save.clues[watchRegion] = 1;
+  assert.equal(watch(save), undefined);
+  const early = caseEncounter(save, watchRegion);
+  enableCombatTactics(early);
+  const preview = forecastFight(early);
+  assert.equal(preview.rounds[5].life, -34);
+  save.clues[watchRegion] = 2;
+  const unlocked = watch(save);
+  enableCombatTactics(unlocked);
+  assert.deepEqual(forecastFight(unlocked), preview);
+});
 
 test("守更首战连续两次没破印才封阵，入门寄灯符和灯芯可翻盘", () => {
   const save = arrival();

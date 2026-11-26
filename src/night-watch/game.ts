@@ -688,7 +688,7 @@ export type Fight = {
   order?: { round: number; choice: Response };
   plan?: BattleOrder[];
   autoTactics?: boolean;
-  lastExchange?: { round: number; life: number; hp: number; marks: string[] };
+  lastExchange?: { round: number; life: number; hp: number; marks: string[]; detail: string };
   links: Record<string, number>;
   windup: string; event: string; lastThreat: string; log: string[];
   result: "fighting" | "won" | "lost";
@@ -713,14 +713,17 @@ export function startFight(save: Save, region: Region, boss: boolean, foeIndex =
   };
 }
 
-export function startCaseFight(save: Save, region: Region) {
-  if (!canChallenge(save, region)) return;
+export function caseEncounter(save: Save, region: Region) {
   const fight = startFight(save, region, true);
   if (region === courierRegion) fight.paperHorseCase = true;
   if (region === watchRegion) fight.watchCase = true;
   if (region >= cliffRegion && save.victories[region]) fight.casePractice = true;
   if (recordedClues(save, region) === 3) fight.preparation = "ready";
   return fight;
+}
+
+export function startCaseFight(save: Save, region: Region) {
+  if (canChallenge(save, region)) return caseEncounter(save, region);
 }
 
 export function rematchSpec(save: Save, region: Region, practice = false) {
@@ -1222,9 +1225,10 @@ function resolveRound(f: Fight) {
   f.riverDrenched = false;
   const actions: string[] = [];
   const finishExchange = () => {
-    f.lastExchange = { round, life: Math.max(0, f.life) - startingLife, hp: Math.max(0, f.hp) - startingHp, marks };
+    const detail = actions.join(" → ") + "。";
+    f.lastExchange = { round, life: Math.max(0, f.life) - startingLife, hp: Math.max(0, f.hp) - startingHp, marks, detail };
     for (const mark of marks) f.links[mark] = (f.links[mark] ?? 0) + 1;
-    f.event = `第 ${round} 回合 · ${actions.join(" → ")}。`;
+    f.event = `第 ${round} 回合 · ${detail}`;
     f.log.push(f.event);
   };
   if (f.cliffStepRound !== undefined) {

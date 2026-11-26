@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bridgeRegion, courierRegion } from "../src/night-watch/content.ts";
-import { decode, defeatSummary, earnDao, equipArt, newSave, settleRematch, startCaseFight, startRematch } from "../src/night-watch/game.ts";
+import { caseEncounter, decode, defeatSummary, earnDao, enableCombatTactics, equipArt, forecastFight, newSave, settleRematch, startCaseFight, startRematch } from "../src/night-watch/game.ts";
 import { applyBuildChange, battleBuildImproves, compareBattleBuilds, previewBattle, previewBuild } from "../src/night-watch/battle-preview.ts";
 
 const horse = save => startCaseFight(save, courierRegion);
@@ -17,6 +17,24 @@ function arrival(dao = 1436) {
   save.drops[0] = save.drops[3] = true;
   return save;
 }
+
+test("纸马首条线索解锁真实招路的预习，挑战仍需第二条线索", () => {
+  const save = arrival();
+  save.kills[courierRegion] = 0;
+  save.clues[courierRegion] = 1;
+  assert.equal(horse(save), undefined);
+  const early = caseEncounter(save, courierRegion);
+  enableCombatTactics(early);
+  const preview = forecastFight(early);
+  assert.equal(preview.rounds[4].life, -29);
+  assert.match(preview.rounds[4].detail, /马灯灼伤/);
+  save.clues[courierRegion] = 2;
+  const unlocked = horse(save);
+  enableCombatTactics(unlocked);
+  assert.deepEqual(forecastFight(unlocked), preview);
+  save.clues[courierRegion] = 3;
+  assert.equal(horse(save).preparation, "ready");
+});
 
 test("纸马首战错配会败，免费推演与确认修习分别记账", () => {
   const save = arrival();
