@@ -25,6 +25,9 @@ export const altarStations = ["芦花渡 · 陆婆", "云栈 · 守灯人", "纸
 export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
 export const altarMirrorName = "归山镜题 · 错页";
 export const altarMirrorSand = 22;
+export const cloudMirrorName = "云栈镜题 · 逆风";
+export const cloudMirrorSand = 22;
+export const cloudMirrorHp = 530;
 export const templeRepriseName = "白烛庙再战 · 错烛";
 export const templeRepriseHp = 530;
 export const templeRepriseRounds = 16;
@@ -56,6 +59,13 @@ export const trials = {
     hint: "第 3、6、9… 回合催灯。守式自动护灯，或先打破护纸，活过这轮便记一次应答。",
     opening: "铃声代过了人的答话。阿照点亮内院的灯，等到灯下的人亲口作答。",
     ending: "两声应答一前一后落定，内院的灯终于照见了人。阿照悟入逍遥，把两册巡簿一并收好。",
+  },
+  cloudRelay: {
+    name: "风灯接力", region: cliffRegion, hp: 382, wave: 3, target: 2, counter: "稳住落脚",
+    goal: "连续两次稳住掠栈时的落脚，再击退回风鸮的余影。",
+    hint: "第 2、5、8… 回合掠栈。守式扶索或听潮步闪避都能护住风灯。踏空时，未完成的连续记录会清零。",
+    opening: "上站和下站终于照见了彼此。守灯人递来一盏备用风灯，请阿照试走一遍接班的路。",
+    ending: "上站的人接过风灯，在旧索旁扎了个新扣。从此风灯过栈，总留一处可以伸手的地方。",
   },
 } as const;
 export type TrialId = keyof typeof trials;

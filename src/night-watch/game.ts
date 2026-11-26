@@ -1,4 +1,4 @@
-import { altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bookReadingDao, bridgeRegion, cliffRegion, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, lampPaper, mountainFirstReward, regions, ropeStep, shiftedCandleFirst, skyRegion, stillDao, stillRealm, templeRepriseHp, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm, windSurveyDao } from "./content.ts";
+import { altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bookReadingDao, bridgeRegion, cliffRegion, cloudMirrorHp, cloudMirrorSand, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, lampPaper, mountainFirstReward, regions, ropeStep, shiftedCandleFirst, skyRegion, stillDao, stillRealm, templeRepriseHp, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm, windSurveyDao } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { bossEquipment, charmPower, equipment, gearDamage, gearDisplayName, gearEffect, gearLife, gearRank, knownGear, minionEquipment, reforgeIds, reforging, slots, traitPower, traitText } from "./equipment.ts";
 import type { GearId, GearLoadout, GearReforges, GearSlot, ReforgeId } from "./equipment.ts";
@@ -59,7 +59,7 @@ export type Save = {
   presets: [Preset | null, Preset | null];
   rematchRanks: PerRegion<number>;
   reforges: GearReforges;
-  templeReprise?: TempleRepriseProgress;
+  templeReprise?: ComparisonProgress<TempleRepriseAttempt>;
 };
 
 export const saveKey = "night-watch-v1";
@@ -87,9 +87,9 @@ export type Engraving = keyof typeof engravings;
 type MirrorOutcome = { round: number; life: number; maxLife: number; hp: number; won: boolean; build: string };
 export type MirrorAttempt = MirrorOutcome & { level: number };
 export type AltarMirrorAttempt = MirrorOutcome & { pages: number };
+export type CloudMirrorAttempt = MirrorOutcome & { falls: number; usedLamp: boolean };
 export type TempleRepriseAttempt = MirrorOutcome & { candleHits: number };
-type TempleRepriseProgress = { cleared: boolean; recent: TempleRepriseAttempt; previous?: TempleRepriseAttempt };
-type AltarMirrorProgress = { cleared: boolean; recent: AltarMirrorAttempt; previous?: AltarMirrorAttempt };
+type ComparisonProgress<T> = { cleared: boolean; recent: T; previous?: T };
 type MirrorProgress = {
   best: number;
   sand: number;
@@ -98,7 +98,8 @@ type MirrorProgress = {
   ranks: Record<Engraving, number>;
   equipped?: Engraving;
   recent?: MirrorAttempt;
-  altar?: AltarMirrorProgress;
+  altar?: ComparisonProgress<AltarMirrorAttempt>;
+  cloud?: ComparisonProgress<CloudMirrorAttempt>;
 };
 export const maxEngravingRank = 8;
 const sandHour = 3600000;
@@ -113,6 +114,10 @@ export function mirrorUnlocked(save: Pick<Save, "victories">) {
 
 export function altarMirrorUnlocked(save: Save) {
   return mirrorUnlocked(save) && !!save.victories[altarRegion];
+}
+
+export function cloudMirrorUnlocked(save: Pick<Save, "victories">) {
+  return mirrorUnlocked(save) && !!save.victories[skyRegion];
 }
 
 export function templeRepriseUnlocked(save: Pick<Save, "victories">) {
@@ -261,7 +266,7 @@ export function newSave(now: number): Save {
     version: 8, region: 0, realm: 0, dao: 0, lifetimeDao: 0, newGear: [], windSurveyed: false, booksCompared: false, lampFusion: false,
     kills: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], clues: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], victories: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     drops: [false, false, false, false, false, false, false], ranks: [0, 0, 0, 0, 0, 0, 0], time: now,
-    guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0, lampTrial: 0 }, presets: [null, null],
+    guide: newGuide(), mirror: newMirror(now), trialBest: { ferryTrial: 0, templeTrial: 0, lampTrial: 0, cloudRelay: 0 }, presets: [null, null],
     rematchRanks: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], reforges: {},
     ownedGear: [], loadout: {}, autoPatrol: false,
     kit: { stance: "guard", shout: "off", step: "basic", reveal: false },
@@ -405,6 +410,13 @@ export function decode(raw: string | null, now: number): Save {
     const previous = altar.previous && validAltar(altar.previous) ? altar.previous : undefined;
     data.mirror.altar = { recent: altar.recent, previous, cleared: altar.cleared === true || altar.recent.won || previous?.won === true };
   } else delete data.mirror.altar;
+  const cloud = data.mirror.cloud;
+  const validCloud = (entry: CloudMirrorAttempt) => validOutcome(entry) && entry.round > 0
+    && count(entry.falls, entry.round) && typeof entry.usedLamp === "boolean" && (!entry.won || entry.hp === 0 && entry.life > 0);
+  if (cloudMirrorUnlocked(data) && cloud && validCloud(cloud.recent)) {
+    const previous = cloud.previous && validCloud(cloud.previous) ? cloud.previous : undefined;
+    data.mirror.cloud = { recent: cloud.recent, previous, cleared: cloud.cleared === true || cloud.recent.won || previous?.won === true };
+  } else delete data.mirror.cloud;
   const reprise = data.templeReprise;
   const validReprise = (entry: TempleRepriseAttempt) => validOutcome(entry, templeRepriseRounds) && entry.round > 0
     && count(entry.candleHits, entry.round) && (!entry.won || entry.hp === 0 && entry.life > 0);
@@ -415,9 +427,11 @@ export function decode(raw: string | null, now: number): Save {
   data.windSurveyed = data.version >= 5 && data.windSurveyed === true && !!data.victories[watchRegion];
   data.booksCompared = data.version >= 7 && data.booksCompared === true && !!data.victories[skyRegion];
   const best = data.trialBest;
-  data.trialBest = { ferryTrial: 0, templeTrial: 0, lampTrial: 0 };
+  data.trialBest = { ferryTrial: 0, templeTrial: 0, lampTrial: 0, cloudRelay: 0 };
   for (const id of trialIds) {
-    if (count(best?.[id], trialRounds) && (id !== "lampTrial" || data.booksCompared)) data.trialBest[id] = best[id];
+    if (count(best?.[id], trialRounds) && (id !== "lampTrial" || data.booksCompared) && (id !== "cloudRelay" || cloudMirrorUnlocked(data))) {
+      data.trialBest[id] = best[id];
+    }
   }
   data.realm = cultivationFor(data).realm;
   data.lampFusion = data.version === 8 && data.lampFusion === true && canFuseLamp(data);
@@ -629,6 +643,7 @@ export type Fight = {
   lampMissedStation?: number;
   altarAnswers?: { progress: number };
   altarMirror?: { pages: number };
+  cloudMirror?: { relayReady: boolean; spareBrace: boolean; falls: number; lastFallDamage?: number };
   templeReprise?: true;
   trial?: { id: TrialId; progress: number };
   rematchRank?: number;
@@ -741,9 +756,12 @@ export function mirrorWave(level: number): 2 | 3 {
 }
 
 export function startTrial(save: Save, id: TrialId) {
-  if (!Object.hasOwn(trials, id) || (id === "lampTrial" ? !canEnterLampTrial(save) : !mirrorUnlocked(save) || save.trialBest[id])) return;
+  if (!Object.hasOwn(trials, id)) return;
+  if (id === "lampTrial" ? !canEnterLampTrial(save)
+    : save.trialBest[id] || (id === "cloudRelay" ? !cloudMirrorUnlocked(save) : !mirrorUnlocked(save))) return;
   const spec = trials[id];
   const fight = startFight(save, spec.region, true);
+  if (id === "cloudRelay") fight.name = "回风鸮余影";
   fight.trial = { id, progress: 0 };
   fight.riverWave = spec.wave;
   fight.limit = trialRounds;
@@ -761,6 +779,10 @@ export function settleTrial(save: Save, fight: Fight) {
       earnDao(save, Math.max(0, freeDao - save.lifetimeDao));
       save.autoPatrol = false;
     }
+    return 0;
+  }
+  if (trial.id === "cloudRelay") {
+    if (cloudMirrorUnlocked(save) && !save.trialBest.cloudRelay) save.trialBest.cloudRelay = fight.round;
     return 0;
   }
   if (!mirrorUnlocked(save)) return 0;
@@ -808,6 +830,16 @@ export function startAltarMirror(save: Save) {
   return fight;
 }
 
+export function startCloudMirror(save: Save) {
+  if (!cloudMirrorUnlocked(save)) return;
+  const fight = startFight(save, cliffRegion, true);
+  fight.name = "逆风鸮影";
+  fight.limit = mirrorRounds;
+  fight.hp = fight.maxHp = cloudMirrorHp;
+  fight.cloudMirror = { relayReady: !!save.trialBest.cloudRelay, spareBrace: false, falls: 0 };
+  return fight;
+}
+
 export function mirrorPreparation(save: Save, region: 1 | 2) {
   return !!save.trialBest[region === 1 ? "ferryTrial" : "templeTrial"] && recordedClues(save, region) === 3;
 }
@@ -848,6 +880,19 @@ export function settleAltarMirror(save: Save, fight: Fight, now: number) {
   return { idle, reward };
 }
 
+export function settleCloudMirror(save: Save, fight: Fight, now: number) {
+  const mirror = fight.cloudMirror;
+  if (!mirror || fight.result === "fighting" || !cloudMirrorUnlocked(save)) return { idle: 0, reward: 0 };
+  const idle = accrueSand(save, now);
+  const old = save.mirror.cloud;
+  const cleared = fight.result === "won";
+  const reward = cleared && !old?.cleared && canEarnSand(save) ? cloudMirrorSand : 0;
+  save.mirror.cloud = { cleared: cleared || !!old?.cleared, previous: old?.recent,
+    recent: { ...mirrorOutcome(fight), falls: mirror.falls, usedLamp: !!fight.links["风灯结扣"] } };
+  save.mirror.sand = Math.min(Number.MAX_SAFE_INTEGER, save.mirror.sand + reward);
+  return { idle, reward };
+}
+
 export function settleTempleReprise(save: Save, fight: Fight, now: number) {
   if (!fight.templeReprise || fight.result === "fighting" || !templeRepriseUnlocked(save)) return;
   accrueSand(save, now);
@@ -865,16 +910,18 @@ export function settleTempleReprise(save: Save, fight: Fight, now: number) {
   return { first };
 }
 
-type BattleTiming = "altar-mirror" | "shifted-candle";
+type BattleTiming = "altar-mirror" | "cloud-mirror" | "shifted-candle";
 
-export function battleTiming(fight: Pick<Fight, "altarMirror" | "templeReprise">): BattleTiming | undefined {
+export function battleTiming(fight: Pick<Fight, "altarMirror" | "cloudMirror" | "templeReprise">): BattleTiming | undefined {
   if (fight.altarMirror) return "altar-mirror";
+  if (fight.cloudMirror) return "cloud-mirror";
   if (fight.templeReprise) return "shifted-candle";
 }
 
 function moveFor(region: Region, round: number, riverWave: 2 | 3 = 3, timing?: BattleTiming): Move {
   if (timing === "altar-mirror") return altarMirrorMoves[Math.min(round, mirrorRounds) - 1];
   const index = (round - 1) % 3;
+  if (timing === "cloud-mirror") return patterns[cliffRegion][(index + 1) % 3];
   if (timing === "shifted-candle") return round === 1 ? { name: "烛火未偏", damage: 18 } : shiftedCandleMoves[index];
   const position = region === 1 && riverWave === 2 && index > 0 ? 3 - index : index;
   return patterns[region][position];
@@ -882,6 +929,7 @@ function moveFor(region: Region, round: number, riverWave: 2 | 3 = 3, timing?: B
 
 function openingDue(region: Region, round: number, riverWave: 2 | 3, timing?: BattleTiming) {
   if (timing === "shifted-candle") return round % 3 === 0;
+  if (timing === "cloud-mirror") return round % 3 === 1;
   if (region === hallRegion || region === altarRegion) return false;
   return region === 1 ? (round - 1) % 3 === riverWave - 2 : decisionDue(region, round);
 }
@@ -1066,7 +1114,7 @@ function automaticTactic(fight: Fight, round: number): BattleOrder["choice"] | u
       if (fight.sigilThrough >= round) return fight.kit.kindle && fight.ranks[5] > 0 ? undefined : "risk";
       return guard ? "safe" : undefined;
     case cliffRegion:
-      return guard && !hasTide ? "safe" : undefined;
+      return guard && !(hasTide && artDue(round, 1)) ? "safe" : undefined;
     case skyRegion:
       return guard && !(fight.kit.step === "rope" && fight.ranks[ropeStep]) ? "safe" : undefined;
   }
@@ -1119,6 +1167,10 @@ function resolveRound(f: Fight) {
   const round = ++f.round;
   const move = moveFor(f.region, round, f.riverWave, battleTiming(f));
   const trial = f.trial;
+  const relay = trial?.id === "cloudRelay" ? trial : undefined;
+  const relayOpen = () => relay && relay.progress < trials.cloudRelay.target;
+  const cliffSweep = f.region === cliffRegion && move.name === "掠栈";
+  let heldFooting = false;
   const lampTrial = trial?.id === "lampTrial" ? trial : undefined;
   const altar = f.altarAnswers;
   const lampAnswers = altar ?? lampTrial;
@@ -1154,6 +1206,10 @@ function resolveRound(f: Fight) {
       marks.push("内化听潮步");
     }
     f.life -= damage;
+    if (f.cloudMirror) {
+      f.cloudMirror.falls++;
+      f.cloudMirror.lastFallDamage = damage;
+    }
     marks.push("踏空落地");
     actions.push(`第 ${stepRound} 回合踏空，落地扣 ${damage} 点气血${aid ? `（旧灯结扣减 ${aid.damage}）` : ""}${inward ? "，内化听潮步减半" : ""}`);
     if (f.life <= 0) {
@@ -1430,9 +1486,9 @@ function resolveRound(f: Fight) {
   }
   const lastPageBroken = mirrorTest && mirrorPage && mirrorTest.pages === altarMirrorPages.length - 1
     && round >= mirrorPage.start && f.ward === 0;
-  if (hasPaperGoal() && f.hp <= 0 && !lastPageBroken) {
+  if ((hasPaperGoal() || relayOpen()) && f.hp <= 0 && !lastPageBroken) {
     f.hp = 1;
-    actions.push(mirrorTest ? "妖影退回镜中，三页破齐后才能击退"
+    actions.push(relay ? "余影退到断索外，阿照还需稳住风灯" : mirrorTest ? "妖影退回镜中，三页破齐后才能击退"
       : altar ? "守灯妖退到灯后，等三站应答后才能击退" : "守灯影退到灯后，等两次应答后才能击退");
   }
   if (f.hp > 0 && flood) {
@@ -1459,7 +1515,10 @@ function resolveRound(f: Fight) {
     else if (tide || f.realm >= 1 && f.kit.step === "basic" && move.wave && round % 3 === 1) {
       if (move.backwash) protectedLamp = true;
       actions.push(`闪避过${move.name}`);
-      if (f.region === cliffRegion && move.name === "掠栈") marks.push("听潮步避开掠栈");
+      if (cliffSweep) {
+        heldFooting = true;
+        marks.push("听潮步避开掠栈");
+      }
       if (pursuit && move.backwash && !cut) marks.push("听潮步避开沾衣");
       if (f.loadout.armor === "ferryCoat" && f.life < f.maxLife) {
         const heal = Math.min(f.maxLife - f.life, traitPower("ferryCoat", upgrade("ferryCoat")));
@@ -1520,10 +1579,25 @@ function resolveRound(f: Fight) {
       }
       f.life -= damage;
       actions.push(`${guard ? "架住" : ""}${move.name}，扣 ${damage} 点气血`);
-      if (f.region === cliffRegion && move.name === "掠栈" && !(elapsed === 0 && choice === "safe")) {
-        f.cliffStepRound = round;
-        marks.push("掠栈踏空");
-        actions.push("掠栈击中，下一回合落地受伤");
+      if (cliffSweep) {
+        if (elapsed === 0 && choice === "safe") {
+          heldFooting = true;
+          if (f.cloudMirror?.relayReady && f.life > 0) {
+            f.cloudMirror.relayReady = false;
+            f.cloudMirror.spareBrace = true;
+            marks.push("风灯引路");
+            actions.push("守灯人留下的风灯照出备用结扣");
+          }
+        } else if (f.cloudMirror?.spareBrace && f.life > 0) {
+          heldFooting = true;
+          f.cloudMirror.spareBrace = false;
+          marks.push("风灯结扣");
+          actions.push("借备用结扣扶索，免去这次踏空");
+        } else {
+          f.cliffStepRound = round;
+          marks.push("掠栈踏空");
+          actions.push("掠栈击中，下一回合落地受伤");
+        }
       }
       if (pursuit && move.backwash && !cut && damage >= riverDrenchDamage) {
         f.riverDrenched = true;
@@ -1561,6 +1635,17 @@ function resolveRound(f: Fight) {
     marks.push("渡灯未熄");
     actions.push("护住渡灯");
   }
+  if (relay && relayOpen() && cliffSweep && f.life > 0) {
+    if (heldFooting) {
+      relay.progress++;
+      marks.push("护住风灯");
+      actions.push(`稳住风灯，连续 ${relay.progress} / ${trials.cloudRelay.target} 次`);
+    } else if (f.cliffStepRound === round) {
+      relay.progress = 0;
+      marks.push("风灯失稳");
+      actions.push("风灯失稳，连续记录重新计算");
+    }
+  }
   if (lampAnswers && chant && f.life > 0 && lampAnswers.progress < answerGoal) {
     if (f.ward <= 0 || !altar && f.kit.stance === "guard") {
       const station = altarStations[lampAnswers.progress];
@@ -1594,7 +1679,7 @@ function resolveRound(f: Fight) {
       actions.push(`第 ${mirrorTest.pages + 1} 页还剩 ${f.ward} 护纸，合镜败阵`);
     }
   }
-  if (paperBattle && f.hp <= 0 && (hasPaperGoal() || f.life <= 0)) f.hp = 1;
+  if ((paperBattle || relay) && f.hp <= 0 && (hasPaperGoal() || relayOpen() || f.life <= 0)) f.hp = 1;
   finishExchange();
   if (missedPage && mirrorTest) {
     f.result = "lost";
@@ -1640,6 +1725,17 @@ export function forecastFight(fight: Fight, rounds = 6) {
 }
 
 export function defeatSummary(fight: Fight) {
+  if (fight.trial?.id === "cloudRelay" && fight.trial.progress < trials.cloudRelay.target) {
+    return `第 ${fight.round} 回合交锋结束，连续稳住 ${fight.trial.progress} / ${trials.cloudRelay.target} 次。掠栈时用守式扶索或听潮步闪避。`;
+  }
+  if (fight.cloudMirror) {
+    if (fight.lastExchange?.marks.includes("落地败阵")) return fight.lastThreat;
+    if (fight.life <= 0 && fight.lastExchange?.marks.includes("踏空落地")) {
+      return `第 ${fight.round - 1} 回合踏空，第 ${fight.round} 回合先扣 ${fight.cloudMirror.lastFallDamage} 点落地伤，随后气血耗尽。`;
+    }
+    if (fight.life <= 0) return `第 ${fight.round} 回合气血耗尽。掠栈提前一回合，守式可以在第 1、4 回合扶索。`;
+    return `第 ${fight.round} 回合交锋结束，逆风鸮影还剩 ${fight.hp} 气血。实际落地 ${fight.cloudMirror.falls} 次。`;
+  }
   if (fight.templeReprise && fight.lastExchange?.marks.includes("纸面封灯")) {
     return `第 ${fight.round} 回合攒到第二道纸痕，灯被封住。用照影或照灯断影显形，再斩真身可以清掉纸痕。`;
   }

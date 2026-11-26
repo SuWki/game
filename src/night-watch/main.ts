@@ -1,5 +1,5 @@
 import "./style.css";
-import { altarMirrorName, altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bridgeRegion, breakthrough, cliffRegion, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, homecoming, lampPaper, realms, regions, ropeStep, skyRegion, stillDao, stillRealm, templeRepriseName, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm } from "./content.ts";
+import { altarMirrorName, altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bridgeRegion, breakthrough, cliffRegion, cloudMirrorName, cloudMirrorSand, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, homecoming, lampPaper, realms, regions, ropeStep, skyRegion, stillDao, stillRealm, templeRepriseName, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { bossEquipment, equipment, gearDisplayName, gearEffect, gearRank, gearRegion, isReforgeId, knownGear, minionEquipment, reforgeIds, reforging, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
@@ -10,15 +10,15 @@ import {
   accrueOffline, accrueSand, artDue, canChallenge, canCompareBooks, canEnterLampTrial, canFuseLamp, canPatrol, challengeRealms, clueCount, compareBooks, compareGear, cultivationFor, decode, defeatSummary, equipArt, equippedArts, equipLampFusion, footingLimit, frame, fuseLamp, engravingCost, engravingPower, engravings, gearRequirement, loadoutStats, masteryCost, maxEngravingRank, mirrorOpponent, mirrorRounds, mirrorUnlocked, paperHitLimit, newSave, trainingRoute, weaponArts,
   enableCombatTactics, patrolRemaining, rate, recordPatrolKill, roundMoves, riverFloodLimit, sandRate, saveKey, setInwardTide, settleMirror, settleTrial, startFight, startMirrorFight, startTrial, study, surveyWind, tickFight, tuneEngraving, unlocked, win,
 } from "./game.ts";
-import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive, wardSealLimit, wardStrength } from "./game.ts";
-import type { AltarMirrorAttempt, ArtId, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
+import { altarMirrorUnlocked, applyPreset, automaticPreparationText, battleTiming, canEarnSand, challengeClues, cloudMirrorUnlocked, forecastFight, maxRematchRank, mirrorPreparation, paperSealActive, recordedClues, reforgeGear, reforgeState, rematchSpec, replacedArt, riverPursuitActive, riverPursuitDamage, riverPursuitLimit, settleAltarMirror, settleCloudMirror, settleRematch, settleTempleReprise, startAltarMirror, startCaseFight, startCloudMirror, startRematch, startTempleReprise, storePreset, templeRepriseUnlocked, wardSealActive, wardSealLimit, wardStrength } from "./game.ts";
+import type { AltarMirrorAttempt, ArtId, CloudMirrorAttempt, Engraving, Fight, MirrorAttempt, OldRegion, PresetSlot, Region, Save, TempleRepriseAttempt } from "./game.ts";
 import { applyBuildChange, compareBattleBuilds, previewBattle } from "./battle-preview.ts";
 import type { BuildSuggestion } from "./battle-preview.ts";
 
 const root = document.querySelector<HTMLDivElement>("#night-watch")!;
 const assets = import.meta.env.BASE_URL + "night-watch/";
 const zoneArt = ["mountain", "ferry", "temple", "post-bridge", "post-courtyard", "post-watch", "cloud-cliff", "cloud-sky", "lamp-hall", "lamp-altar"];
-const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", rematch: "强敌再战", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name, lampTrial: trials.lampTrial.name } as const;
+const tabs = { patrol: "巡夜", practice: "修行", skills: "招式", archive: "斩妖录", mirror: "照妖镜", rematch: "强敌再战", ferryTrial: trials.ferryTrial.name, templeTrial: trials.templeTrial.name, lampTrial: trials.lampTrial.name, cloudRelay: trials.cloudRelay.name } as const;
 const isTrial = (value: string): value is TrialId => Object.hasOwn(trials, value);
 let tab: Tab = "patrol";
 let rematchRegion: OldRegion = 0;
@@ -30,11 +30,11 @@ let openSlot: GearSlot | undefined;
 let ready = false;
 let waiting = "正在载入巡簿";
 let pending: { draft: Save; next?: () => void } | null = null;
-type BattleResult = { trialId?: TrialId; trialProgress?: number; altarMirror?: boolean; templeReprise?: boolean; mirrorLevel?: number; previousMirror?: MirrorAttempt; rematchRank?: number; rematchPractice?: boolean; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; recovery?: RecoveryTip; first?: boolean; drop?: boolean; daoReward?: number;
+type BattleResult = { trialId?: TrialId; trialProgress?: number; altarMirror?: boolean; cloudMirror?: boolean; templeReprise?: boolean; mirrorLevel?: number; previousMirror?: MirrorAttempt; rematchRank?: number; rematchPractice?: boolean; sand?: number; region: Region; won: boolean; report: string[]; reason?: string; recovery?: RecoveryTip; first?: boolean; drop?: boolean; daoReward?: number;
   recovered?: GearId; links: Record<string, number>; round: number; life: number; hp: number };
 let result: BattleResult | null = null;
 type Challenge = { mode: "case"; region: Region } | { mode: "rematch"; region: Region; practice?: boolean }
-  | { mode: "mirror"; level: number } | { mode: "altar-mirror" } | { mode: "temple-reprise" } | { mode: "trial"; id: TrialId };
+  | { mode: "mirror"; level: number } | { mode: "altar-mirror" } | { mode: "cloud-mirror" } | { mode: "temple-reprise" } | { mode: "trial"; id: TrialId };
 let skillChallenge: Challenge | undefined;
 type PageLocation = { tab: Tab; journal: boolean; result: BattleResult | null; scroll: number;
   skillChallenge: Challenge | undefined; rematchRegion: OldRegion; mirrorSelection: number | undefined };
@@ -71,8 +71,9 @@ function returnTo(page?: PageLocation) {
   window.scrollTo(0, page?.scroll ?? 0);
 }
 
-function challengeOf(fight: { region: Region; rematchRank?: number; rematchPractice?: boolean; altarMirror?: boolean | Fight["altarMirror"]; templeReprise?: boolean; mirrorLevel?: number; trialId?: TrialId; trial?: { id: TrialId } }): Challenge {
+function challengeOf(fight: { region: Region; rematchRank?: number; rematchPractice?: boolean; altarMirror?: boolean | Fight["altarMirror"]; cloudMirror?: boolean | Fight["cloudMirror"]; templeReprise?: boolean; mirrorLevel?: number; trialId?: TrialId; trial?: { id: TrialId } }): Challenge {
   if (fight.templeReprise) return { mode: "temple-reprise" };
+  if (fight.cloudMirror) return { mode: "cloud-mirror" };
   if (fight.altarMirror) return { mode: "altar-mirror" };
   if (fight.mirrorLevel) return { mode: "mirror", level: fight.mirrorLevel };
   const trial = fight.trial?.id ?? fight.trialId;
@@ -81,6 +82,7 @@ function challengeOf(fight: { region: Region; rematchRank?: number; rematchPract
 }
 
 function challengeFight(challenge: Challenge, state = save) {
+  if (challenge.mode === "cloud-mirror") return startCloudMirror(state);
   if (challenge.mode === "temple-reprise") return startTempleReprise(state);
   if (challenge.mode === "altar-mirror") return startAltarMirror(state);
   if (challenge.mode === "mirror") return startMirrorFight(state, challenge.level);
@@ -90,6 +92,7 @@ function challengeFight(challenge: Challenge, state = save) {
 }
 
 function challengeAction(challenge: Challenge) {
+  if (challenge.mode === "cloud-mirror") return "cloud-mirror-fight";
   if (challenge.mode === "temple-reprise") return "temple-reprise-fight";
   if (challenge.mode === "altar-mirror") return "altar-mirror-fight";
   if (challenge.mode === "mirror") return `mirror-fight:${challenge.level}`;
@@ -102,7 +105,8 @@ function rematchPracticeAvailable(region: Region) {
 }
 
 function pageChallenge(): Challenge | undefined {
-  if (tab === "mirror") return result?.altarMirror ? { mode: "altar-mirror" } : { mode: "mirror", level: mirrorPrepLevel() };
+  if (tab === "mirror") return result?.cloudMirror ? { mode: "cloud-mirror" }
+    : result?.altarMirror ? { mode: "altar-mirror" } : { mode: "mirror", level: mirrorPrepLevel() };
   if (tab === "rematch") {
     if (result?.templeReprise) return { mode: "temple-reprise" };
     const practice = rematchPracticeAvailable(rematchRegion);
@@ -311,6 +315,7 @@ function patrolPanel(): string {
       (reforge ? button(`tab:mirror:${reforge}`, `查看${equipment[reforge].name}重铸`) : "") +
       (result.won && result.region === cliffRegion ? button("home", "回到残栈") : "") +
       (result.won && result.region === skyRegion ? button("tab:archive", "查看两册巡簿") : "") +
+      (result.won && result.region === skyRegion ? button("tab:cloudRelay", "接风灯托付", !ready || !!fight) : "") +
       (result.won && result.region === altarRegion ? button("region:1", "回芦花渡送最后一程", !ready || !!fight, true) : "") +
       (result.won && result.region === altarRegion ? button("tab:mirror:altar", "查看归山镜题", !ready || !!fight) : "") +
       `</div>${recoveryBlock(result)}<details data-remember="report"><summary>逐回合战报 · 第 ${result.round} 回合结束</summary>
@@ -510,11 +515,11 @@ function skillsPanel(): string {
   const intel = alternate ? 3 : Math.max(recordedClues(save, opponent), live ? challengeClues : 0);
   const scenario = live ?? (intel && target.mode === "case" && opponent !== hallRegion ? startFight(save, opponent, true) : undefined);
   if (scenario) enableCombatTactics(scenario);
-  const fullPreview = scenario?.altarMirror || scenario?.templeReprise;
+  const fullPreview = scenario?.altarMirror || scenario?.cloudMirror || scenario?.templeReprise;
   const simulation = scenario ? forecastFight(scenario, fullPreview ? scenario.limit : 6) : undefined;
   const verdict = live ? battleVerdict(previewBattle(live)) : "";
   const rematch = live?.rematchRank ? rematchSpec(save, opponent, live.rematchPractice) : undefined;
-  const heading = target.mode === "temple-reprise" ? templeRepriseName : target.mode === "altar-mirror" ? altarMirrorName : target.mode === "trial" ? trials[target.id].name : target.mode === "mirror" && live
+  const heading = target.mode === "cloud-mirror" ? cloudMirrorName : target.mode === "temple-reprise" ? templeRepriseName : target.mode === "altar-mirror" ? altarMirrorName : target.mode === "trial" ? trials[target.id].name : target.mode === "mirror" && live
     ? `${live.name} · 第 ${integer(target.level)} 重`
     : rematch ? `${regions[opponent].boss} · 第 ${rematch.rank} 关` : regions[opponent].boss;
   const unlearned = arts.filter((_, index) => save.drops[index] && !save.ranks[index]).length;
@@ -624,7 +629,7 @@ function slotContents(slot: GearSlot) {
 
 function archivePanel(): string {
   const unlockedEnd = mirrorUnlocked(save);
-  const destinations = [...trialIds.filter(id => id !== "lampTrial").map(id => ({
+  const destinations = [...trialIds.filter(id => id === "ferryTrial" || id === "templeTrial").map(id => ({
     tab: id, title: trials[id].name, art: zoneArt[trials[id].region], label: "异相 · " + regions[trials[id].region].name,
     detail: save.trialBest[id] ? "已完成 · 妖案准备可带入对应镜战" : trials[id].goal,
   })), { tab: "mirror", title: "照妖镜", art: "mountain", label: "积砂养纹",
@@ -666,7 +671,9 @@ function archivePanel(): string {
     ${button(save.region === cliffRegion ? "home" : `region:${cliffRegion}`, save.region === cliffRegion ? "回到巡夜" : "前往残栈", !ready || !!fight, !unlocked(save, skyRegion))}</div></section>` : "";
   const skyRoute = unlocked(save, skyRegion) ? `<section class="post-route"><img src="${assets}cloud-sky.webp" alt=""><div>
     <small>${save.victories[skyRegion] ? "两站灯火已相照" : "御风可达"}</small><h3>天栈</h3><p>${save.victories[skyRegion] ? "师父交来了第二册巡簿。" : "夺回上站灯芯，让两座风灯相照。"}</p>
-    ${button(save.region === skyRegion ? "home" : `region:${skyRegion}`, save.region === skyRegion ? "回到巡夜" : "前往天栈", !ready || !!fight, true)}</div></section>` : "";
+    ${button(save.region === skyRegion ? "home" : `region:${skyRegion}`, save.region === skyRegion ? "回到巡夜" : "前往天栈", !ready || !!fight, true)}
+    ${cloudMirrorUnlocked(save) ? `<div class="choices">${button("tab:cloudRelay", save.trialBest.cloudRelay ? "回看风灯接力" : "风灯接力", !ready || !!fight)}
+    ${button("tab:mirror:cloud", "查看逆风镜题", !ready || !!fight)}</div>` : ""}</div></section>` : "";
   const books = save.victories[skyRegion] ? '<details data-remember="cloud-books"><summary>云栈两册巡簿</summary><p>渡口原簿记「第一船已到」。总灯房抄本却写了「全路人齐」。阿照收好两册巡簿，准备带回总灯房对读。</p></details>' : "";
   const hallRoute = unlocked(save, hallRegion) ? `<h3>卷四 · 归山</h3><section class="post-route"><img src="${assets}lamp-hall.webp" alt=""><div>
     <small>${save.trialBest.lampTrial ? "内院已点灯" : "两册巡簿可对读"}</small><h3>总灯房</h3><p>${save.trialBest.lampTrial ? "两声应答已经记入巡簿。" : "循旧灯入外院，查清铃声为何替人作答。"}</p>
@@ -749,6 +756,20 @@ function trialPanel(id: TrialId) {
   const spec = trials[id];
   const best = save.trialBest[id];
   const last = result?.trialId === id ? result : null;
+  if (id === "cloudRelay") {
+    return `<div class="trial-layout"><section>
+      <div class="trial-scene"><img src="${assets}cloud-cliff.webp" alt=""><div><small>云栈 · 守灯人托付</small><h2>${spec.name}</h2></div></div>
+      <p>${best ? spec.ending : spec.opening}</p>
+      ${last ? `<section class="mirror-outcome" role="status"><h3>${last.won ? "风灯已送达" : "风灯未送达"}</h3>
+        ${last.won ? "" : `<p>${escape(last.reason ?? "")}</p>`}
+        <small>第 ${last.round} 回合 · 连续稳住 ${last.trialProgress} / ${spec.target}</small>
+        ${recoveryBlock(last)}<details data-remember="cloud-relay-report"><summary>逐回合战报</summary><ol class="log">${last.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : ""}
+      ${best ? '<p class="meta">逆风镜题中，第一次扶索会借风灯照出备用结扣。前两次扶索用完后，结扣再帮你避开一次踏空。</p>'
+        : `<div class="trial-goal"><strong>连续稳住两次风灯</strong><p>${spec.goal}</p><p>${spec.hint}</p><small>${trialRounds} 回合为限</small></div>`}
+      <div class="actions">${best ? button("tab:mirror:cloud", "用风灯准备挑战逆风", !ready || !!fight, true)
+        : last ? "" : button("trial-fight:cloudRelay", "接下托付", !ready || !!fight, true)}</div>
+      </section>${best ? "" : `<section>${outfitPanel()}</section>`}</div>`;
+  }
   if (id === "lampTrial") {
     return `<div class="trial-layout"><section>
       <div class="trial-scene"><img src="${assets}lamp-hall.webp" alt=""><div><small>归山 · 总灯房</small><h2>${spec.name}</h2></div></div>
@@ -778,13 +799,14 @@ function trialPanel(id: TrialId) {
 
 }
 
-type ComparisonAttempt = MirrorAttempt | AltarMirrorAttempt | TempleRepriseAttempt;
+type ComparisonAttempt = MirrorAttempt | AltarMirrorAttempt | CloudMirrorAttempt | TempleRepriseAttempt;
 
 function mirrorComparison(current: ComparisonAttempt, previous?: ComparisonAttempt) {
   const rows = previous ? [previous, current] : [current];
   return `<div class="mirror-comparison">${rows.map((attempt, i) => `<div>
     <strong>${previous ? i === 0 ? "上次" : "本次" : "最近一战"} · ${attempt.won ? "取胜" : "败阵"} · 第 ${attempt.round} 回合</strong>
     <p>${"pages" in attempt ? `破纸 ${attempt.pages} / ${altarMirrorPages.length} · ` : ""}阿照余 ${attempt.life} / ${attempt.maxLife} 气血 · 对手余 ${attempt.hp} 气血</p>
+    ${"falls" in attempt ? `<p>落地 ${attempt.falls} 次 · 备用结扣${attempt.usedLamp ? "已用" : "未触发"}</p>` : ""}
     ${"candleHits" in attempt && attempt.candleHits > 0 ? `<p>烛影刀显形加伤 ${attempt.candleHits} 次</p>` : ""}<small>${escape(attempt.build)}</small></div>`).join("")}</div>`;
 }
 
@@ -807,6 +829,27 @@ function altarMirrorPanel() {
     <p>${last.won ? last.sand ? `首破获得 ${last.sand} 淬纹砂。` : "试招记录已保存。" : escape(last.reason ?? "")}</p>
     ${last.sand ? rewardLink : ""}${recoveryBlock(last)}
     <details data-remember="altar-mirror-report"><summary>逐回合战报</summary><ol class="log">${last.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : ""}
+    ${history ? mirrorComparison(history.recent, history.previous) : ""}
+    </section>`;
+}
+
+function cloudMirrorPanel() {
+  if (!cloudMirrorUnlocked(save)) return "";
+  const history = save.mirror.cloud;
+  const last = result?.cloudMirror ? result : undefined;
+  const reward = !history?.cleared && canEarnSand(save);
+  const nextReforge = reforgeIds.find(id => reforgeState(save, id) === "ready");
+  return `<section class="altar-mirror-entry" id="cloud-mirror-entry" tabindex="-1">
+    <div class="section-title"><h3>${cloudMirrorName}</h3><span>${history?.cleared ? "已首破" : "天栈首胜后开放"}</span></div>
+    <p>十二回合内击退鸮影。第 1、4、7… 回合掠栈，踏空就在下一回合先扣落地伤。</p>
+    <p class="meta">${save.trialBest.cloudRelay ? "风灯准备已带入。守式首次扶索会找到备用结扣，可再护住一次踏空。" : "做完风灯接力，守式可以多扶索一次。"}${reward ? `首破得 ${cloudMirrorSand} 淬纹砂。` : ""}</p>
+    <div class="actions">${!last || last.won ? button("cloud-mirror-fight", history?.cleared ? "用当前配装试招" : "挑战逆风", !ready || !!fight, true) : ""}
+    ${!save.trialBest.cloudRelay ? button("tab:cloudRelay", "查看风灯接力", !ready || !!fight) : ""}</div>
+    ${last ? `<section class="mirror-outcome" role="status"><h3>${last.won ? "击破逆风鸮影" : "败阵"}</h3>
+      <p>${last.won ? last.sand ? `首破获得 ${last.sand} 淬纹砂。` : "试招记录已保存。" : escape(last.reason ?? "")}</p>
+      ${last.sand ? nextReforge ? button(`reforge-focus:${nextReforge}`, `查看${equipment[nextReforge].name}重铸`) : button("engraving-focus", "去刻纹") : ""}
+      ${recoveryBlock(last)}
+      <details data-remember="cloud-mirror-report"><summary>逐回合战报</summary><ol class="log">${last.report.map(line => `<li>${escape(line)}</li>`).join("")}</ol></details></section>` : ""}
     ${history ? mirrorComparison(history.recent, history.previous) : ""}
     </section>`;
 }
@@ -875,7 +918,7 @@ function mirrorPanel() {
   return `<div class="mirror-layout"><section><div class="section-title"><h2>照妖镜</h2><span>淬纹砂 <b>${integer(sand)}</b></span></div><p class="meta">${!canEarnSand(save)
     ? `已破第 ${integer(best)} 重 · 当前可用的刻纹与重铸已完成` : best ? `已破第 ${integer(best)} 重 · 每小时积攒 ${sandRate(best)} 砂` : "击破第一重后，镜中开始积砂。"}</p>
     ${reforgeAvailable ? `<div class="choices">${button(`reforge-focus:${reforgeAvailable}`, "查看可重铸的装备")}</div>` : ""}
-    ${altarMirrorPanel()}${outcome}<article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · ${opponent.name}</h3><p>最多 ${mirrorRounds} 回合 · ${rhythm}</p><p class="meta">${advice}</p></div>
+    ${cloudMirrorPanel()}${altarMirrorPanel()}${outcome}<article class="mirror-entry"><div><h3>第 ${integer(next)} 重 · ${opponent.name}</h3><p>最多 ${mirrorRounds} 回合 · ${rhythm}</p><p class="meta">${advice}</p></div>
     ${button(`mirror-fight:${next}`, result?.mirrorLevel === next ? "再试此重" : "照见妖影", !ready || !!fight, true)}</article>
     ${best ? `<form id="mirror-practice"><label>试招重数 <input type="number" min="1" max="${best}" step="1" value="${chosen <= best ? chosen : best}" required name="level"></label>
       ${button("mirror-setup", "对照招路", !ready || !!fight)}<button type="submit" ${!ready || !!fight ? "disabled" : ""}>试招出战</button></form>` : ""}
@@ -1123,7 +1166,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   battleBuilds = battleAdvice ? compareBattleBuilds(save, draft => challengeFight(challenge, draft), projected) : [];
   const loadoutButton = element<HTMLButtonElement>("#battle-start [data-action=battle-loadout]");
   loadoutButton.classList.toggle("primary", !!battleAdvice && !battleBuilds.length);
-  const stage = encounter.templeReprise ? templeRepriseName
+  const stage = encounter.cloudMirror ? cloudMirrorName : encounter.templeReprise ? templeRepriseName
     : encounter.rematchRank ? `强敌再战 · 第 ${encounter.rematchRank} 关${encounter.rematchPractice ? "试招" : ""}`
     : encounter.altarMirror ? altarMirrorName : encounter.mirrorLevel ? `照妖镜 · 第 ${integer(encounter.mirrorLevel)} 重` : "";
   element("#battle-brief").innerHTML = `${stage ? `<small>${stage}</small>` : ""}
@@ -1133,7 +1176,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     <p class="meta">${kitNames(encounter.kit).join(" · ")} · ${Object.values(encounter.loadout).map(gearName).join("、") || "未穿戴装备"}</p>`;
   element("#battle-builds").innerHTML = battleBuilds.length
     ? `<details class="battle-build-list"><summary>对照可过的配装</summary>${battleBuilds.map((build, i) => {
-      const effect = ["照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
+      const effect = ["风灯结扣", "护住风灯", "照灯断影破纸", "符火破纸", "踏缆步追及", "压灯引鹞", "截断升空", "听潮步避开掠栈", "扶索稳身", "听潮步避开沾衣", "照影清纸痕", "符火引爆", "照影显形", "折篙刀追斩", "割缆断流", "伏身避啸"]
         .find(mark => build.outcome.links[mark] > (projected.links[mark] ?? 0));
       return `<section class="battle-build">
         <div><strong>${escape(build.label)}</strong><p>第 ${build.outcome.round} 回合取胜 · 余 ${build.outcome.life} 气血${effect ? ` · ${effect} ×${build.outcome.links[effect]}` : ""}</p></div>
@@ -1142,7 +1185,7 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
     }).join("")}</details>`
     : battleAdvice ? '<p class="meta">试过的单项和常见组合里，暂时没找到能过的配装。</p>' : "";
 
-  const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" ? encounter.limit : 6);
+  const simulation = forecastFight(encounter, encounter.region === skyRegion || encounter.altarAnswers || encounter.altarMirror || encounter.cloudMirror || encounter.templeReprise || encounter.trial?.id === "lampTrial" || encounter.trial?.id === "cloudRelay" ? encounter.limit : 6);
   const ending = simulation.result === "won" ? " · 取胜" : simulation.result === "lost" ? " · 败阵" : "";
   const pursuits = simulation.rounds.filter(round => round.marks.includes("湿衣追篙")).length;
   const clue = caseClues[encounter.region];
@@ -1152,6 +1195,8 @@ function renderBattleBrief(encounter: Fight, challenge: Challenge) {
   const used = response?.marks.includes(safe.name) ? safe.name : risk.name;
   const pressure = encounter.region === 1
     ? `水位 ${simulation.water} / ${riverFloodLimit}${riverPursuitActive(encounter) && pursuits ? ` · 遭追篙 ${pursuits} 次` : ""}`
+    : projected.cloudMirror ? `预计落地 ${projected.cloudMirror.falls} 次${projected.links["风灯结扣"] ? " · 风灯结扣护住一次踏空" : ""}`
+    : projected.trial?.id === "cloudRelay" ? `预计连续稳住 ${projected.trial.progress} / ${trials.cloudRelay.target} 次`
     : projected.templeReprise && projected.loadout.weapon === "templeBlade" ? `预计烛影刀显形加伤 ${projected.links["烛影刀显形加伤"] ?? 0} 次`
     : projected.altarMirror ? `预计破纸 ${projected.altarMirror.pages} / ${altarMirrorPages.length} 页`
     : projected.altarAnswers ? `预计应答 ${projected.altarAnswers.progress} / 3 · ${altarStations.slice(0, projected.altarAnswers.progress).join("、") || "尚无应答"}`
@@ -1184,7 +1229,7 @@ function paintDuel() {
   const round = f.round + 1;
   const beats = [
     ["扑咬", "扫尾", "虎啸"], f.riverWave === 2 ? ["绷缆", "回浪", "挥篙"] : ["起浪", "绷缆", "回浪"], ["纸面", "借面", "烛偏见真身"], ["点篙", "击栏", "横篙"],
-    ["举灯", "冲灯", "回蹄"], ["立更印", "提槌", "敲更"], ["回风", "掠栈", "落爪"], [f.skyDelayRound === round ? "仍可近身" : "升空", "贴崖", "落巢"],
+    ["举灯", "冲灯", "回蹄"], ["立更印", "提槌", "敲更"], f.cloudMirror ? ["掠栈", "落爪", "回风"] : ["回风", "掠栈", "落爪"], [f.skyDelayRound === round ? "仍可近身" : "升空", "贴崖", "落巢"],
     ["覆纸", "询铃", "催灯术 · 妖术"],
     ["覆簿纸", "询铃", "催灯术 · 妖术"],
   ][f.region];
@@ -1218,7 +1263,7 @@ function paintDuel() {
   const sigil = f.sigilThrough >= round ? `<div class="trial-meter"><b>寄灯符</b><span>可引爆 · 第 ${f.sigilThrough} 回合末消散</span></div>` : "";
   const speed = `<button type="button" data-action="battle-speed" aria-pressed="${quickBattle}" aria-label="切换加速交锋">战速 ×${quickBattle ? 2 : 1}</button>`;
   const cliff = f.region === cliffRegion ? `<div class="water-gauge" data-flood="${f.cliffStepRound !== undefined}"><b>${f.cliffStepRound !== undefined ? "踏空" : "落脚"}</b>
-    <span>${f.cliffStepRound !== undefined ? "下一回合先结算落地伤" : f.kit.stance === "guard" ? `扶索剩 ${f.focus} 次` : "闪避掠栈可避免踏空"}</span></div>` : "";
+    <span>${f.cliffStepRound !== undefined ? "下一回合先结算落地伤" : f.kit.stance === "guard" ? `扶索剩 ${f.focus} 次${f.cloudMirror?.spareBrace ? " · 另有备用结扣" : ""}` : f.cloudMirror ? "掠栈提前一回合" : "闪避掠栈可避免踏空"}</span></div>` : "";
   const sky = f.region === skyRegion ? `<div class="water-gauge" data-flood="${phase === 0 && f.skyDelayRound !== round}"><b>刀锋距离</b>
     <span>${f.skyDelayRound === round || phase === 2 ? "可以近身" : phase === 1 ? "踏缆步或守式压灯可以近身" : "升空时刀招只能擦伤"}</span></div>` : "";
   const maxPaper = f.altarAnswers ? altarPaper : lampPaper;
@@ -1242,6 +1287,7 @@ function paintStage() {
   const region = fight?.region ?? save.region;
   stage.dataset.zone = zoneArt[region];
   stage.dataset.altarMirror = String(!!fight?.altarMirror);
+  stage.dataset.cloudMirror = String(!!fight?.cloudMirror);
   stage.dataset.cue = fight?.cue ?? "idle";
   stage.dataset.boss = String(!!fight?.boss);
   stage.dataset.warning = String(!!fight?.windup);
@@ -1265,9 +1311,9 @@ function paintStage() {
   element("#windup").hidden = !fight?.windup;
   changedText("#windup", fight?.windup ?? "");
   const guardingLamps = fight?.trial?.id === "lampTrial";
-  changedText(".stage .chapter", fight?.templeReprise ? "强敌再战 · 错烛" : fight?.altarMirror ? altarMirrorName : fight?.rematchRank ? `强敌再战 · 第 ${fight.rematchRank} 关` : guardingLamps ? "卷四 · 归山"
+  changedText(".stage .chapter", fight?.cloudMirror ? cloudMirrorName : fight?.templeReprise ? "强敌再战 · 错烛" : fight?.altarMirror ? altarMirrorName : fight?.rematchRank ? `强敌再战 · 第 ${fight.rematchRank} 关` : guardingLamps ? "卷四 · 归山"
     : fight?.trial ? "异相 · " + trials[fight.trial.id].name : fight?.mirrorLevel ? `第 ${integer(fight.mirrorLevel)} 重` : region >= bridgeRegion ? regions[region].place : "青芦夜话");
-  changedText("#place", fight?.mirrorLevel || fight?.altarMirror ? "照妖镜" : guardingLamps ? "总灯房内院" : regions[region].name);
+  changedText("#place", fight?.mirrorLevel || fight?.altarMirror || fight?.cloudMirror ? "照妖镜" : guardingLamps ? "总灯房内院" : regions[region].name);
   changedText("#mode", pending || !ready || document.hidden ? "暂停" : fight?.boss ? "问妖" : save.newGear.length ? "驻足整装" : save.autoPatrol ? "巡夜中" : fight ? "寻妖中" : !patrolRemaining(save) ? "已扫清" : "待提灯");
   const human = element<HTMLProgressElement>("#life");
   human.max = fight?.maxLife ?? loadoutStats(save).life;
@@ -1332,7 +1378,8 @@ function settleBoss(current: Fight) {
   const won = current.result === "won";
   const recent = save.mirror.recent;
   const previousMirror = recent?.level === current.mirrorLevel ? recent : undefined;
-  const mirror = current.altarMirror ? settleAltarMirror(draft, current, Date.now())
+  const mirror = current.cloudMirror ? settleCloudMirror(draft, current, Date.now())
+    : current.altarMirror ? settleAltarMirror(draft, current, Date.now())
     : current.mirrorLevel ? settleMirror(draft, current, Date.now()) : undefined;
   const trial = current.trial;
   const upgraded = current.rematchRank ? settleRematch(draft, current) : undefined;
@@ -1351,7 +1398,7 @@ function settleBoss(current: Fight) {
     if (archive) backTrail.push(archive);
     battleOrigin = null;
     window.scrollTo(0, 0);
-    result = { trialId: trial?.id, trialProgress: trial?.progress, rematchRank: current.rematchRank, rematchPractice: current.rematchPractice, mirrorLevel: current.mirrorLevel, altarMirror: !!current.altarMirror, templeReprise: current.templeReprise, previousMirror, sand, daoReward, region: current.region, won, report: current.log, reason,
+    result = { trialId: trial?.id, trialProgress: trial?.progress, rematchRank: current.rematchRank, rematchPractice: current.rematchPractice, mirrorLevel: current.mirrorLevel, altarMirror: !!current.altarMirror, cloudMirror: !!current.cloudMirror, templeReprise: current.templeReprise, previousMirror, sand, daoReward, region: current.region, won, report: current.log, reason,
       recovery: won ? undefined : battleRecovery(save, current),
       drop: upgraded?.drop,
       links: current.links, round: current.round, life: Math.max(0, current.life), hp: Math.max(0, current.hp), ...loot, ...reprise };
@@ -1610,6 +1657,8 @@ root.addEventListener("click", event => {
     faceChallenge({ mode: "mirror", level: Number(value) });
   } else if (name === "altar-mirror-fight" && (tab === "mirror" || tab === "skills")) {
     faceChallenge({ mode: "altar-mirror" });
+  } else if (name === "cloud-mirror-fight" && (tab === "mirror" || tab === "skills")) {
+    faceChallenge({ mode: "cloud-mirror" });
   } else if (name === "altar-mirror-setup" && tab === "mirror" && ready && !pending && !fight) {
     openPreparation({ mode: "altar-mirror" }, "preview");
   } else if (name === "temple-reprise" && ready && !pending && !fight?.boss && templeRepriseUnlocked(save)) {
@@ -1650,7 +1699,8 @@ root.addEventListener("click", event => {
   } else if (name === "engraving-focus" && tab === "mirror") {
     element(".mirror-engraving").scrollIntoView({ block: "start" });
   } else if (name === "tab") {
-    if (value === "lampTrial" ? !canEnterLampTrial(save) : (value === "mirror" || isTrial(value)) && !mirrorUnlocked(save)) return;
+    if (value === "lampTrial" ? !canEnterLampTrial(save) : value === "cloudRelay" ? !cloudMirrorUnlocked(save)
+      : (value === "mirror" || isTrial(value)) && !mirrorUnlocked(save)) return;
     if (tab === value) return;
     const fromDetail = journal || tab === "mirror" || tab === "rematch" || isTrial(tab) || (tab === "patrol" && !!result);
     const fromNav = !!(event.target as HTMLElement).closest(".nav");
@@ -1662,6 +1712,7 @@ root.addEventListener("click", event => {
     if (parent?.tab === value && !fromNav) {
       returnTo(backTrail.pop());
       if (value === "mirror" && isReforgeId(option)) focusReforge(option);
+      if (value === "mirror" && option === "cloud") panel.querySelector("#cloud-mirror-entry")?.scrollIntoView({ block: "start" });
       return;
     }
     if (fromNav && value === "archive") {
@@ -1678,6 +1729,7 @@ root.addEventListener("click", event => {
       commit(structuredClone(save));
       if (isReforgeId(option)) focusReforge(option);
       if (option === "altar" && altarMirrorUnlocked(save)) element("#altar-mirror-entry").scrollIntoView({ block: "start" });
+      if (option === "cloud" && cloudMirrorUnlocked(save)) element("#cloud-mirror-entry").scrollIntoView({ block: "start" });
     } else paintPanel();
   } else if (name === "retry" && pending) {
     commit(pending.draft, pending.next);

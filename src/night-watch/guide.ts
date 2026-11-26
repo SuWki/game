@@ -1,4 +1,4 @@
-import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, watchRegion } from "./content.ts";
+import { altarRegion, arts, bridgeRegion, cliffRegion, courierRegion, hallRegion, heartRealm, realms, regions, skyRegion, trials, watchRegion } from "./content.ts";
 import type { TrialId } from "./content.ts";
 import { automaticPreparationText, canChallenge, challengeClues, challengeRealms, clueCount, equippedArts, masteryCost, paperSealActive, patrolRemaining, recordedClues, riverDrenchDamage, riverPursuitActive, wardSealActive } from "./game.ts";
 import type { ArtId, Fight, Region, Save } from "./game.ts";
@@ -25,6 +25,14 @@ const caseAdvice = [
 ] as const;
 
 export function battleBrief(fight: Fight) {
+  if (fight.cloudMirror) return {
+    threat: "掠栈提前到第 1、4、7… 回合。踏空后，下一轮先扣落地伤。",
+    hint: "守式可以扶索。听潮步赶上的是下一回合的落爪，落地伤仍会先结算。",
+  };
+  if (fight.trial?.id === "cloudRelay") return {
+    threat: "第 2、5、8… 回合掠栈。连续稳住两次风灯，再击退余影。",
+    hint: "守式扶索或听潮步闪避都能记一次。踏空会清掉尚未达成的连续记录。",
+  };
   if (fight.templeReprise) return {
     threat: "第 4、7、10… 回合烛偏见真身。累计两次斩中纸面就会封灯。",
     hint: "照影或照灯断影可以更早显形。显形期间斩中真身会清掉纸痕，守式另能挑灯两次。",
@@ -57,6 +65,21 @@ export function battleBrief(fight: Fight) {
 
 export function battleRecovery(save: Save, fight: Fight): RecoveryTip {
   const marks = fight.lastExchange?.marks ?? [];
+  if (fight.cloudMirror) {
+    if (fight.kit.stance === "attack" && fight.life <= 0) return {
+      text: "掠栈提前了。切守式可在第 1、4 回合扶索，避免这两次踏空。", label: "调整架势", focus: "stance",
+    };
+    if (fight.life <= 0) return {
+      text: "换护具可以多撑一次落地。完成风灯接力后，守住前两次的配装还能借结扣多扶索一次。",
+      label: "比较护具", focus: "armor",
+    };
+    return { text: "可以对照兵刃伤害，在十二回合内收尾。", label: "比较兵刃", focus: "weapon" };
+  }
+  if (fight.trial?.id === "cloudRelay" && fight.trial.progress < trials.cloudRelay.target) {
+    return fight.kit.stance === "attack"
+      ? { text: "切到守式可连续扶索两次。想保持攻式，可带听潮步在掠栈回合闪避。", label: "调整架势", focus: "stance" }
+      : { text: "在第 2、5、8… 回合装备听潮步会自动闪避，护住风灯。", label: "查看听潮步", focus: "art:1" };
+  }
   if (fight.templeReprise) {
     if (marks.includes("纸面封灯")) {
       if (save.lampFusion && !fight.kit.lampFusion) return {
