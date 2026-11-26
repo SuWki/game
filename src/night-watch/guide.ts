@@ -13,7 +13,7 @@ export type RecoveryTip = { text: string; label: string; focus: PrepFocus };
 
 const caseAdvice = [
   "守式能架住虎啸。穿戴松纹刀，能多打出几分伤害。",
-  "镇山喝对上回浪时能借浪清水。守式也会找机会割缆。",
+  "镇山喝可在第 3、6、9… 回合截断回浪，借浪压水位。守式也会找机会割缆。",
   "守式会在危险时挑灯照面。照影显形能让更多刀招打中真身。",
   "镇山喝能截住横篙，失足前换守式也可借墩稳身。",
   "守式会压灯卸势，听潮步可避开冲灯。",
@@ -221,8 +221,8 @@ export function clueTip(save: Save, showRead = false) {
     id, step, title: `第一条线索 · ${regions[region].clues[0]}`, text: caseClues[region].danger, label: "查看首领招路",
   };
   if (step === challengeClues) return {
-    id, step, title: "第二条线索 · 找到应对",
-    text: `${unlock}${advice}第三条线索能为这场交锋再添一处准备。`, label: "查看应对办法",
+    id, step, title: region === 1 ? "第二条线索 · 第三声来自船底" : "第二条线索 · 找到应对",
+    text: `${unlock}${advice}第三条线索能为这场交锋再添一处准备。`, label: region === 1 ? "查看水下应铃" : "查看应对办法",
   };
   return {
     id, step, title: "第三条线索 · 应变已备好",
@@ -294,7 +294,7 @@ function candidate(save: Save, tab: Tab, result: Result | null): Tip | undefined
   }
   if (save.victories[2] && !save.victories[bridgeRegion]) {
     if (save.region !== bridgeRegion) return {
-      id: "post-road", title: "随陆婆过河", text: "芦花渡对岸是纸马驿。跟陆婆过河，去查桥下传来的半声铃。",
+      id: "post-road", title: "随陆婆过河", text: "芦花渡的铃已经收了，纸马驿却也应了第三声。陆婆在渡口等阿照上船。",
       target: { tab: "patrol", action: "region:3", label: "随陆婆过河" },
     };
     if (canChallenge(save, bridgeRegion)) return {

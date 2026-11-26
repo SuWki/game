@@ -1,7 +1,7 @@
 import "./style.css";
 import { altarMirrorName, altarMirrorPages, altarMirrorSand, altarPaper, altarRegion, altarStations, arts, bridgeRegion, breakthrough, cliffRegion, cloudMirrorName, cloudMirrorSand, courierRegion, freeDao, freeRealm, fusionStrike, hallRegion, heartDao, heartRealm, homecoming, lampPaper, realms, regions, ropeStep, skyRegion, stillDao, stillRealm, templeRepriseName, templeRepriseRounds, trialIds, trialRounds, trials, trialSand, trueDao, trueRealm, trueSigilBonus, watchRegion, windDao, windRealm } from "./content.ts";
 import type { TrialId } from "./content.ts";
-import { altarMirrorPageStrength, firstAwakening, rollCallPaperCut, rollCallStations } from "./content.ts";
+import { altarMirrorPageStrength, ferryEvidence, firstVolumeAftermath, rollCallPaperCut, rollCallStations } from "./content.ts";
 import { bossEquipment, equipment, gearDisplayName, gearEffect, gearRank, gearRegion, isReforgeId, knownGear, minionEquipment, reforgeIds, reforging, slots, traitText } from "./equipment.ts";
 import type { GearId, GearSlot } from "./equipment.ts";
 import { caseClues, encounters } from "./tactics.ts";
@@ -285,6 +285,11 @@ function costText(cost: number): string {
 
 const clueLabels = ["辨出招路", "找到对策", "备好应变"] as const;
 
+function firstVolumeScene(id: Region) {
+  const scene = firstVolumeAftermath.at(id);
+  return scene ? `<aside class="case-turn"><h3>${scene.title}</h3><p>${scene.text}</p></aside>` : "";
+}
+
 function patrolPanel(): string {
   const location = regions[save.region];
   const clues = recordedClues(save);
@@ -303,8 +308,9 @@ function patrolPanel(): string {
     const practice = result.region >= cliffRegion && result.won && !result.first;
     return title(result.won ? practice ? "试招取胜" : "战胜大妖" : "败阵", cleared.boss,
       result.won ? practice ? `第 ${result.round} 回合取胜，阿照余 ${result.life} 气血。` : cleared.cleared : escape(result.reason ?? "")) +
-      (awakening ? `<p class="intro"><strong>天赋初醒 · 观化</strong><br>${firstAwakening}</p>` : "") +
-      (result.won && prize ? `<p class="prize">${prize}</p>` : "") +
+      (result.first ? firstVolumeScene(result.region) : "") +
+      (awakening ? `<p class="prize">道行 +${result.daoReward}。装备镇山喝后，第 3 回合就能截断芦花渡的回浪。</p>`
+        : result.won && prize ? `<p class="prize">${prize}</p>` : "") +
       (result.first && result.region === bridgeRegion ? `<p>${save.realm >= heartRealm ? "已进入心斋，可同时带两门武学。" : `驿桥已通。累计道行达到 ${heartDao}，便进入心斋、开启第二武学位。`}</p>` : "") +
       (result.drop && result.region !== skyRegion && result.region !== hallRegion && result.region !== altarRegion ? artCard(result.region, true) : "") +
       (save.newGear[0] ? lootCard(save.newGear[0], save.newGear[0] === result.recovered) : "") +
@@ -340,7 +346,7 @@ function patrolPanel(): string {
   const effects = [evidence.danger, battleBrief(startFight(save, id, true)).hint, automaticPreparationText(id)];
   const known = location.clues.map((clue, i) => `<li id="case-clue-${i + 1}" tabindex="-1" class="${i < clues ? "found" : ""}">
       <span aria-hidden="true">${i < clues ? "◆" : "◇"}</span><div><strong>${clueLabels[i]}</strong>
-      ${i < clues ? `<small>${clue}</small><p>${effects[i]}</p>` : i === clues ? `<p>${swept ? sweptClueHint : "再斩 " + (location.thresholds[i] - kills) + " 只小妖" + (i === 2 ? " · 可选准备" : "")}</p>
+      ${i < clues ? `<small>${clue}</small>${id === 1 ? `<p class="case-testimony">${ferryEvidence[i]}</p>` : ""}<p>${effects[i]}</p>` : i === clues ? `<p>${swept ? sweptClueHint : "再斩 " + (location.thresholds[i] - kills) + " 只小妖" + (i === 2 ? " · 可选准备" : "")}</p>
       ${i === 2 ? `<p>${effects[i]}</p>` : ""}` : ""}
       </div></li>`).join("");
   const open = canChallenge(save, id);
@@ -352,6 +358,7 @@ function patrolPanel(): string {
     (clues || open ? button("show-preview", "对照前六回合") : "") +
     (!done && patrolRemaining(save) && !save.autoPatrol ? button("home", clues === challengeClues && open ? "继续巡夜备战" : "回去巡夜") : "");
   return title(location.tag, location.title, id === 1 && save.victories[altarRegion] ? homecoming : done ? location.cleared : location.intro) +
+    (done ? firstVolumeScene(id) : "") +
     `<div class="clues-label"><strong>${location.boss} · 妖案</strong><span>${clues} / 3</span></div>
     <ul class="clues evidence-list">${known}</ul>
     ${!done && !open && clueCount(save) >= challengeClues ? `<p class="meta">${id === cliffRegion ? cliffGateText() : `已找到大妖，进入${realms[challengeRealms[id]]}境后可挑战。`}</p>` : ""}
@@ -646,8 +653,10 @@ function storyRecord() {
       return `<details data-remember="story-${chapter}"><summary>${name}</summary><ol>${known.map(id => {
         const region = regions[id];
         const resolved = id === hallRegion ? !!save.trialBest.lampTrial : !!save.victories[id];
-        return `<li><strong>${region.title}</strong><p>${region.intro}</p>${resolved ? `<p>${region.cleared}</p>` : ""}
-          ${id === 0 && resolved ? `<p>${firstAwakening}</p>` : ""}${id === altarRegion && resolved ? `<p>${homecoming}</p>` : ""}</li>`;
+        const testimony = id === 1 && recordedClues(save, 1) >= challengeClues ? `<p>${ferryEvidence[1]}</p>` : "";
+        const aftermath = resolved ? firstVolumeAftermath.at(id) : undefined;
+        return `<li><strong>${region.title}</strong><p>${region.intro}</p>${testimony}${resolved ? `<p>${region.cleared}</p>` : ""}
+          ${aftermath ? `<p>${aftermath.text}</p>` : ""}${id === altarRegion && resolved ? `<p>${homecoming}</p>` : ""}</li>`;
       }).join("")}</ol></details>`;
     }).join("")}
   </details>`;
@@ -1151,7 +1160,9 @@ function paintPatrolControls() {
     const hallObjective = lampReady ? save.trialBest.lampTrial ? "两声应答已记下。阿照正准备前往主灯台。" : "已入真人，可以到内院守灯。"
       : bookReady ? "两册巡簿的记法对不上。到妖案把它们并排对读。"
         : save.booksCompared ? `巡簿已对读。再巡得 ${Math.max(0, trueDao - save.lifetimeDao)} 道行即可入真人。` : `巡查外院，再斩 ${remainingKills} 只查下一条证据。`;
-    changedText("#objective", save.region === hallRegion ? (swept ? "外院已扫清。" : "") + hallObjective : onward ? (swept ? "此地小妖已扫清。" : region.boss + "已退。") + "可前往" + regions[save.region + 1].name + "。"
+    changedText("#objective", save.region === hallRegion ? (swept ? "外院已扫清。" : "") + hallObjective
+      : onward && save.region === 2 ? "纸马驿也响起第三声铃。陆婆在渡口等阿照上船。"
+      : onward ? (swept ? "此地小妖已扫清。" : region.boss + "已退。") + "可前往" + regions[save.region + 1].name + "。"
       : done ? (swept ? "此地小妖已扫清。" : "") + (save.region === altarRegion ? "三站已逐个应答。回芦花渡看看最后一程。"
         : save.region === skyRegion ? "两站灯火已相照。两册巡簿可在斩妖录回看。" : "守灯人安全了，风灯照见向上的索路。")
       : challengeOpen ? (swept ? "此地小妖已扫清，可以挑战" + region.boss + "。" : clues === challengeClues ? `可挑战${region.boss}。再斩 ${remainingKills} 只，备好应变。` : "应变已备好，可以挑战" + region.boss + "。")
@@ -1438,7 +1449,9 @@ function settleBoss(current: Fight) {
   const story = !mirror && !trial && !current.rematchRank && !current.templeReprise && !current.casePractice;
   const reason = won ? "" : defeatSummary(current);
   if (story) draft.report = won ? `阿照战胜了${current.name}。` : reason;
-  const loot = won && story ? win(draft, current.region) : {};
+  const loot = won && story ? win(draft, current.region) : undefined;
+  const aftermath = loot?.first ? firstVolumeAftermath.at(current.region) : undefined;
+  if (aftermath) draft.report = aftermath.text;
   const daoReward = draft.dao - save.dao;
   if (!won && story) draft.guide.defeats[current.region] = Math.min(2, draft.guide.defeats[current.region] + 1);
   commit(draft, () => {
@@ -1834,6 +1847,7 @@ root.addEventListener("click", event => {
       } else if (name === "region" && regions[id] && unlocked(save, id) && !fight) {
         draft.region = id;
         if (id === 1 && draft.victories[altarRegion]) draft.report = homecoming;
+        else if (id <= bridgeRegion && id !== save.region) draft.report = draft.victories[id] ? regions[id].cleared : regions[id].intro;
         if (!patrolRemaining(draft)) draft.autoPatrol = false;
         commit(draft, () => { backTrail.length = 0; resetPatrol(); returnTo(); });
       } else if (name === "fight" && (!save.victories[id] || id >= cliffRegion) && canChallenge(save, id) && !fight) {

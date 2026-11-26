@@ -22,7 +22,16 @@ export const altarPaper = 132;
 export const trueSigilBonus = 18;
 export const fusionStrike = 22;
 export const altarStations = ["芦花渡 · 陆婆", "云栈 · 守灯人", "纸马驿 · 驿卒"] as const;
-export const firstAwakening = "虎啸已经停了，阿照胸中却还留着山君开口前的那一顿。她提笔，把这一息记进巡簿。这份能从妖招里听出门道的天赋，叫作「观化」。";
+export const firstVolumeAftermath = [
+  { title: "观化初醒", text: "虎啸停了，阿照胸中却还留着山君开口前的那一顿。她照着吐出一口气，手边的灯焰也跟着一偏。她把这一息记作《镇山喝》。这份能从妖招里悟出本领的天赋，叫作「观化」。" },
+  { title: "船底的旧灯", text: "水势缓下来，陆婆从断缆上解下一盏小灯。灯柄还系着白烛庙的供签。她擦去泥水，把灯递给阿照：「拿给石生看看，他认得各家送来的灯。」" },
+  { title: "陆婆备船", text: "陆婆扶正写着阿满名字的木牌。「芦花渡的铃已经收了。昨夜纸马驿那边也应了第三声。我撑船，你提灯，咱们过去听个明白。」" },
+] as const;
+export const ferryEvidence = [
+  "断篙上缠着旧麻。陆婆认出那是沉船的缆绳，每逢河伯沉篙就会绷紧。",
+  "陆婆摇了两下船铃便松手。第三声从船底响起，水面跟着往回卷。阿照认出了那一息停顿，和山君发啸前一样。",
+  "阿照循铃声摸到了旧缆的位置。等第三声响起、河伯回头，割缆时便能借水势打它。",
+] as const;
 export const homecoming = "第三声铃过去，渡口还站着一人。阿照等他踩稳船板、上了岸，才把灯收进怀里。陆婆在巡簿上添了最后一个名字。";
 export const altarMirrorName = "归山镜题 · 错页";
 export const altarMirrorSand = 22;
@@ -120,16 +129,16 @@ export const regions = [
   },
   {
     name: "芦花渡", patrolCap: 400, place: "渡口", tag: "青芦村东",
-    title: "渡口的第三声铃", intro: "陆婆把断篙递来。她昨夜听见沉船底下，有人应了第三声。",
+    title: "渡口的第三声铃", intro: "陆婆把断篙递来。「末班船靠岸，才摇三下铃。昨夜船没回来，水底却有人应了第三声。」",
     cleared: "陆婆解开了系了七年的缆绳。村里的灯火，第一次随渡船过了河。",
-    clues: ["断裂的篙头", "船板上的湿手印", "水底的铃声"], thresholds: [24, 58, 100],
+    clues: ["断裂的篙头", "水下应铃", "沉船的旧缆"], thresholds: [24, 58, 100],
     foes: [{ name: "芦偶", sprite: "reed" }, { name: "水耗子", sprite: "rat" }],
     boss: "沉舟河伯", sprite: "ferryman", hp: 228,
     reward: 3, patrolInterval: 3200, chapter: "水底铃",
   },
   {
     name: "白烛庙", patrolCap: 1370, place: "庙街", tag: "青芦村南",
-    title: "没有名字的木牌", intro: "石生说，庙里供了七年的无字牌，近来学会了开口。它每晚换一副声音。",
+    title: "没有名字的木牌", intro: "石生接过旧灯，放到一块无字木牌旁。「牌位送来的那夜，这盏灯就丢了。近来这块牌一入夜便开口，每晚换一副声音。」",
     cleared: "七年前，摆渡学徒阿满折返救人，再也没上岸。无字牌原是给他留的。陆婆提笔写下「阿满」。石生把借来的灯一盏一盏送回各家。",
     clues: ["借名帖", "倒流的蜡", "缺一角的无字牌"], thresholds: [36, 84, 140],
     foes: [{ name: "纸灯童", sprite: "lantern" }, { name: "铜镜妖", sprite: "mirror" }],
@@ -138,7 +147,7 @@ export const regions = [
   },
   {
     name: "纸马驿", patrolCap: 2230, place: "驿桥", tag: "芦花渡对岸",
-    title: "桥下歇了半声铃", intro: "陆婆撑船送阿照到对岸。驿桥上的路引被雨泡软了，桥下那人却还站在旧水线里，拿一根断篙拦路。",
+    title: "桥下歇了半声铃", intro: "陆婆把船靠在驿桥下。阿照刚提灯上岸，桥洞里就响了半声铃。一个拿断篙的人站在旧水线里，拦住了去路。",
     cleared: "篙鬼把路引搁在桥栏上。阿照提灯走过桥心，又听见那口铃响了半声。",
     clues: ["湿透的驿牌", "石墩上的篙痕", "桥下半声铃"], thresholds: [12, 30, 54],
     foes: [{ name: "纸蹄", sprite: "reed" }, { name: "缆绳鬼", sprite: "rat" }],

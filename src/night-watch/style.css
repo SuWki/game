@@ -139,6 +139,10 @@ progress::-moz-progress-bar { background: #e3b365; }
 .paper h2 { margin-top: 10px; font-family: "Songti SC", SimSun, serif; font-size: clamp(22px, 2.05vw, 32px); line-height: 1.28; }
 .paper p { font-size: 15px; line-height: 1.7; }
 .paper .intro { margin: 15px 0 22px; }
+.case-turn { margin:12px 0; padding:10px 12px; border-left:3px solid #877051; background:#e8d9b6; }
+.case-turn h3 { margin:0 0 4px; }
+.case-turn p { margin:0; }
+.paper .case-testimony { color:#4f4535; }
 .clues-label, .section-title { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .clues-label { color: var(--red); padding-bottom: 9px; border-bottom: 1px solid #cbb991; }
 .section-title { margin-bottom: 6px; }
